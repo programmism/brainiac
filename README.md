@@ -26,6 +26,9 @@ Easy deployment is a hard requirement: one command yields a healthy stack, on a 
 The app **verifies its own state** — `GET /healthz` (liveness) and `GET /readyz` (readiness: DB-gated,
 embedder reported), and a CI smoke test boots the stack and asserts readiness end-to-end.
 
+**👉 Using it on your laptop** (load docs, connect Claude via MCP — no Go, no exposed ports):
+see [docs/laptop.md](docs/laptop.md).
+
 ## Status
 
 **M0 complete** — Go skeleton, CI (+ deploy smoke test), DB schema/migrations, config, and one-command
