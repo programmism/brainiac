@@ -22,6 +22,7 @@ htmlcov/
 # Environment / secrets
 .env
 *.local
+/config.yaml
 
 # Data / volumes (never commit corpus, DB dumps, or model files)
 data/

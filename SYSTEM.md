@@ -231,6 +231,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Config system (`internal/config`): single YAML (PRD §19) + env overrides
+  (`DATABASE_URL`/`OLLAMA_URL`/`HTTP_ADDR` win over the file), `Default()` + `Validate()`; `config.yaml`
+  path via `BRAINIAC_CONFIG`. `config.example.yaml` shipped; `kb migrate` now reads config. Fully
+  unit-tested locally (no DB). yaml.v3 added. (#5)
 - **2026-07-01** — Core schema (`chunks`/`nodes`/`edges`, halfvec(768), HNSW on hot chunks) + a tiny
   embedded forward-only migration runner (`internal/store`) landed; `kb migrate` wired; validated in CI
   against the pgvector service (local `go test` skips without `DATABASE_URL`). Chose a ~60-LOC runner
