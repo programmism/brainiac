@@ -13,6 +13,7 @@ import (
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/mcpserver"
+	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -44,7 +45,7 @@ func run() error {
 	}
 
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims)
-	c := core.New(pool, embedder)
+	c := core.New(pool, embedder, density.New())
 	srv := mcpserver.New(c)
 
 	// stdio: logs must go to stderr so they don't corrupt the protocol stream.
