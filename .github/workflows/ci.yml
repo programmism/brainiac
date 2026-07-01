@@ -63,7 +63,9 @@ jobs:
       - name: build
         run: go build ./...
       - name: test
-        run: go test -race -count=1 ./...
+        # -p 1 serializes packages: the DB-backed tests share one Postgres and
+        # TRUNCATE, so they must not run concurrently.
+        run: go test -race -count=1 -p 1 ./...
 
   smoke:
     name: smoke (docker compose deploy)
@@ -88,3 +90,16 @@ jobs:
       - name: Teardown
         if: always()
         run: docker compose down -v
+
+  caddy:
+    name: caddy (validate reverse proxy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Caddyfile
+        run: |
+          HASH=$(docker run --rm caddy:2 caddy hash-password --plaintext test)
+          docker run --rm \
+            -e SITE_ADDRESS=:80 -e BASIC_AUTH_USER=admin -e BASIC_AUTH_HASH="$HASH" \
+            -v "$PWD/Caddyfile:/etc/caddy/Caddyfile:ro" \
+            caddy:2 caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile

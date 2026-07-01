@@ -253,6 +253,15 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — **Test isolation fix.** DB-backed tests across packages share one Postgres and each
+  `TRUNCATE` — `go test ./...` runs packages in parallel, so they stomped each other (intermittent
+  failures like "recall nodes missing"). CI now runs `go test -race -count=1 -p 1 ./...` (packages
+  serialized). Lesson: shared-DB tests must not run concurrently.
+- **2026-07-01** — M4 started. Reverse proxy + auth (#27): `Caddyfile` + a `caddy` compose service
+  (profile `proxy`) front the app's HTTP (WebUI + REST) with TLS + basic auth; MCP is stdio-only and
+  never exposed. Config via `SITE_ADDRESS`/`BASIC_AUTH_USER`/`BASIC_AUTH_HASH`. `docs/deployment.md`
+  documents prod setup (drop the app's host port so only Caddy is reachable). CI `caddy` job validates
+  the Caddyfile. Cold-tier escalation resolved via [ADR 0003](docs/decisions/0003-cold-tier-at-scale.md) (#34). (#27)
 - **2026-07-01** — Graph visualization (#26, **M3 complete**): `GET /api/graph?limit` (`store.GraphSnapshot`
   → `Core.Graph`, edges filtered to returned nodes) + a WebUI Graph tab. Chose a **compact built-in
   force-directed SVG renderer** (~60 lines) over a heavy lib/CDN (Cytoscape) to keep the WebUI a
