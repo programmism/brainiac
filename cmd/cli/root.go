@@ -33,9 +33,10 @@ func newRootCmd() *cobra.Command {
 		linkCmd(),
 		supersedeCmd(),
 		importCmd(),
+		consolidateCmd(),
+		mergeCmd(),
 		stubCmd("refresh", "#18 (connector actualization)"),
-		stubCmd("consolidate", "#24 (librarian pass)"),
-		stubCmd("reembed", "#31 (re-embed from stored raw text)"),
+		stubCmd("reembed", "#30 (re-embed from stored raw text)"),
 	)
 	return root
 }
