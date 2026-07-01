@@ -63,7 +63,9 @@ jobs:
       - name: build
         run: go build ./...
       - name: test
-        run: go test -race -count=1 ./...
+        # -p 1 serializes packages: the DB-backed tests share one Postgres and
+        # TRUNCATE, so they must not run concurrently.
+        run: go test -race -count=1 -p 1 ./...
 
   smoke:
     name: smoke (docker compose deploy)
