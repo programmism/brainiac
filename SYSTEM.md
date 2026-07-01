@@ -244,6 +244,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — MCP server (#15): `internal/mcpserver` exposes search/remember/link/recall/supersede
+  as typed MCP tools (official Go MCP SDK v1.6.1, `AddTool[In,Out]` with auto JSON-schema) forwarding to
+  core — no logic in the client. `cmd/mcp` wires config→pool→migrate→Ollama embedder→core→stdio (logs to
+  stderr to keep the protocol stream clean). DB-gated round-trip test uses the SDK's in-memory transport
+  (real client→MCP→core: remember→link→recall). **Claude can now capture and recall via MCP.** (#15)
 - **2026-07-01** — Core ops recall + supersede (#13/#14): `Recall` composes vector search + node
   proximity + edge traversal (incl. supersedes history) + join of raw chunks by `source_uri` into a
   cited evidence bundle (`RecallResult`; §10). `Supersede` adds a `supersedes` edge (new→old) and marks
