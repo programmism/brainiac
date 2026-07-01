@@ -28,3 +28,12 @@ up: ## Start the local stack (docker compose)
 
 down: ## Stop the local stack
 	docker compose down
+
+import: ## Ingest Markdown from ./data/docs into the running stack
+	docker compose exec app /kb import --source markdown --path /data/docs
+
+kb: ## Run kb in the container, e.g. make kb ARGS="health"
+	docker compose exec app /kb $(ARGS)
+
+mcp-config: ## Print the Claude Desktop MCP config for this checkout
+	@printf '{\n  "mcpServers": {\n    "brainiac": {\n      "command": "docker",\n      "args": ["compose","-f","%s/docker-compose.yml","exec","-T","app","/brainiac-mcp"]\n    }\n  }\n}\n' "$(CURDIR)"

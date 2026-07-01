@@ -26,7 +26,8 @@ htmlcov/
 
 # Data / volumes (never commit corpus, DB dumps, or model files).
 # Root-anchored so they don't shadow source packages (e.g. internal/plugins/ollama).
-/data/
+/data/*
+!/data/README.md
 /pgdata/
 /ollama/
 *.dump
