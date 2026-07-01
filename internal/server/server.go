@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/webui"
 )
 
 // Pinger is the minimal storage dependency readiness needs.
@@ -79,6 +80,9 @@ func New(db Pinger, embedder Checker, c *core.Core) http.Handler {
 			})
 		})
 	}
+
+	// Read-only WebUI as a catch-all (specific routes above win).
+	r.Handle("/*", webui.Handler())
 
 	return r
 }

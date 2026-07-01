@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Brainiac</title>
+  <style>
+    :root { --bg:#0f1115; --panel:#171a21; --fg:#e6e6e6; --muted:#8a90a2; --accent:#5b9dff; --line:#242833; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+    header { padding:16px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:16px; }
+    header h1 { font-size:18px; margin:0; }
+    header .tabs { display:flex; gap:4px; }
+    .tab { padding:6px 12px; border-radius:6px; cursor:pointer; color:var(--muted); }
+    .tab.active { background:var(--panel); color:var(--fg); }
+    main { padding:20px; max-width:900px; margin:0 auto; }
+    .row { display:flex; gap:8px; margin-bottom:16px; }
+    input[type=text] { flex:1; padding:10px 12px; background:var(--panel); border:1px solid var(--line); border-radius:6px; color:var(--fg); }
+    button { padding:10px 16px; background:var(--accent); color:#06101f; border:0; border-radius:6px; font-weight:600; cursor:pointer; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:10px; }
+    .meta { color:var(--muted); font-size:12px; margin-bottom:4px; }
+    .dist { color:var(--accent); font-variant-numeric:tabular-nums; }
+    .edge { padding:4px 0; border-bottom:1px solid var(--line); }
+    .edge:last-child { border-bottom:0; }
+    .name { color:var(--accent); }
+    table { width:100%; border-collapse:collapse; }
+    td { padding:6px 8px; border-bottom:1px solid var(--line); }
+    td:first-child { color:var(--muted); }
+    .hidden { display:none; }
+    .empty { color:var(--muted); padding:8px 0; }
+    a { color:var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🧠 Brainiac</h1>
+    <div class="tabs">
+      <div class="tab active" data-tab="search">Search</div>
+      <div class="tab" data-tab="recall">Recall</div>
+      <div class="tab" data-tab="health">Health</div>
+    </div>
+  </header>
+
+  <main>
+    <section id="search">
+      <div class="row">
+        <input type="text" id="search-q" placeholder="Semantic search…" />
+        <button onclick="doSearch()">Search</button>
+      </div>
+      <div id="search-results"></div>
+    </section>
+
+    <section id="recall" class="hidden">
+      <div class="row">
+        <input type="text" id="recall-q" placeholder="Why / how does … work?" />
+        <button onclick="doRecall()">Recall</button>
+      </div>
+      <div id="recall-results"></div>
+    </section>
+
+    <section id="health" class="hidden">
+      <div class="row"><button onclick="doHealth()">Refresh</button></div>
+      <div id="health-results"></div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => (s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+    document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      for (const s of ['search','recall','health']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
+      if (t.dataset.tab === 'health') doHealth();
+    });
+
+    async function getJSON(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+      return r.json();
+    }
+
+    async function doSearch() {
+      const q = $('search-q').value.trim(); if (!q) return;
+      const box = $('search-results'); box.innerHTML = '<div class="empty">searching…</div>';
+      try {
+        const hits = await getJSON('/api/search?q=' + encodeURIComponent(q) + '&k=10');
+        box.innerHTML = (hits && hits.length) ? hits.map(h =>
+          `<div class="card"><div class="meta"><span class="dist">${h.distance.toFixed(3)}</span> · ${esc(h.source_uri)}</div>${esc(h.text)}</div>`
+        ).join('') : '<div class="empty">no results</div>';
+      } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+
+    async function doRecall() {
+      const q = $('recall-q').value.trim(); if (!q) return;
+      const box = $('recall-results'); box.innerHTML = '<div class="empty">recalling…</div>';
+      try {
+        const r = await getJSON('/api/recall?q=' + encodeURIComponent(q));
+        const nodes = (r.Nodes || []).map(n => esc(n.canonical_name)).join(', ') || '—';
+        const edges = (r.Edges || []).map(e =>
+          `<div class="edge"><span class="name">${esc(e.FromName)}</span> —${esc(e.Edge.type)}→ <span class="name">${esc(e.ToName)}</span>` +
+          (e.Edge.why ? ` <span class="meta">(${esc(e.Edge.why)})</span>` : '') +
+          (e.Edge.source_uri ? ` <span class="meta">[${esc(e.Edge.source_uri)}]</span>` : '') + `</div>`
+        ).join('') || '<div class="empty">no edges</div>';
+        const chunks = (r.Chunks || []).map(h =>
+          `<div class="card"><div class="meta"><span class="dist">${h.distance.toFixed(3)}</span> · ${esc(h.source_uri)}</div>${esc(h.text)}</div>`
+        ).join('');
+        box.innerHTML = `<div class="card"><div class="meta">entities</div>${nodes}</div>` +
+          `<div class="card"><div class="meta">relationships</div>${edges}</div>` + chunks;
+      } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+
+    async function doHealth() {
+      const box = $('health-results'); box.innerHTML = '<div class="empty">loading…</div>';
+      try {
+        const m = await getJSON('/api/health');
+        const rows = [
+          ['chunks (hot)', m.chunks_hot], ['chunks (cold)', m.chunks_cold],
+          ['nodes', m.nodes], ['nodes (historical)', m.nodes_historical],
+          ['edges', m.edges], ['edges (historical)', m.edges_historical],
+          ['edges / node', (m.edges_per_node || 0).toFixed(2)],
+          ['% historical', (m.percent_nodes_historical || 0).toFixed(1) + '%'],
+        ];
+        box.innerHTML = '<div class="card"><table>' +
+          rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + '</table></div>';
+      } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+
+    $('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+    $('recall-q').addEventListener('keydown', e => { if (e.key === 'Enter') doRecall(); });
+  </script>
+</body>
+</html>
