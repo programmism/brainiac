@@ -253,6 +253,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Storage optimizations (#30): `Core.Reembed` rebuilds every chunk's vector from stored
+  raw text (the embedding-model-upgrade path, no source re-read — §13.5), exposed as `kb reembed`.
+  `Core.SetChunkTier` moves chunks hot↔cold (cold excluded from default search — §13.4). Quantization
+  progression (halfvec→int8→binary) is documented in [ADR 0003](docs/decisions/0003-cold-tier-at-scale.md);
+  schema is already `halfvec`. DB-gated tests (reembed lowers distance; cold hidden from search). (#30)
 - **2026-07-01** — Eval harness (#29): `Core.Eval(golden, k)` runs a golden query set through `search`
   and reports **recall@k** + mean source recall + per-query hits (PRD §18). `kb eval --golden <file> --k`
   prints it; `eval/golden.example.json` shipped. Objective quality proof across growth/model/threshold
