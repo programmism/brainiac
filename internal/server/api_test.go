@@ -52,7 +52,7 @@ func TestAPISearchHealthAndErrors(t *testing.T) {
 	}
 
 	c := core.New(pool, fakeEmbedder{}, density.New())
-	srv := httptest.NewServer(New(pool, nil, c))
+	srv := httptest.NewServer(New(pool, nil, c, Options{}))
 	defer srv.Close()
 
 	// /api/search
@@ -108,7 +108,7 @@ func TestAPIConsolidateAndMerge(t *testing.T) {
 		t.Fatalf("remember: %v", err)
 	}
 
-	srv := httptest.NewServer(New(pool, nil, c))
+	srv := httptest.NewServer(New(pool, nil, c, Options{Writable: true, AuthToken: "test-token"}))
 	defer srv.Close()
 
 	var rep struct {
@@ -125,7 +125,18 @@ func TestAPIConsolidateAndMerge(t *testing.T) {
 	}
 
 	body, _ := json.Marshal(map[string]string{"Keep": rep.MergeGroups[0][0].ID, "Drop": rep.MergeGroups[0][1].ID})
-	resp, err := http.Post(srv.URL+"/api/merge", "application/json", bytes.NewReader(body)) //nolint:noctx // test
+
+	// Without the token the write is rejected.
+	noauth, _ := http.Post(srv.URL+"/api/merge", "application/json", bytes.NewReader(body)) //nolint:noctx // test
+	if noauth.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("merge without token = %d, want 401", noauth.StatusCode)
+	}
+	_ = noauth.Body.Close()
+
+	// With the bearer token it succeeds.
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/merge", bytes.NewReader(body)) //nolint:noctx // test
+	req.Header.Set("Authorization", "Bearer test-token")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("merge: err=%v code=%v", err, resp.StatusCode)
 	}
@@ -164,7 +175,7 @@ func TestAPIGraph(t *testing.T) {
 		t.Fatalf("link: %v", err)
 	}
 
-	srv := httptest.NewServer(New(pool, nil, c))
+	srv := httptest.NewServer(New(pool, nil, c, Options{}))
 	defer srv.Close()
 
 	var g struct {

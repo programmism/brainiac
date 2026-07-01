@@ -5,6 +5,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -26,12 +27,22 @@ type Pinger interface {
 // A nil Checker means "not configured".
 type Checker func(ctx context.Context) error
 
+// Options controls the writable surface. Secure by default: write endpoints are
+// mounted only when Writable is true AND an AuthToken is set, and then they
+// require `Authorization: Bearer <AuthToken>`. Read endpoints stay open (put the
+// whole surface behind the reverse proxy for read protection — §16).
+type Options struct {
+	Writable  bool
+	AuthToken string
+}
+
 // New builds the HTTP handler:
 //   - GET /healthz — liveness.
 //   - GET /readyz  — readiness (DB-gated; embedder reported, not fatal — §11).
-//   - GET /api/health, /api/search, /api/recall — read-only REST over core
-//     (mounted only when c is non-nil).
-func New(db Pinger, embedder Checker, c *core.Core) http.Handler {
+//   - GET /api/health, /api/search, /api/recall, /api/graph, /api/consolidate — read REST.
+//   - POST /api/merge, /api/edges/{id}/confirm|flag-stale — writes, only when
+//     opts.Writable && opts.AuthToken != "", behind bearer auth.
+func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
@@ -98,32 +109,39 @@ func New(db Pinger, embedder Checker, c *core.Core) http.Handler {
 				}
 				writeJSON(w, http.StatusOK, rep)
 			})
-			r.Post("/merge", func(w http.ResponseWriter, req *http.Request) {
-				var body struct{ Keep, Drop string }
-				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-					writeError(w, http.StatusBadRequest, err)
-					return
-				}
-				if err := c.ApplyMerge(req.Context(), body.Keep, body.Drop); err != nil {
-					writeError(w, http.StatusInternalServerError, err)
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-			})
-			r.Post("/edges/{id}/confirm", func(w http.ResponseWriter, req *http.Request) {
-				if err := c.Confirm(req.Context(), chi.URLParam(req, "id")); err != nil {
-					writeError(w, http.StatusInternalServerError, err)
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-			})
-			r.Post("/edges/{id}/flag-stale", func(w http.ResponseWriter, req *http.Request) {
-				if err := c.FlagStale(req.Context(), chi.URLParam(req, "id")); err != nil {
-					writeError(w, http.StatusInternalServerError, err)
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-			})
+			// Write endpoints: mounted only when explicitly writable + a token is
+			// set, and gated by bearer auth. Secure by default.
+			if opts.Writable && opts.AuthToken != "" {
+				r.Group(func(r chi.Router) {
+					r.Use(bearerAuth(opts.AuthToken))
+					r.Post("/merge", func(w http.ResponseWriter, req *http.Request) {
+						var body struct{ Keep, Drop string }
+						if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 64<<10)).Decode(&body); err != nil {
+							writeError(w, http.StatusBadRequest, err)
+							return
+						}
+						if err := c.ApplyMerge(req.Context(), body.Keep, body.Drop); err != nil {
+							writeError(w, http.StatusInternalServerError, err)
+							return
+						}
+						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+					})
+					r.Post("/edges/{id}/confirm", func(w http.ResponseWriter, req *http.Request) {
+						if err := c.Confirm(req.Context(), chi.URLParam(req, "id")); err != nil {
+							writeError(w, http.StatusInternalServerError, err)
+							return
+						}
+						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+					})
+					r.Post("/edges/{id}/flag-stale", func(w http.ResponseWriter, req *http.Request) {
+						if err := c.FlagStale(req.Context(), chi.URLParam(req, "id")); err != nil {
+							writeError(w, http.StatusInternalServerError, err)
+							return
+						}
+						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+					})
+				})
+			}
 		})
 	}
 
@@ -157,7 +175,25 @@ type stringError string
 
 func (e stringError) Error() string { return string(e) }
 
-const errMissingQ = stringError("missing required query parameter 'q'")
+const (
+	errMissingQ     = stringError("missing required query parameter 'q'")
+	errUnauthorized = stringError("unauthorized")
+)
+
+// bearerAuth requires a matching `Authorization: Bearer <token>` header.
+func bearerAuth(token string) func(http.Handler) http.Handler {
+	want := []byte("Bearer " + token)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got := []byte(r.Header.Get("Authorization"))
+			if subtle.ConstantTimeCompare(got, want) != 1 {
+				writeError(w, http.StatusUnauthorized, errUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")

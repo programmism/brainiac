@@ -61,7 +61,15 @@ func run() error {
 
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims)
 	c := core.New(pool, embedder, density.New())
-	handler := server.New(pool, ollamaChecker(cfg.Embedding.BaseURL), c)
+
+	writable := cfg.Clients.WebUI == "interactive"
+	if writable && cfg.HTTP.AuthToken == "" {
+		log.Printf("warning: clients.webui=interactive but AUTH_TOKEN is unset — write endpoints stay DISABLED")
+	}
+	handler := server.New(pool, ollamaChecker(cfg.Embedding.BaseURL), c, server.Options{
+		Writable:  writable,
+		AuthToken: cfg.HTTP.AuthToken,
+	})
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,
 		Handler:           handler,
