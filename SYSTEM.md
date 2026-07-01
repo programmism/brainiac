@@ -231,6 +231,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Go module scaffolding landed: `internal/core` (sole logic home) + `internal/plugins`,
+  thin clients `cmd/cli` (binary `kb`), `cmd/http` (`brainiac-http`), `cmd/mcp` (`brainiac-mcp`),
+  zero external deps yet. `Makefile` (fmt/lint/test/build/up/down), golangci-lint v2, version via
+  `-ldflags`. Binaries ~2.4 MB. (#2)
 - **2026-07-01** — **Language set to Go** (was tentatively Python). The app has no in-process ML
   (embeddings are Ollama-over-HTTP), so Python's ecosystem edge does not apply; Go wins on the two hard
   requirements — single static binary / tiny image (deploy) and low RAM on the 4 GB box — and matches

@@ -1,0 +1,16 @@
+# golangci-lint v2 configuration. See SYSTEM.md §3.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+
+formatters:
+  enable:
+    - gofmt
