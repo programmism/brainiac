@@ -4,9 +4,11 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** M0 + M1 + M2 complete. On top of the capture→recall core (MCP + CLI), the system now has the
-density selector, the ingest pipeline, the Notion connector, a read-only REST API, and a WebUI (search /
-recall / health). Next: M3 (consolidation / librarian pass + interactive WebUI). See the backlog on GitHub.
+**Status:** M0–M3 complete. On top of the capture→recall core (MCP + CLI), the system has the density
+selector, ingest pipeline, Notion connector, REST API, and a WebUI with search / recall / **consolidation
+queue** / **graph** / health. The librarian pass (dedup / conflict / staleness / rollups) runs via CLI,
+WebUI, and cron. Next: M4 (reverse proxy + auth, backups, golden-set eval, storage optimizations, 2nd
+connector). See the backlog on GitHub.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
 
 ---
@@ -251,6 +253,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Graph visualization (#26, **M3 complete**): `GET /api/graph?limit` (`store.GraphSnapshot`
+  → `Core.Graph`, edges filtered to returned nodes) + a WebUI Graph tab. Chose a **compact built-in
+  force-directed SVG renderer** (~60 lines) over a heavy lib/CDN (Cytoscape) to keep the WebUI a
+  single embedded page with **no build step and no external runtime dependency** (self-hosted/offline
+  ethos); a richer lib can replace it later for large graphs. DB-gated `/api/graph` test. (#26)
 - **2026-07-01** — Interactive WebUI consolidation queue (#25): REST gains write endpoints
   `GET /api/consolidate`, `POST /api/merge`, `POST /api/edges/{id}/confirm|flag-stale`; the WebUI adds a
   Consolidate tab with per-group **Merge** buttons and per-edge **Confirm** buttons (batch review — the

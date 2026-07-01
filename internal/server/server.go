@@ -79,6 +79,16 @@ func New(db Pinger, embedder Checker, c *core.Core) http.Handler {
 				writeJSON(w, http.StatusOK, res)
 			})
 
+			r.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
+				limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+				g, err := c.Graph(req.Context(), limit)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, g)
+			})
+
 			// Consolidation queue (interactive).
 			r.Get("/consolidate", func(w http.ResponseWriter, req *http.Request) {
 				rep, err := c.Consolidate(req.Context())
