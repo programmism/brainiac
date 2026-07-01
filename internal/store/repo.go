@@ -157,7 +157,7 @@ func InsertEdge(ctx context.Context, db DBTX, e *model.Edge) error {
 // ListEdgesFrom returns the current edges originating at fromID, oldest first.
 func ListEdgesFrom(ctx context.Context, db DBTX, fromID string) ([]model.Edge, error) {
 	rows, err := db.Query(ctx, `
-		SELECT id, from_id, to_id, type, why, source_uri, source_locator, author, status, created_at, last_confirmed_at
+		SELECT `+edgeCols+`
 		FROM edges
 		WHERE from_id = $1 AND status = 'current'
 		ORDER BY created_at`, fromID)
@@ -168,24 +168,9 @@ func ListEdgesFrom(ctx context.Context, db DBTX, fromID string) ([]model.Edge, e
 
 	var edges []model.Edge
 	for rows.Next() {
-		var (
-			e                      model.Edge
-			why, sourceURI, author *string
-			locator                []byte
-			status                 string
-		)
-		if err := rows.Scan(&e.ID, &e.FromID, &e.ToID, &e.Type, &why, &sourceURI, &locator,
-			&author, &status, &e.CreatedAt, &e.LastConfirmedAt); err != nil {
+		e, err := scanEdge(rows)
+		if err != nil {
 			return nil, err
-		}
-		e.Why = deref(why)
-		e.SourceURI = deref(sourceURI)
-		e.Author = deref(author)
-		e.Status = model.Status(status)
-		if len(locator) > 0 {
-			if err := json.Unmarshal(locator, &e.SourceLocator); err != nil {
-				return nil, err
-			}
 		}
 		edges = append(edges, e)
 	}

@@ -4,8 +4,9 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** M0 complete — Go skeleton, CI (+ deploy smoke test), DB schema/migrations, config, and
-one-command Docker Compose deploy all landed. Next: M1 (core operation set). See the backlog on GitHub.
+**Status:** M0 complete. M1 in progress — plugin interfaces, Ollama embedder, data-access layer, and the
+core operations search/remember/link/recall/supersede all landed; the **capture→recall loop works
+end-to-end**. Remaining M1: MCP server (#15) + cobra CLI (#16). See the backlog on GitHub.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
 
 ---
@@ -243,6 +244,12 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Core ops recall + supersede (#13/#14): `Recall` composes vector search + node
+  proximity + edge traversal (incl. supersedes history) + join of raw chunks by `source_uri` into a
+  cited evidence bundle (`RecallResult`; §10). `Supersede` adds a `supersedes` edge (new→old) and marks
+  the old node historical, atomically (replacement not deletion, §11.2). Added store graph helpers
+  (`GetNodeByID`, `EdgesForNode`, `GetChunksBySourceURI`, `UpdateNodeStatus`, shared `scanEdge`).
+  **The capture→recall loop now works end-to-end** (DB-gated tests in CI). (#13,#14)
 - **2026-07-01** — Core ops search/remember/link (#10/#11/#12): `Core` now holds `pool + embedder`.
   `Search` embeds the query → cosine kNN. `Remember` upserts a node — exact-name is idempotent (aliases
   merged); otherwise inserts and **flags** duplicate candidates by normalized name (strip non-alnum,
