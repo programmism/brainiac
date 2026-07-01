@@ -32,7 +32,7 @@ func newRootCmd() *cobra.Command {
 		rememberCmd(),
 		linkCmd(),
 		supersedeCmd(),
-		stubCmd("import", "#18 (Notion connector)"),
+		importCmd(),
 		stubCmd("refresh", "#18 (connector actualization)"),
 		stubCmd("consolidate", "#24 (librarian pass)"),
 		stubCmd("reembed", "#31 (re-embed from stored raw text)"),

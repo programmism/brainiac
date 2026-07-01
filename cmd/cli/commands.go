@@ -9,7 +9,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/plugins"
+	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -217,6 +220,50 @@ func linkCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("type")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
+}
+
+func importCmd() *cobra.Command {
+	var source string
+	cmd := &cobra.Command{
+		Use:   "import",
+		Short: "Ingest documents from a configured source (default: notion)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			conn, err := buildConnector(cfg, source)
+			if err != nil {
+				return err
+			}
+			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, core.IngestOptions{})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(),
+				"ingested: %d docs, %d chunks (%d kept, %d queued, %d dropped, %d skipped)\n",
+				stats.Docs, stats.Chunks, stats.Kept, stats.Queued, stats.Dropped, stats.Skipped)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from")
+	return cmd
+}
+
+func buildConnector(cfg *config.Config, source string) (plugins.SourceConnector, error) {
+	switch source {
+	case "notion":
+		sc := cfg.Source("notion")
+		if sc == nil || sc.Token == "" {
+			return nil, fmt.Errorf("notion source not configured (set a token via NOTION_TOKEN or config.yaml)")
+		}
+		return notion.New(sc.Token), nil
+	default:
+		return nil, fmt.Errorf("unknown source %q", source)
+	}
 }
 
 func supersedeCmd() *cobra.Command {
