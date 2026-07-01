@@ -34,6 +34,37 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestValidateEmbeddingFields(t *testing.T) {
+	c := Default()
+	c.Storage.DSN = "postgres://x"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("defaults should validate: %v", err)
+	}
+	c.Embedding.BaseURL = ""
+	if err := c.Validate(); err == nil {
+		t.Error("empty base_url should fail validation")
+	}
+}
+
+func TestRedactedDSN(t *testing.T) {
+	got := RedactedDSN("postgres://user:secret@db:5432/brainiac?sslmode=disable")
+	if got == "" || cfgContains(got, "secret") {
+		t.Fatalf("password not redacted: %q", got)
+	}
+	if !cfgContains(got, "user") {
+		t.Fatalf("username lost: %q", got)
+	}
+}
+
+func cfgContains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLoadMissingFileUsesDefaultsPlusEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://env-dsn")
 	c, err := Load(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
