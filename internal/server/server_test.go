@@ -14,6 +14,21 @@ type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
 
+func TestMetricsAndVersion(t *testing.T) {
+	h := New(fakePinger{}, nil, nil, Options{})
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "brainiac_http_request_duration_seconds_count") {
+		t.Fatalf("/metrics = %d, body=%q", rec.Code, rec.Body.String())
+	}
+
+	code, body := do(t, h, "/healthz")
+	if code != http.StatusOK || body["version"] == "" {
+		t.Fatalf("healthz version missing: %d %v", code, body)
+	}
+}
+
 func TestWebUIMounted(t *testing.T) {
 	h := New(fakePinger{}, nil, nil, Options{})
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

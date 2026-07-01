@@ -2,11 +2,16 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/store"
 )
+
+// ErrEmbed marks a failure to embed (e.g. Ollama down), so clients can map it to
+// 503 rather than a generic 500 (#77).
+var ErrEmbed = errors.New("embedder unavailable")
 
 // DefaultSearchK is used when a caller does not specify k.
 const DefaultSearchK = 10
@@ -25,7 +30,7 @@ func (c *Core) Search(ctx context.Context, query string, k int) ([]model.ChunkHi
 	}
 	emb, err := c.embedder.Embed(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("embed query: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
 	hits, err := store.SearchChunks(ctx, c.pool, emb, k)
 	if err != nil {

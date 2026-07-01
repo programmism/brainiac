@@ -13,6 +13,14 @@ type Counts struct {
 	EdgesStale      int `json:"edges_stale"`
 }
 
+// IndexSizeBytes returns the on-disk size of the hot-tier HNSW vector index —
+// the ★ scaling signal (index vs RAM; SYSTEM.md §9).
+func IndexSizeBytes(ctx context.Context, db DBTX) (int64, error) {
+	var n int64
+	err := db.QueryRow(ctx, `SELECT COALESCE(pg_relation_size('chunks_embedding_hot_idx'), 0)`).Scan(&n)
+	return n, err
+}
+
 // HealthCounts returns corpus and graph counts in a single round-trip.
 func HealthCounts(ctx context.Context, db DBTX) (Counts, error) {
 	var c Counts

@@ -49,7 +49,7 @@ func (c *Core) Recall(ctx context.Context, query string) (*RecallResult, error) 
 	// 2. Relevant nodes by summary-embedding proximity.
 	emb, err := c.embedder.Embed(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("embed query: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
 	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes)
 	if err != nil {
