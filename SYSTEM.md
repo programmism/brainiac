@@ -243,7 +243,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
-- **2026-07-01** — Data-access layer (#8): domain types in `internal/model` (Chunk/Node/Edge); repository
+- **2026-07-01** — Ollama embedder (#8): `internal/plugins/ollama` implements `plugins.Embedder` over
+  `POST /api/embeddings` (`{model,prompt}` → `{embedding}`), []float64→[]float32, non-2xx/empty = error
+  (caller queues on failure, §11). Injectable HTTP client; unit-tested via `httptest` (no Ollama needed).
+- **2026-07-01** — Data-access layer (#9, PR mislabeled as #8): domain types in `internal/model` (Chunk/Node/Edge); repository
   functions in `internal/store` (InsertChunk, SearchChunks by cosine, InsertNode, GetNodeByCanonicalName,
   InsertEdge, ListEdgesFrom) taking a `DBTX` (pool or tx), plus `WithTx` for atomic writes. Embeddings
   sent as text + `::halfvec` cast (no type registration — avoids the fresh-DB boot chicken-egg). Numerics
