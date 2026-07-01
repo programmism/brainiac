@@ -4,7 +4,8 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** M0 in progress — Go skeleton, CI, and DB schema/migrations landed; Docker Compose + config next. See the milestone backlog on GitHub.
+**Status:** M0 complete — Go skeleton, CI (+ deploy smoke test), DB schema/migrations, config, and
+one-command Docker Compose deploy all landed. Next: M1 (core operation set). See the backlog on GitHub.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
 
 ---
@@ -101,15 +102,26 @@ cp .env.example .env      # sane defaults; only secrets to set
 docker compose up         # → healthy stack: db + ollama + app
 ```
 
-Compose brings up three services:
-- **`db`** — `pgvector/pgvector:pg16`, internal network only, named volume for data.
-- **`ollama`** — local embeddings; a bootstrap step runs `ollama pull nomic-embed-text` on first boot.
-- **`app`** — the Go service, a single static binary (core + MCP + HTTP + CLI) in a distroless image. On
-  boot it applies migrations idempotently and waits for `db`/`ollama` healthchecks.
+Compose (`docker-compose.yml`) brings up:
+- **`db`** — `pgvector/pgvector:pg16`, named volume, `pg_isready` healthcheck.
+- **`ollama`** — local embeddings; healthchecked via `ollama list`.
+- **`ollama-pull`** — one-shot: pulls the embedding model once Ollama is healthy, then exits (idempotent).
+- **`app`** — the Go service, a single static binary in a **distroless** image (built from `Dockerfile`).
+  On boot it loads config, connects to Postgres, **applies migrations idempotently**, then serves. It
+  hard-depends only on `db` (`condition: service_healthy`); Ollama is optional (graceful degradation).
+
+**Self-verification (the app proves its own state):**
+- `GET /healthz` — liveness (200 while serving).
+- `GET /readyz` — readiness: gates on the DB (`503` if unreachable); reports the embedder as
+  `ok`/`unreachable`/`not-configured` but never fails on it (§11). Returns JSON `{"db","embedder"}`.
+- Container `HEALTHCHECK` runs `/brainiac healthcheck` (probes `/healthz`; no shell needed in distroless).
+- **CI `smoke` job** boots `db + app` via compose, waits for `/readyz` to report `db: ok`, and thereby
+  verifies end-to-end that the image builds, the app starts, and migrations apply. This is how we
+  validate deploy without local Docker.
 
 Design constraints for deploy:
 - **No manual steps** beyond editing `.env`. Model pull + schema migration are automatic and idempotent.
-- **Healthchecks + `depends_on: condition: service_healthy`** so the app never races an unready DB/Ollama.
+- **Healthchecks + `depends_on: condition: service_healthy`** so the app never races an unready DB.
 - **Prototype tier runs on 4 GB** (PRD §12): keep Ollama `num_ctx` small, use `keep_alive` so the
   embedder and any pipeline LLM are not co-resident.
 - Production adds **Caddy** (TLS + auth) in front and a **daily `pg_dump`** — see the M4 backlog.
@@ -231,6 +243,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — One-command Docker Compose deploy landed (M0 done): `Dockerfile` (multi-stage →
+  distroless static, ~small image), `docker-compose.yml` (db + ollama + ollama-pull + app), `.env.example`.
+  App auto-migrates on boot and exposes `/healthz` + `/readyz` (`internal/server`); container
+  `HEALTHCHECK` uses `/brainiac healthcheck`. A CI `smoke` job boots db+app and asserts `/readyz` db:ok —
+  self-verifying deploy without local Docker. Readiness gates on DB only; Ollama optional (§11). (#3)
 - **2026-07-01** — Config system (`internal/config`): single YAML (PRD §19) + env overrides
   (`DATABASE_URL`/`OLLAMA_URL`/`HTTP_ADDR` win over the file), `Default()` + `Validate()`; `config.yaml`
   path via `BRAINIAC_CONFIG`. `config.example.yaml` shipped; `kb migrate` now reads config. Fully
