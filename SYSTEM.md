@@ -4,9 +4,10 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** M0 complete. M1 in progress — plugin interfaces, Ollama embedder, data-access layer, and the
-core operations search/remember/link/recall/supersede all landed; the **capture→recall loop works
-end-to-end**. Remaining M1: MCP server (#15) + cobra CLI (#16). See the backlog on GitHub.
+**Status:** M0 + M1 complete. One-command deploy, plugin seams, Ollama embedder, data-access, the full
+core operation set (search/remember/link/recall/supersede), the MCP server, and the cobra CLI all landed
+— the **capture→recall loop works end-to-end from both Claude (MCP) and the CLI**. Next: M2 (ingestion,
+selection, Notion connector, REST API, read-only WebUI). See the backlog on GitHub.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
 
 ---
@@ -244,6 +245,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — cobra CLI (#16, M1 complete): `kb` exposes `migrate`, `health`, `search`, `recall`,
+  `remember`, `link`, `supersede` over core, plus `import/refresh/consolidate/reembed` stubs that error
+  with their issue ref. Command tree unit-tested; errcheck configured to ignore `fmt.Fprint*` (CLI output
+  errors aren't actionable). **M1 done — capture→recall works from Claude (MCP) and the CLI.**
 - **2026-07-01** — **Gitignore gotcha fixed.** An unanchored `ollama/` rule in `.gitignore` shadowed the
   `internal/plugins/ollama` source package, so the embedder (#8, PR #46) merged with **no source files** —
   CI stayed green only because nothing imported it yet. Caught when `cmd/mcp` imported it and CI failed

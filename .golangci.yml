@@ -10,6 +10,13 @@ linters:
     - revive
     - unconvert
     - unparam
+  settings:
+    errcheck:
+      # Writes to stdout/stderr in CLI output — the error is not actionable.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
 
 formatters:
   enable:
