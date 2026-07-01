@@ -256,6 +256,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Edge uniqueness (#71): migration 0003 adds a partial unique index on current edges
+  `(from_id,to_id,type) WHERE status='current'` (dedups any pre-existing first). `InsertEdge` is now an
+  **upsert** — a repeated `link` refreshes the rationale/provenance instead of creating a duplicate.
+  `RepointEdges` (merge) is conflict-safe: colliding edges are marked historical rather than duplicated.
+  DB-gated test: re-linking returns the same edge id and refreshes `why`. (#71)
 - **2026-07-01** — M5 (production readiness) started. **Actualization + ingest resilience (#68/#72):**
   `Ingest` now reconciles **per document in one transaction** — unchanged chunks kept (by
   `(hash)` for the source), edited-away/removed chunks **deleted** (`DeleteChunksBySourceURINotIn`), new
