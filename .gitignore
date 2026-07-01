@@ -1,4 +1,10 @@
-# Python
+# Go
+/bin/
+*.test
+*.out
+coverage.txt
+
+# Python (n/a — kept for tooling that may drop caches)
 __pycache__/
 *.py[cod]
 *.egg-info/
