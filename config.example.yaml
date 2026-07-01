@@ -1,0 +1,38 @@
+# Brainiac configuration (SYSTEM.md §3, PRD §19).
+# Copy to config.yaml and edit. Secrets (storage.dsn, connector tokens) are
+# better set via environment variables — those always override this file:
+#   DATABASE_URL  -> storage.dsn
+#   OLLAMA_URL    -> embedding.base_url
+#   HTTP_ADDR     -> http.addr
+
+http:
+  addr: ":8080"
+
+storage:
+  # Prefer DATABASE_URL over putting the DSN here.
+  dsn: "postgres://brainiac:brainiac@localhost:5432/brainiac?sslmode=disable"
+
+embedding:
+  provider: ollama
+  base_url: "http://localhost:11434"
+  model: nomic-embed-text
+  dims: 768
+
+extraction:
+  default: chat-driven        # graph grows in dialogue with Claude
+  fallback: local-llm         # optional, for batch jobs
+
+consolidation:
+  schedule: weekly
+  merge: human-approved
+
+sources:
+  - type: notion
+    selection: density-filter
+  # - type: git               # added when the 2nd domain is real
+  #   selection: code-aware
+
+clients:
+  mcp: true
+  webui: read-only            # -> interactive later
+  cli: true

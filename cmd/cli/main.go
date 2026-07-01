@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -31,18 +32,26 @@ func main() {
 	}
 }
 
-// runMigrate applies pending schema migrations. DSN comes from DATABASE_URL for
-// now; the typed config loader (#5) becomes the source of truth later.
+// runMigrate applies pending schema migrations, taking the DSN from the loaded
+// config (which layers DATABASE_URL over config.yaml).
 func runMigrate() error {
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		return fmt.Errorf("DATABASE_URL is not set")
+	cfg, err := config.Load(configPath())
+	if err != nil {
+		return err
 	}
 	ctx := context.Background()
-	pool, err := store.Connect(ctx, dsn)
+	pool, err := store.Connect(ctx, cfg.Storage.DSN)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
 	return store.Migrate(ctx, pool)
+}
+
+// configPath resolves the config file location: BRAINIAC_CONFIG or ./config.yaml.
+func configPath() string {
+	if p := os.Getenv("BRAINIAC_CONFIG"); p != "" {
+		return p
+	}
+	return "config.yaml"
 }
