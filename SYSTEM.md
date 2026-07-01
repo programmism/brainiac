@@ -74,7 +74,7 @@ the core; MCP and WebUI both call it. The MCP server is ~50 lines of tool defini
 | **Language** | **Go 1.25+** | The app is an HTTP server + Postgres + Ollama-over-HTTP + MCP tools — **no in-process ML**, so Python's data/embedding-ecosystem edge does not apply here. Go wins on the two hard requirements: a single static binary in a tiny distroless image (trivial deploy) and ~20–50 MB RAM on the shared 4 GB prototype box (OS + Postgres + Ollama). Also matches the goroutly stack. Rejected: Python (heavier RAM/image, separate stack; its only edge — the mature MCP SDK + reference memory server — is easily ported); TS (viable, heavier than Go). |
 | **Core shape** | Module `github.com/programmism/brainiac`; package `core` is the sole home of logic | PRD §3.1. Clients (`cmd/mcp`, `cmd/http`, `cmd/cli`) forward to `core`; they never hold logic. |
 | **Database** | **Postgres 16 + pgvector** (`pgvector/pgvector:pg16`) | One DB, two layers. Hot path `recall` joins graph→chunks by `source_uri` in one SQL join; one transaction; one backup; consolidation walks both layers as queries. Rejected: graph-in-JSON + separate vector store (cross-store glue, sync risk). |
-| **DB access** | **pgx** + **pgvector-go**, raw SQL in a thin repository layer | Repositories are the only place SQL lives; pgvector-go gives `halfvec` types. Rejected: heavy ORM (hides vector SQL, fights pgvector operators). |
+| **DB access** | **pgx** + **pgvector-go**, raw SQL in a thin repository layer (`internal/store`, functions take a `DBTX` so they run in or out of a tx) | Repositories are the only place SQL lives. Embeddings are sent as **text cast with `::halfvec`** (via `pgvector.HalfVector.String()`) rather than registering the type on connect — registration would fail on a fresh DB before the `vector` extension exists (boot chicken-and-egg). Rejected: heavy ORM (hides vector SQL, fights pgvector operators). |
 | **Migrations** | Forward-only SQL files run by a **tiny embedded runner** (`internal/store`, `embed.FS`, applied on boot + `kb migrate`) | ~60 LOC, zero external migration dep, tracked in `schema_migrations`, each file atomic. Schema is stable as we scale (add indexes, quantize — we don't reshape), so a full framework (goose) is unwarranted. |
 | **Vectors** | `halfvec(768)` + HNSW on hot tier | nomic-embed-text = 768 dims; halfvec halves RAM at negligible loss. Room to go int8/binary later (§7). |
 | **Embeddings** | **Ollama `nomic-embed-text`** (~270 MB, 768-dim) | The genuinely-free workhorse; light on CPU. Embedder is a plugin, so not bound to Ollama. |
@@ -243,6 +243,12 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Data-access layer (#8): domain types in `internal/model` (Chunk/Node/Edge); repository
+  functions in `internal/store` (InsertChunk, SearchChunks by cosine, InsertNode, GetNodeByCanonicalName,
+  InsertEdge, ListEdgesFrom) taking a `DBTX` (pool or tx), plus `WithTx` for atomic writes. Embeddings
+  sent as text + `::halfvec` cast (no type registration — avoids the fresh-DB boot chicken-egg). Numerics
+  cast to `float8` on read to keep pgx scans simple. DB-gated test (CI) covers insert/search/traverse/
+  rollback; added pgvector-go. (#8)
 - **2026-07-01** — M1 started. The four plugin interfaces + shared value types (`RawDoc`, `Change`,
   `Entity`/`Relation`/`Extraction`, `Score`/`Decision`) landed in `internal/plugins`, with a generic
   `Registry[T]` for config-by-name selection. Connectors use Go 1.23 range-over-func iterators
