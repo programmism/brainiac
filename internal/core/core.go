@@ -1,20 +1,25 @@
 // Package core is the single home of all Brainiac business logic.
 //
 // Every client (MCP, HTTP, CLI) is a thin adapter that forwards into this
-// package; none of them may hold business logic of their own. The operation
-// set (search, remember, link, recall, supersede, consolidate, ingest,
-// health) is added in its own issues — this file is the scaffold that wires
-// shared dependencies together.
+// package; none of them may hold business logic of their own. Core orchestrates
+// the storage repositories (internal/store) and the plugin seams
+// (internal/plugins) into the operation set: search, remember, link, recall,
+// supersede, consolidate, ingest, health.
 package core
 
-// Core holds the shared dependencies (storage, embedder, config) and exposes
-// the operation set. Operations are attached as methods as they land.
+import (
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/programmism/brainiac/internal/plugins"
+)
+
+// Core holds the shared dependencies and exposes the operation set as methods.
 type Core struct {
-	// Dependencies (DB pool, embedder, config, plugin registry) are added as
-	// the corresponding issues are implemented.
+	pool     *pgxpool.Pool
+	embedder plugins.Embedder
 }
 
-// New constructs a Core. Dependency wiring grows as operations are added.
-func New() *Core {
-	return &Core{}
+// New constructs a Core over a database pool and an embedder.
+func New(pool *pgxpool.Pool, embedder plugins.Embedder) *Core {
+	return &Core{pool: pool, embedder: embedder}
 }

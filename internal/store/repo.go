@@ -121,28 +121,18 @@ func InsertNode(ctx context.Context, db DBTX, n *model.Node) error {
 // GetNodeByCanonicalName returns the most recent current node with the given
 // name, or (nil, nil) if none exists.
 func GetNodeByCanonicalName(ctx context.Context, db DBTX, name string) (*model.Node, error) {
-	var (
-		n      model.Node
-		typ    *string
-		status string
-	)
-	err := db.QueryRow(ctx, `
-		SELECT id, canonical_name, aliases, type, status, created_at, last_confirmed_at
+	n, err := scanNode(db.QueryRow(ctx, `
+		SELECT `+nodeCols+`
 		FROM nodes
 		WHERE canonical_name = $1 AND status = 'current'
 		ORDER BY created_at DESC
-		LIMIT 1`, name).
-		Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &n.CreatedAt, &n.LastConfirmedAt)
+		LIMIT 1`, name))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	if typ != nil {
-		n.Type = *typ
-	}
-	n.Status = model.Status(status)
 	return &n, nil
 }
 
