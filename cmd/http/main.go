@@ -48,6 +48,7 @@ func run() error {
 	}
 
 	ctx := context.Background()
+	log.Printf("brainiac-http %s: connecting to %s", core.Version, config.RedactedDSN(cfg.Storage.DSN))
 	pool, err := store.ConnectWithRetry(ctx, cfg.Storage.DSN, 60*time.Second)
 	if err != nil {
 		return fmt.Errorf("connect db: %w", err)

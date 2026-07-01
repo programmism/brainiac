@@ -11,16 +11,22 @@ Brainiac stores everything — the graph, vectors, and provenance — in **one P
 - Retention: keeps the newest `BACKUP_RETENTION` dumps (default 14).
 
 ### Schedule (daily)
+Either a host cron:
 ```cron
 0 2 * * * cd /path/to/brainiac && ./scripts/backup.sh >> backups/backup.log 2>&1
+```
+…or the bundled backup sidecar (dumps daily to `./backups`, keeps the newest 14):
+```bash
+docker compose --profile backup up -d backup
 ```
 
 ## Restore
 **Destructive** — replaces the current database contents.
 ```bash
-./scripts/restore.sh backups/brainiac-<stamp>.sql.gz
+./scripts/restore.sh backups/brainiac-<stamp>.sql.gz          # prompts for confirmation
+./scripts/restore.sh --force backups/brainiac-<stamp>.sql.gz  # unattended (DR scripts)
 ```
-The script prompts for confirmation, then pipes the dump into `psql` in the `db` container. After a
+The script pipes the dump into `psql` in the `db` container. After a
 restore the app picks up the data immediately (schema + vectors + graph all came from the one dump).
 
 ## Notes
