@@ -35,6 +35,9 @@ func isMarkdown(name string) bool {
 // source URI.
 func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] {
 	return func(yield func(plugins.RawDoc, error) bool) {
+		if info, err := os.Stat(c.root); err != nil || !info.IsDir() {
+			return // missing/empty root — nothing to import (not an error)
+		}
 		_ = filepath.WalkDir(c.root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				yield(plugins.RawDoc{}, err)

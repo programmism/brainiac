@@ -26,8 +26,9 @@ Easy deployment is a hard requirement: one command yields a healthy stack, on a 
 The app **verifies its own state** — `GET /healthz` (liveness) and `GET /readyz` (readiness: DB-gated,
 embedder reported), and a CI smoke test boots the stack and asserts readiness end-to-end.
 
-**👉 Using it on your laptop** (load docs, connect Claude via MCP — no Go, no exposed ports):
-see [docs/laptop.md](docs/laptop.md).
+**👉 Using it on your laptop** — `./brainiac up`, drop Markdown into `./data/docs` (auto-imported),
+`./brainiac search "…"`, and `./brainiac mcp-config` to connect Claude. No Go, no exposed ports.
+See [docs/laptop.md](docs/laptop.md).
 
 ## Status
 

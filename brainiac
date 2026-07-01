@@ -1,0 +1,32 @@
+#!/usr/bin/env sh
+# Thin wrapper so you don't type the docker boilerplate.
+#
+#   ./brainiac up                     # start the stack
+#   ./brainiac import                 # ingest Markdown from ./data/docs
+#   ./brainiac search "why kafka"
+#   ./brainiac recall "why is X like this"
+#   ./brainiac health
+#   ./brainiac down | logs
+#   ./brainiac mcp-config             # print the Claude Desktop MCP config
+#
+# Everything else is passed straight to the in-container `kb` CLI.
+set -e
+cd "$(dirname "$0")"
+
+case "${1:-}" in
+	up)    shift; exec docker compose up -d "$@" ;;
+	down)  shift; exec docker compose down "$@" ;;
+	logs)  shift; exec docker compose logs -f "$@" ;;
+	mcp-config)
+		printf '{\n  "mcpServers": {\n    "brainiac": {\n      "command": "docker",\n      "args": ["compose","-f","%s/docker-compose.yml","exec","-T","app","/brainiac-mcp"]\n    }\n  }\n}\n' "$(pwd)"
+		;;
+	import)
+		# `import` with no extra args defaults to the mounted markdown folder.
+		if [ "$#" -eq 1 ]; then
+			exec docker compose exec app /kb import --source markdown --path /data/docs
+		fi
+		exec docker compose exec app /kb "$@"
+		;;
+	"")    exec docker compose exec app /kb ;;
+	*)     exec docker compose exec app /kb "$@" ;;
+esac

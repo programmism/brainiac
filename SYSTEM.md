@@ -256,6 +256,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Simpler laptop UX (#103): a `./brainiac` wrapper turns `docker compose exec app /kb …`
+  into `./brainiac …` (+ `up`/`down`/`logs`/`mcp-config`, and `import` defaults to `/data/docs`). Optional
+  **auto-import**: `INGEST_INTERVAL` (env/`ingest.interval`) runs a background loop re-ingesting
+  `/data/docs` + configured markdown sources on a timer (cheap via content-hash reconcile + CDC) — drop
+  files, they appear. Markdown connector tolerates a missing dir. `.env.example` ships `INGEST_INTERVAL=60s`. (#103)
 - **2026-07-01** — Laptop DX (#101): the image now builds **all three** binaries (`/brainiac` http,
   `/kb`, `/brainiac-mcp`), so first use needs **no Go and no exposed ports** — run `docker compose exec
   app /kb …` (the container already has DATABASE_URL + OLLAMA_URL) and point Claude Desktop at
