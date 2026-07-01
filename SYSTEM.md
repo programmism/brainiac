@@ -386,6 +386,7 @@ Newest first. One line per notable decision; link to the PR/issue.
 
 - ~~Notion ingestion path~~ — **resolved**: native API connector, see [ADR 0002](docs/decisions/0002-notion-ingestion-path.md) (#32).
 - ~~Core↔WebUI transport~~ — **resolved**: REST (net/http+chi), MCP separate, see [ADR 0001](docs/decisions/0001-core-webui-transport.md) (#33).
-- Cold-tier tech if the archive outgrows pgvector (Qdrant/Milvus) and the two-store join at that scale (#34, M4).
+- ~~Cold-tier tech if the archive outgrows pgvector~~ — **resolved**: escalation ladder (selection →
+  quantization → Matryoshka → tiering → external cold store), see [ADR 0003](docs/decisions/0003-cold-tier-at-scale.md) (#34).
 - Whether to ever introduce a local consolidation LLM, or keep all LLM work in Claude-in-chat.
 - Multi-team isolation vs shared graph (namespaces vs one corpus).
