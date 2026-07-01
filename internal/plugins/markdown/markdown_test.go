@@ -50,3 +50,17 @@ func write(t *testing.T, root, rel, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestFetchMissingDirIsNoOp(t *testing.T) {
+	c := New(filepath.Join(t.TempDir(), "does-not-exist"))
+	n := 0
+	for _, err := range c.Fetch(context.Background()) {
+		if err != nil {
+			t.Fatalf("missing dir should not error: %v", err)
+		}
+		n++
+	}
+	if n != 0 {
+		t.Fatalf("expected no docs from a missing dir, got %d", n)
+	}
+}

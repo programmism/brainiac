@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDefaultIsSane(t *testing.T) {
@@ -115,5 +116,20 @@ sources:
 	}
 	if len(c.Sources) != 1 || c.Sources[0].Type != "notion" {
 		t.Errorf("sources not loaded: %+v", c.Sources)
+	}
+}
+
+func TestAutoImportInterval(t *testing.T) {
+	c := Default()
+	if c.AutoImportInterval() != 0 {
+		t.Error("empty interval should be 0 (disabled)")
+	}
+	c.Ingest.Interval = "45s"
+	if c.AutoImportInterval() != 45*time.Second {
+		t.Errorf("got %v, want 45s", c.AutoImportInterval())
+	}
+	c.Ingest.Interval = "garbage"
+	if c.AutoImportInterval() != 0 {
+		t.Error("invalid interval should be 0")
 	}
 }

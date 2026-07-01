@@ -21,6 +21,7 @@ import (
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/plugins/density"
+	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
 	"github.com/programmism/brainiac/internal/server"
 	"github.com/programmism/brainiac/internal/store"
@@ -91,11 +92,52 @@ func run() error {
 		_ = srv.Shutdown(toCtx)
 	}()
 
+	// Optional background auto-import: drop files in ./data/docs and they appear.
+	if d := cfg.AutoImportInterval(); d > 0 {
+		go autoImport(shutdownCtx, c, cfg, d)
+	}
+
 	log.Printf("listening on %s", cfg.HTTP.Addr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// autoImport re-ingests the conventional /data/docs folder plus any configured
+// markdown sources on a timer. Content-hash reconcile + content-defined chunking
+// make repeated runs cheap and idempotent; a missing folder is a no-op.
+func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every time.Duration) {
+	dirs := map[string]bool{"/data/docs": true}
+	for _, s := range cfg.Sources {
+		if s.Type == "markdown" && s.Path != "" {
+			dirs[s.Path] = true
+		}
+	}
+	run := func() {
+		for dir := range dirs {
+			stats, err := c.Ingest(ctx, markdown.New(dir), core.IngestOptions{})
+			if err != nil {
+				log.Printf("auto-import %s: %v", dir, err)
+				continue
+			}
+			if stats.Kept+stats.Queued+stats.Deleted > 0 {
+				log.Printf("auto-import %s: +%d kept, %d deleted", dir, stats.Kept+stats.Queued, stats.Deleted)
+			}
+		}
+	}
+	log.Printf("auto-import enabled every %s (watching /data/docs)", every)
+	run()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
 }
 
 // ollamaChecker returns a readiness probe for the embedder backend. It hits the
