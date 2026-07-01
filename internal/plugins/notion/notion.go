@@ -146,14 +146,20 @@ func (c *Connector) pageToDoc(ctx context.Context, page map[string]any) (plugins
 	if text != "" {
 		full = strings.TrimSpace(title + "\n\n" + text)
 	}
+	edited := stringField(page, "last_edited_time")
+	var modified *time.Time
+	if t, err := time.Parse(time.RFC3339, edited); err == nil {
+		modified = &t
+	}
 	return plugins.RawDoc{
 		Text:      full,
 		SourceURI: url,
 		SourceLocator: map[string]any{
 			"page_id":          id,
-			"last_edited_time": stringField(page, "last_edited_time"),
+			"last_edited_time": edited,
 		},
-		Metadata: map[string]any{"source": "notion"},
+		Metadata:   map[string]any{"source": "notion"},
+		ModifiedAt: modified,
 	}, nil
 }
 
