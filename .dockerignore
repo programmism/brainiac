@@ -1,0 +1,12 @@
+.git
+bin/
+data/
+pgdata/
+ollama/
+*.md
+.github
+.env
+config.yaml
+.golangci.yml
+.idea
+.vscode

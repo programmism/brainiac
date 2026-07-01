@@ -64,3 +64,27 @@ jobs:
         run: go build ./...
       - name: test
         run: go test -race -count=1 ./...
+
+  smoke:
+    name: smoke (docker compose deploy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image and start db + app
+        run: |
+          cp .env.example .env
+          docker compose up -d --build db app
+      - name: Wait for /readyz and verify the DB is healthy
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /tmp/readyz.json -w '%{http_code}' http://localhost:8080/readyz || true)
+            echo "attempt $i: HTTP $code $(cat /tmp/readyz.json 2>/dev/null)"
+            if [ "$code" = "200" ]; then
+              grep -q '"db":"ok"' /tmp/readyz.json && { echo "app ready, migrations applied, db ok"; exit 0; }
+            fi
+            sleep 3
+          done
+          echo "::error::app did not become ready"; docker compose logs; exit 1
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
