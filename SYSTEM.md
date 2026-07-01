@@ -245,6 +245,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Health metrics (#22): `Core.Health()` + `store.HealthCounts` (one round-trip) report
+  chunks (hot/cold), nodes (current/historical), edges (current/historical), edges-per-node, and %
+  historical (§14). `kb health` now prints them. REST `/health` exposes them in #20. Stale/conflict
+  metrics come with M3 consolidation. DB-gated test. (#22)
 - **2026-07-01** — Ingest pipeline (#18): `Core.Ingest(connector, opts)` runs fetch → chunk → select →
   embed → store per-chunk (PRD §8). Content-hash dedup skips unchanged chunks; Drop is discarded, Keep
   stored hot, Queue stored cold (out of default search). `Core` now also holds a `plugins.Selector`
