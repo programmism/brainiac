@@ -58,7 +58,7 @@ storage:
   dsn: "postgres://from-file"
 embedding:
   model: "custom-embed"
-  dims: 512
+  dims: 768
 sources:
   - type: notion
     selection: density-filter
@@ -79,7 +79,7 @@ sources:
 	if c.HTTP.Addr != ":9000" {
 		t.Errorf("file addr lost: %q", c.HTTP.Addr)
 	}
-	if c.Embedding.Model != "custom-embed" || c.Embedding.Dims != 512 {
+	if c.Embedding.Model != "custom-embed" || c.Embedding.Dims != 768 {
 		t.Errorf("embedding not loaded: %+v", c.Embedding)
 	}
 	if len(c.Sources) != 1 || c.Sources[0].Type != "notion" {

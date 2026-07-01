@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/store"
@@ -13,6 +14,9 @@ const (
 	DefaultRecallChunks   = 8
 	DefaultRecallNodes    = 5
 	evidenceChunksPerEdge = 3
+	maxEdgesPerNode       = 50  // bound hub-node fan-out (#73)
+	maxRecallEdges        = 100 // cap the evidence bundle size (#73)
+	maxRecallEvidence     = 30
 )
 
 // EdgeView is an edge with its endpoint names resolved, for citation.
@@ -37,7 +41,11 @@ type RecallResult struct {
 // raw chunks behind relevant edges. It returns an evidence bundle; the client
 // composes the answer and must cite every claim.
 func (c *Core) Recall(ctx context.Context, query string) (*RecallResult, error) {
+	query = strings.TrimSpace(query)
 	res := &RecallResult{Query: query}
+	if query == "" {
+		return res, nil
+	}
 
 	// 1. Vector search over chunks.
 	chunks, err := c.Search(ctx, query, DefaultRecallChunks)
@@ -68,16 +76,20 @@ func (c *Core) Recall(ctx context.Context, query string) (*RecallResult, error) 
 	}
 	nodeHits = relevant
 
-	// 3. Traverse edges (incl. supersedes history) and join raw chunks by URI.
+	// 3. Traverse edges (incl. supersedes history) and join raw chunks by URI,
+	//    bounded so a hub node can't flood the evidence bundle (#73).
 	seenEdge := make(map[string]bool)
 	seenURI := make(map[string]bool)
 	for _, nh := range nodeHits {
-		edges, err := store.EdgesForNode(ctx, c.pool, nh.Node.ID, true)
+		if len(res.Edges) >= maxRecallEdges {
+			break
+		}
+		edges, err := store.EdgesForNode(ctx, c.pool, nh.Node.ID, true, maxEdgesPerNode)
 		if err != nil {
 			return nil, fmt.Errorf("traverse edges: %w", err)
 		}
 		for _, e := range edges {
-			if seenEdge[e.ID] {
+			if seenEdge[e.ID] || len(res.Edges) >= maxRecallEdges {
 				continue
 			}
 			seenEdge[e.ID] = true
@@ -86,7 +98,7 @@ func (c *Core) Recall(ctx context.Context, query string) (*RecallResult, error) 
 				FromName: c.nodeName(ctx, names, e.FromID),
 				ToName:   c.nodeName(ctx, names, e.ToID),
 			})
-			if e.SourceURI != "" && !seenURI[e.SourceURI] {
+			if e.SourceURI != "" && !seenURI[e.SourceURI] && len(res.EvidenceChunks) < maxRecallEvidence {
 				seenURI[e.SourceURI] = true
 				evidence, err := store.GetChunksBySourceURI(ctx, c.pool, e.SourceURI, evidenceChunksPerEdge)
 				if err != nil {
