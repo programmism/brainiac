@@ -5,6 +5,8 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -20,4 +22,28 @@ func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 	return pool, nil
+}
+
+// ConnectWithRetry retries Connect with exponential backoff until it succeeds or
+// maxWait elapses — so a service booting before Postgres is ready waits instead
+// of crash-looping (#78).
+func ConnectWithRetry(ctx context.Context, dsn string, maxWait time.Duration) (*pgxpool.Pool, error) {
+	ctx, cancel := context.WithTimeout(ctx, maxWait)
+	defer cancel()
+
+	backoff := 500 * time.Millisecond
+	for {
+		pool, err := Connect(ctx, dsn)
+		if err == nil {
+			return pool, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("database not reachable within %s: %w", maxWait, err)
+		case <-time.After(backoff):
+		}
+		if backoff < 5*time.Second {
+			backoff *= 2
+		}
+	}
 }

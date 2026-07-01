@@ -83,6 +83,40 @@ func TestFetchPaginatesAndFlattens(t *testing.T) {
 	}
 }
 
+func TestFetchRetriesOn429(t *testing.T) {
+	var searchCalls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/search":
+			searchCalls++
+			if searchCalls == 1 {
+				w.Header().Set("Retry-After", "0")
+				w.WriteHeader(http.StatusTooManyRequests)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []any{page("p1", "OrderService")}, "has_more": false, "next_cursor": nil})
+		case "/v1/blocks/p1/children":
+			_ = json.NewEncoder(w).Encode(blocks("writes orders"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := New("tok", WithBaseURL(srv.URL))
+	var n int
+	for _, err := range c.Fetch(context.Background()) {
+		if err != nil {
+			t.Fatalf("fetch: %v", err)
+		}
+		n++
+	}
+	if n != 1 || searchCalls < 2 {
+		t.Fatalf("expected 1 doc after a 429 retry (searchCalls=%d, docs=%d)", searchCalls, n)
+	}
+}
+
 func TestWatchEmitsUpserts(t *testing.T) {
 	srv := mockNotion(t)
 	defer srv.Close()

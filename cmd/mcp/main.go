@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -35,7 +36,7 @@ func run() error {
 	}
 
 	ctx := context.Background()
-	pool, err := store.Connect(ctx, cfg.Storage.DSN)
+	pool, err := store.ConnectWithRetry(ctx, cfg.Storage.DSN, 60*time.Second)
 	if err != nil {
 		return fmt.Errorf("connect db: %w", err)
 	}

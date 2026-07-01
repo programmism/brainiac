@@ -11,6 +11,7 @@ import (
 	"io"
 	"iter"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -202,33 +203,67 @@ func (c *Connector) blockText(ctx context.Context, blockID string, depth int) (s
 }
 
 func (c *Connector) do(ctx context.Context, method, path string, body, out any) error {
-	var reader io.Reader
+	var payload []byte
 	if body != nil {
-		payload, err := json.Marshal(body)
+		var err error
+		if payload, err = json.Marshal(body); err != nil {
+			return err
+		}
+	}
+
+	backoff := 500 * time.Millisecond
+	for attempt := 0; attempt < 4; attempt++ {
+		var reader io.Reader
+		if payload != nil {
+			reader = bytes.NewReader(payload)
+		}
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
 		if err != nil {
 			return err
 		}
-		reader = bytes.NewReader(payload)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
-	if err != nil {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		req.Header.Set("Notion-Version", notionVersion)
+		if payload != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+
+		resp, err := c.client.Do(req)
+		if err != nil {
+			return err
+		}
+
+		// Honor Notion rate limiting (429 + Retry-After).
+		if resp.StatusCode == http.StatusTooManyRequests {
+			wait := retryAfter(resp.Header.Get("Retry-After"), backoff)
+			_ = resp.Body.Close()
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(wait):
+			}
+			backoff *= 2
+			continue
+		}
+		if resp.StatusCode != http.StatusOK {
+			msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
+			_ = resp.Body.Close()
+			return fmt.Errorf("notion %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(msg)))
+		}
+		err = json.NewDecoder(resp.Body).Decode(out)
+		_ = resp.Body.Close()
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.token)
-	req.Header.Set("Notion-Version", notionVersion)
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	return fmt.Errorf("notion %s %s: rate-limited after retries", method, path)
+}
+
+// retryAfter parses a Retry-After header (seconds), falling back to backoff.
+func retryAfter(header string, fallback time.Duration) time.Duration {
+	if header != "" {
+		if secs, err := strconv.Atoi(strings.TrimSpace(header)); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
 	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
-		return fmt.Errorf("notion %s %s: status %d: %s", method, path, resp.StatusCode, strings.TrimSpace(string(msg)))
-	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	return fallback
 }
 
 // --- JSON helpers (Notion's shapes are dynamic) ---
