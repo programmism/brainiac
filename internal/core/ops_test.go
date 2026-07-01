@@ -159,12 +159,14 @@ func TestSearchReturnsNearestChunk(t *testing.T) {
 		}
 	}
 
-	hits, err := c.Search(ctx, "beta", 2)
+	hits, err := c.Search(ctx, "beta", 5)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(hits) == 0 || hits[0].Text != "beta" {
-		t.Fatalf("expected 'beta' first, got %+v", hits)
+	// With the relevance cutoff, only the exact match (distance 0) is returned;
+	// the orthogonal one-hot chunks (distance ~1.0) are dropped.
+	if len(hits) != 1 || hits[0].Text != "beta" {
+		t.Fatalf("expected only 'beta', got %+v", hits)
 	}
 }
 
