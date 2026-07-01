@@ -5,21 +5,16 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"strings"
-	"unicode"
 
+	"github.com/programmism/brainiac/internal/chunk"
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
 	"github.com/programmism/brainiac/internal/store"
 )
 
-// DefaultChunkSize is the target chunk length in characters.
-const DefaultChunkSize = 1000
-
-// IngestOptions tunes an ingest run.
-type IngestOptions struct {
-	ChunkSize int
-}
+// IngestOptions tunes an ingest run. (Chunking is content-defined, so there is
+// no size knob; see internal/chunk.)
+type IngestOptions struct{}
 
 // IngestStats reports what happened during an ingest run.
 type IngestStats struct {
@@ -39,13 +34,9 @@ type IngestStats struct {
 // or removed are deleted, and new chunks are inserted — all in one transaction
 // per document. A document that fails (e.g. the embedder is down) is counted and
 // skipped; the run continues.
-func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts IngestOptions) (IngestStats, error) {
+func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, _ IngestOptions) (IngestStats, error) {
 	if c.selector == nil {
 		return IngestStats{}, fmt.Errorf("ingest requires a selector")
-	}
-	size := opts.ChunkSize
-	if size <= 0 {
-		size = DefaultChunkSize
 	}
 
 	var stats IngestStats
@@ -54,7 +45,7 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts In
 			return stats, fmt.Errorf("fetch: %w", err)
 		}
 		stats.Docs++
-		if err := c.ingestDoc(ctx, doc, size, &stats); err != nil {
+		if err := c.ingestDoc(ctx, doc, &stats); err != nil {
 			stats.Failed++ // skip this doc, keep going
 			continue
 		}
@@ -65,8 +56,8 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts In
 // ingestDoc actualizes a single document. Embeddings are computed outside the
 // transaction (no network held open); the reconcile (delete stale + insert new)
 // runs in one short transaction.
-func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, size int, stats *IngestStats) error {
-	chunks := chunkText(doc.Text, size)
+func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, stats *IngestStats) error {
+	chunks := chunk.Split(doc.Text)
 	hashes := make([]string, len(chunks))
 	for i, ck := range chunks {
 		hashes[i] = hashText(ck)
@@ -135,77 +126,6 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, size int, stat
 	stats.Queued += queued
 	stats.Deleted += int(deleted)
 	return nil
-}
-
-// chunkText splits text into chunks of roughly size characters: it packs whole
-// paragraphs where possible, and splits any oversized paragraph on word/rune
-// boundaries (never mid-word or mid-rune) with a small overlap so a fact that
-// spans a boundary stays retrievable (#81).
-func chunkText(text string, size int) []string {
-	overlap := size / 8 // ~12%
-	var chunks []string
-	var b strings.Builder
-
-	flush := func() {
-		if b.Len() > 0 {
-			chunks = append(chunks, strings.TrimSpace(b.String()))
-			b.Reset()
-		}
-	}
-
-	for _, p := range strings.Split(text, "\n\n") {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if len([]rune(p)) > size {
-			flush()
-			chunks = append(chunks, splitLong(p, size, overlap)...)
-			continue
-		}
-		if b.Len()+len(p)+2 > size {
-			flush()
-		}
-		if b.Len() > 0 {
-			b.WriteString("\n\n")
-		}
-		b.WriteString(p)
-	}
-	flush()
-	return chunks
-}
-
-// splitLong breaks an oversized string into ≤size-rune pieces, cutting at the
-// last whitespace before the limit and overlapping consecutive pieces.
-func splitLong(s string, size, overlap int) []string {
-	runes := []rune(s)
-	var out []string
-	for start := 0; start < len(runes); {
-		end := start + size
-		if end >= len(runes) {
-			out = append(out, strings.TrimSpace(string(runes[start:])))
-			break
-		}
-		cut := end
-		for cut > start && !unicode.IsSpace(runes[cut]) {
-			cut--
-		}
-		if cut == start { // no whitespace in range — hard cut
-			cut = end
-		}
-		out = append(out, strings.TrimSpace(string(runes[start:cut])))
-		// Start the next piece ~overlap runes back, aligned to a word boundary so
-		// the overlap never begins mid-word.
-		next := cut - overlap
-		for next > start && !unicode.IsSpace(runes[next]) {
-			next--
-		}
-		if next <= start {
-			next = cut
-		}
-		start = next
-	}
-	return out
 }
 
 func hashText(s string) string {
