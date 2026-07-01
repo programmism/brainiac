@@ -1,0 +1,66 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+type fakePinger struct{ err error }
+
+func (f fakePinger) Ping(context.Context) error { return f.err }
+
+func do(t *testing.T, h http.Handler, path string) (int, map[string]string) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	return rec.Code, body
+}
+
+func TestHealthz(t *testing.T) {
+	h := New(fakePinger{}, nil)
+	code, body := do(t, h, "/healthz")
+	if code != http.StatusOK || body["status"] != "ok" {
+		t.Fatalf("healthz = %d %v", code, body)
+	}
+}
+
+func TestReadyzDBOK_EmbedderNotConfigured(t *testing.T) {
+	h := New(fakePinger{}, nil)
+	code, body := do(t, h, "/readyz")
+	if code != http.StatusOK {
+		t.Fatalf("readyz code = %d", code)
+	}
+	if body["db"] != "ok" || body["embedder"] != "not-configured" {
+		t.Fatalf("readyz body = %v", body)
+	}
+}
+
+func TestReadyzEmbedderUnreachableStillReady(t *testing.T) {
+	down := func(context.Context) error { return errors.New("no ollama") }
+	h := New(fakePinger{}, down)
+	code, body := do(t, h, "/readyz")
+	if code != http.StatusOK { // graceful degradation: embedder down != not ready
+		t.Fatalf("readyz code = %d, want 200", code)
+	}
+	if body["embedder"] != "unreachable" {
+		t.Fatalf("embedder = %q", body["embedder"])
+	}
+}
+
+func TestReadyzDBDownIs503(t *testing.T) {
+	h := New(fakePinger{err: errors.New("db gone")}, nil)
+	code, body := do(t, h, "/readyz")
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("readyz code = %d, want 503", code)
+	}
+	if body["db"] != "error" {
+		t.Fatalf("db = %q", body["db"])
+	}
+}

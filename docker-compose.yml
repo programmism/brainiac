@@ -1,0 +1,68 @@
+# Brainiac — one-command deploy (SYSTEM.md §4).
+#   cp .env.example .env && docker compose up
+# Brings up Postgres+pgvector, Ollama (with the embedding model pulled once),
+# and the app (which auto-migrates on boot and health-probes itself).
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-brainiac}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-brainiac}
+      POSTGRES_DB: ${POSTGRES_DB:-brainiac}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-brainiac} -d ${POSTGRES_DB:-brainiac}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  # One-shot: pull the embedding model, then exit. Idempotent.
+  ollama-pull:
+    image: ollama/ollama
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull ${EMBEDDING_MODEL:-nomic-embed-text}"]
+    restart: "no"
+
+  app:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-0.0.0-docker}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Env always wins over config.yaml (see internal/config).
+      DATABASE_URL: postgres://${POSTGRES_USER:-brainiac}:${POSTGRES_PASSWORD:-brainiac}@db:5432/${POSTGRES_DB:-brainiac}?sslmode=disable
+      OLLAMA_URL: http://ollama:11434
+      HTTP_ADDR: ":8080"
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "/brainiac", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ollama:

@@ -23,11 +23,15 @@ docker compose up         # → db (pgvector) + ollama + app, migrations + model
 ```
 
 Easy deployment is a hard requirement: one command yields a healthy stack, on a 4 GB prototype box.
+The app **verifies its own state** — `GET /healthz` (liveness) and `GET /readyz` (readiness: DB-gated,
+embedder reported), and a CI smoke test boots the stack and asserts readiness end-to-end.
 
 ## Status
 
-Foundation / bootstrap. The build is tracked as GitHub issues across five milestones (M0–M4). See the
-[open issues](https://github.com/programmism/brainiac/issues) and [milestones](https://github.com/programmism/brainiac/milestones).
+**M0 complete** — Go skeleton, CI (+ deploy smoke test), DB schema/migrations, config, and one-command
+Docker Compose deploy. Next: M1 (core operation set). Tracked as GitHub issues across five milestones
+(M0–M4); see the [open issues](https://github.com/programmism/brainiac/issues) and
+[milestones](https://github.com/programmism/brainiac/milestones).
 
 ## Stack
 
