@@ -219,6 +219,13 @@ Ollama LLM; reviewable in the WebUI consolidation queue.
 
 The librarian pass is **mandatory, not optional** — skipping node dedup is the top failure mode (§11).
 
+**Running it.** `core.Consolidate()` proposes; it never auto-applies. Surfaces:
+- **CLI:** `kb consolidate` prints the report; `kb merge --keep <id> --drop <id>` applies an approved merge
+  (`Core.ApplyMerge`), `supersede`/`link` handle the rest.
+- **Schedule:** external cron, e.g. weekly `0 3 * * 0 kb consolidate` (matches `consolidation.schedule` in
+  config). A scheduled run surfaces candidates for review; humans approve merges via the CLI or the WebUI
+  consolidation queue (#25).
+
 ---
 
 ## 9. Health, scaling, evaluation
@@ -244,6 +251,9 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — CLI consolidate (#35): `kb consolidate` prints the librarian report (merge groups /
+  conflicts / stale / rollups); `kb merge --keep --drop` applies an approved merge. Scheduling is external
+  cron (`0 3 * * 0 kb consolidate`) per config `consolidation.schedule` — documented in §8. (#35)
 - **2026-07-01** — M3 started. Consolidation core (#23/#24): migration 0002 adds `edges.flagged_stale`.
   Lifecycle ops `FlagStale`/`Confirm`/`ProposeMerges`; `Consolidate()` runs the librarian pass returning
   merge groups (normalized-name dups), conflicts (same from+type, different target), stale-flagged edges,
