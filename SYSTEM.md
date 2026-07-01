@@ -70,21 +70,21 @@ the core; MCP and WebUI both call it. The MCP server is ~50 lines of tool defini
 
 | Area | Choice | Why (and what we rejected) |
 |---|---|---|
-| **Language** | **Python 3.12+** | First-class official MCP SDK; best embedding/data ecosystem; one language across core + MCP + HTTP + CLI so logic is never duplicated. Rejected: Go (single binary, but Postgres+Ollama still need Compose, and the LLM/data ecosystem is thinner); TS (viable, but Python is stronger for the data/embedding side). |
-| **Core shape** | One package `brainiac`, `core/` is the sole home of logic | PRD §3.1. Clients import/forward to `core`; they never hold logic. |
+| **Language** | **Go 1.23+** | The app is an HTTP server + Postgres + Ollama-over-HTTP + MCP tools — **no in-process ML**, so Python's data/embedding-ecosystem edge does not apply here. Go wins on the two hard requirements: a single static binary in a tiny distroless image (trivial deploy) and ~20–50 MB RAM on the shared 4 GB prototype box (OS + Postgres + Ollama). Also matches the goroutly stack. Rejected: Python (heavier RAM/image, separate stack; its only edge — the mature MCP SDK + reference memory server — is easily ported); TS (viable, heavier than Go). |
+| **Core shape** | Module `github.com/programmism/brainiac`; package `core` is the sole home of logic | PRD §3.1. Clients (`cmd/mcp`, `cmd/http`, `cmd/cli`) forward to `core`; they never hold logic. |
 | **Database** | **Postgres 16 + pgvector** (`pgvector/pgvector:pg16`) | One DB, two layers. Hot path `recall` joins graph→chunks by `source_uri` in one SQL join; one transaction; one backup; consolidation walks both layers as queries. Rejected: graph-in-JSON + separate vector store (cross-store glue, sync risk). |
-| **DB access** | `psycopg` 3, raw SQL in a thin repository layer | Repositories are the only place SQL lives. Rejected: heavy ORM (hides vector SQL, fights pgvector operators). |
-| **Migrations** | Forward-only SQL files + a tiny runner (applied on boot + `cli migrate`) | Schema is stable as we scale (add indexes, quantize — we don't reshape). Keep it boring. |
+| **DB access** | **pgx** + **pgvector-go**, raw SQL in a thin repository layer | Repositories are the only place SQL lives; pgvector-go gives `halfvec` types. Rejected: heavy ORM (hides vector SQL, fights pgvector operators). |
+| **Migrations** | Forward-only SQL files via **goose** (embedded, applied on boot + `cli migrate`) | Schema is stable as we scale (add indexes, quantize — we don't reshape). Keep it boring. |
 | **Vectors** | `halfvec(768)` + HNSW on hot tier | nomic-embed-text = 768 dims; halfvec halves RAM at negligible loss. Room to go int8/binary later (§7). |
 | **Embeddings** | **Ollama `nomic-embed-text`** (~270 MB, 768-dim) | The genuinely-free workhorse; light on CPU. Embedder is a plugin, so not bound to Ollama. |
-| **HTTP API** | **FastAPI** (async) | Serves WebUI + generic REST + OpenAPI. Thin adapter over core. |
-| **MCP server** | Official Python `mcp` SDK | Tool shapes referenced from `modelcontextprotocol/servers` *memory* server; we replace its flat-jsonl store with core/Postgres and add the vector ops it lacks. |
-| **CLI** | **Typer** | `kb import/refresh/consolidate/reembed/health/migrate` for operators + cron. |
-| **Config** | Single **YAML** (`config.yaml`) + env for secrets, via pydantic-settings | All domain specificity in one file (PRD §19). Same engine, different domain = different YAML. |
-| **WebUI v1** | One static HTML+JS file served by FastAPI (read-only) | PRD §6.2 phasing — removes 80% of "I don't want the terminal" in a few evenings. Interactive (React/Svelte) + graph (Cytoscape/react-force-graph) come later. |
+| **HTTP API** | **net/http** (stdlib routing, Go 1.22+) + **chi** middleware | Serves WebUI + generic REST. Thin adapter over core; minimal deps. |
+| **MCP server** | Official **Go** MCP SDK (fallback `mark3labs/mcp-go`) | Tool shapes referenced from `modelcontextprotocol/servers` *memory* server; we replace its flat-jsonl store with core/Postgres and add the vector ops it lacks. |
+| **CLI** | **cobra** | `kb import/refresh/consolidate/reembed/health/migrate` for operators + cron. |
+| **Config** | Single **YAML** (`config.yaml`) via `yaml.v3` + env for secrets | All domain specificity in one file (PRD §19). Same engine, different domain = different YAML. |
+| **WebUI v1** | One static HTML+JS file embedded via `embed.FS` and served by the Go app (read-only) | PRD §6.2 phasing — removes 80% of "I don't want the terminal" in a few evenings. Interactive (React/Svelte) + graph (Cytoscape/react-force-graph) come later. |
 | **Reverse proxy** | **Caddy** (auto-TLS + auth) | Fronts MCP + WebUI; Postgres never exposed (PRD §16). |
-| **Deploy** | **Docker Compose**, one command | See §4 — the headline requirement. |
-| **CI** | GitHub Actions: ruff + mypy + pytest with a pgvector service container | Gate every PR. |
+| **Deploy** | **Docker Compose**, one command; app image = distroless/static with the Go binary | See §4 — the headline requirement. |
+| **CI** | GitHub Actions: `gofmt` + `golangci-lint` + `go test` with a pgvector service container | Gate every PR. |
 
 If any decision here changes, edit this table and add a dated line to §10 (Decision Log).
 
@@ -104,8 +104,8 @@ docker compose up         # → healthy stack: db + ollama + app
 Compose brings up three services:
 - **`db`** — `pgvector/pgvector:pg16`, internal network only, named volume for data.
 - **`ollama`** — local embeddings; a bootstrap step runs `ollama pull nomic-embed-text` on first boot.
-- **`app`** — the Python service (core + MCP + HTTP + CLI). On boot it applies migrations idempotently
-  and waits for `db`/`ollama` healthchecks.
+- **`app`** — the Go service, a single static binary (core + MCP + HTTP + CLI) in a distroless image. On
+  boot it applies migrations idempotently and waits for `db`/`ollama` healthchecks.
 
 Design constraints for deploy:
 - **No manual steps** beyond editing `.env`. Model pull + schema migration are automatic and idempotent.
@@ -231,8 +231,12 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
-- **2026-07-01** — Bootstrapped repo + full milestone backlog (#1–#35). Chose Python + Postgres/pgvector
-  + Ollama + FastAPI + Typer + Docker Compose. Rationale captured in §3. (#1)
+- **2026-07-01** — **Language set to Go** (was tentatively Python). The app has no in-process ML
+  (embeddings are Ollama-over-HTTP), so Python's ecosystem edge does not apply; Go wins on the two hard
+  requirements — single static binary / tiny image (deploy) and low RAM on the 4 GB box — and matches
+  goroutly. Stack: net/http+chi, pgx+pgvector-go, goose, cobra, Go MCP SDK. §3 updated. (#37)
+- **2026-07-01** — Bootstrapped repo + full milestone backlog (#1–#35). Postgres/pgvector + Ollama +
+  Docker Compose. Rationale captured in §3. (#1)
 
 ---
 
