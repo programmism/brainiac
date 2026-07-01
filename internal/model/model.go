@@ -63,6 +63,7 @@ type Edge struct {
 	SourceLocator   map[string]any `json:"source_locator,omitempty"`
 	Author          string         `json:"author,omitempty"`
 	Status          Status         `json:"status"`
+	FlaggedStale    bool           `json:"flagged_stale"`
 	CreatedAt       time.Time      `json:"created_at"`
 	LastConfirmedAt *time.Time     `json:"last_confirmed_at,omitempty"`
 }

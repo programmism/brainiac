@@ -244,6 +244,12 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — M3 started. Consolidation core (#23/#24): migration 0002 adds `edges.flagged_stale`.
+  Lifecycle ops `FlagStale`/`Confirm`/`ProposeMerges`; `Consolidate()` runs the librarian pass returning
+  merge groups (normalized-name dups), conflicts (same from+type, different target), stale-flagged edges,
+  and rollup candidates (≥5 edges) — all human-reviewable, nothing auto-applied. `ApplyMerge` folds a
+  duplicate into a keeper (repoint edges, merge aliases, mark historical — reversible), atomic. Health
+  gains `% edges stale`. DB-gated test covers the whole flow. (#23,#24)
 - **2026-07-01** — Notion connector (#19, ADR 0002 — **M2 complete**): `internal/plugins/notion`
   implements `plugins.SourceConnector` over the Notion API — `Fetch` paginates `/v1/search`, recurses
   page blocks (bounded), flattens rich-text → `RawDoc` (URL provenance + `page_id`/`last_edited_time`

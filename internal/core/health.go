@@ -13,6 +13,7 @@ type HealthMetrics struct {
 	store.Counts
 	EdgesPerNode        float64 `json:"edges_per_node"`
 	PercentNodesHistory float64 `json:"percent_nodes_historical"`
+	PercentEdgesStale   float64 `json:"percent_edges_stale"`
 }
 
 // Health returns the current health metrics.
@@ -27,6 +28,9 @@ func (c *Core) Health(ctx context.Context) (HealthMetrics, error) {
 	}
 	if total := counts.Nodes + counts.NodesHistorical; total > 0 {
 		m.PercentNodesHistory = 100 * float64(counts.NodesHistorical) / float64(total)
+	}
+	if counts.Edges > 0 {
+		m.PercentEdgesStale = 100 * float64(counts.EdgesStale) / float64(counts.Edges)
 	}
 	return m, nil
 }
