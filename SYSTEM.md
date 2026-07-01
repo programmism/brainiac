@@ -4,11 +4,11 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** M0–M3 complete. On top of the capture→recall core (MCP + CLI), the system has the density
-selector, ingest pipeline, Notion connector, REST API, and a WebUI with search / recall / **consolidation
-queue** / **graph** / health. The librarian pass (dedup / conflict / staleness / rollups) runs via CLI,
-WebUI, and cron. Next: M4 (reverse proxy + auth, backups, golden-set eval, storage optimizations, 2nd
-connector). See the backlog on GitHub.
+**Status:** **M0–M4 complete — the full roadmap is done.** capture→recall core (MCP + CLI), ingestion +
+density selection, Notion **and** Markdown connectors (plugin seams frozen), read-only + interactive
+WebUI (search / recall / consolidation queue / graph / health), the librarian pass (CLI + WebUI + cron),
+reverse proxy + auth (Caddy), daily backups, recall@k eval, and storage optimizations (reembed, tiering).
+Beyond the backlog, work is now maintenance + evolution.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
 
 ---
@@ -253,6 +253,12 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Markdown connector + seams frozen (#31, **M4 & roadmap complete**):
+  `internal/plugins/markdown` implements `plugins.SourceConnector` over a folder of `.md`/`.markdown`
+  files (`markdown://<rel>` provenance). `kb import --source markdown --path <dir>`. Built as the
+  deliberate **second** connector — the `SourceConnector` interface fit both Notion and Markdown with no
+  changes, so the plugin seams are now declared **stable** (PRD §2.3, §20.4). Unit-tested against a temp
+  dir. (#31)
 - **2026-07-01** — Storage optimizations (#30): `Core.Reembed` rebuilds every chunk's vector from stored
   raw text (the embedding-model-upgrade path, no source re-read — §13.5), exposed as `kb reembed`.
   `Core.SetChunkTier` moves chunks hot↔cold (cold excluded from default search — §13.4). Quantization

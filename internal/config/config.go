@@ -60,6 +60,7 @@ type SourceConfig struct {
 	Type      string `yaml:"type"`
 	Selection string `yaml:"selection"`
 	Token     string `yaml:"token,omitempty"`
+	Path      string `yaml:"path,omitempty"` // for file-based connectors (markdown)
 }
 
 // Source returns the first configured source of the given type, or nil.

@@ -30,6 +30,9 @@ sources:
   - type: notion
     selection: density-filter
     # token: secret_xxx        # prefer NOTION_TOKEN in the environment
+  # - type: markdown           # kb import --source markdown [--path DIR]
+  #   selection: density-filter
+  #   path: ./docs
   # - type: git               # added when the 2nd domain is real
   #   selection: code-aware
 
