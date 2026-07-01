@@ -256,6 +256,13 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Observability + HTTP hardening (#75/#77/#87): request logging (`RequestID`+`Logger`);
+  a hand-rolled `internal/metrics` (latency histogram + pull gauges) exposed at **`/metrics`** (Prometheus
+  text, no heavy dep) with a `brainiac_vector_index_bytes` gauge (the ★ index-vs-RAM signal via
+  `pg_relation_size`); `/api/health` now includes `version`, `vector_index_bytes`, `latency_p50/p95_ms`;
+  `/healthz` includes `version`. Embedder outage → **503** (`core.ErrEmbed`) instead of 500; 5xx errors are
+  logged server-side and returned generically (no internal leak). Server `Read/Write/Idle` timeouts set.
+  Resolves the "★ metrics declared but unmeasured" gap. (#75, #77, #87)
 - **2026-07-01** — Secure by default (#69, last P0): the app binds **host-localhost only**
   (`127.0.0.1:8080` in compose) — not the LAN. **Write endpoints are off by default**: mounted only when
   `clients.webui=interactive` AND `AUTH_TOKEN` is set, then gated by `Authorization: Bearer` (constant-time
