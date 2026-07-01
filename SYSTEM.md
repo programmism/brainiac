@@ -253,6 +253,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Backups (#28): `scripts/backup.sh` (gzipped `pg_dump --clean` through the `db`
+  container, retention `BACKUP_RETENTION`=14) + `scripts/restore.sh` (confirmed restore) +
+  `docs/operations.md` runbook (daily cron). One DB → one consistent snapshot covers graph + vectors +
+  provenance (§16). (#28)
 - **2026-07-01** — **Test isolation fix.** DB-backed tests across packages share one Postgres and each
   `TRUNCATE` — `go test ./...` runs packages in parallel, so they stomped each other (intermittent
   failures like "recall nodes missing"). CI now runs `go test -race -count=1 -p 1 ./...` (packages

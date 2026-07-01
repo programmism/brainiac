@@ -29,4 +29,4 @@ behind Caddy, which adds TLS + basic auth. See [`../Caddyfile`](../Caddyfile).
    mapping so only Caddy (80/443) is reachable; Postgres stays on the internal network.
 
 ## Backups
-Daily `pg_dump` + restore runbook — added in #28.
+See [operations: backup & restore](operations.md).
