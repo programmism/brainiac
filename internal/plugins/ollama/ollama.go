@@ -16,12 +16,16 @@ import (
 	"github.com/programmism/brainiac/internal/plugins"
 )
 
+// DefaultRetries is the number of embed attempts before giving up.
+const DefaultRetries = 3
+
 // Embedder produces embeddings via Ollama's /api/embeddings endpoint.
 type Embedder struct {
 	baseURL string
 	model   string
 	dims    int
 	client  *http.Client
+	retries int
 }
 
 // Option customizes an Embedder.
@@ -32,6 +36,11 @@ func WithHTTPClient(c *http.Client) Option {
 	return func(e *Embedder) { e.client = c }
 }
 
+// WithRetries sets how many attempts Embed makes on transient failures.
+func WithRetries(n int) Option {
+	return func(e *Embedder) { e.retries = n }
+}
+
 // New builds an Ollama embedder for the given base URL, model, and dimension.
 func New(baseURL, model string, dims int, opts ...Option) *Embedder {
 	e := &Embedder{
@@ -39,6 +48,7 @@ func New(baseURL, model string, dims int, opts ...Option) *Embedder {
 		model:   model,
 		dims:    dims,
 		client:  &http.Client{Timeout: 30 * time.Second},
+		retries: DefaultRetries,
 	}
 	for _, o := range opts {
 		o(e)
@@ -58,9 +68,34 @@ type embedResponse struct {
 	Embedding []float64 `json:"embedding"`
 }
 
-// Embed returns the vector for text. A non-2xx response or an empty vector is an
-// error; callers may queue ingest on failure (graceful degradation, §11).
+// Embed returns the vector for text, retrying transient failures with
+// exponential backoff. A persistent failure is returned so callers may queue
+// ingest (graceful degradation, §11).
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	attempts := e.retries
+	if attempts < 1 {
+		attempts = 1
+	}
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(100<<uint(attempt-1)) * time.Millisecond // 100ms, 200ms, 400ms…
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+		vec, err := e.embedOnce(ctx, text)
+		if err == nil {
+			return vec, nil
+		}
+		lastErr = err
+	}
+	return nil, lastErr
+}
+
+func (e *Embedder) embedOnce(ctx context.Context, text string) ([]float32, error) {
 	payload, err := json.Marshal(embedRequest{Model: e.model, Prompt: text})
 	if err != nil {
 		return nil, err

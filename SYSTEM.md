@@ -4,7 +4,10 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** **M0–M4 complete — the full roadmap is done.** capture→recall core (MCP + CLI), ingestion +
+**Status:** M0–M4 roadmap complete; now hardening for real production use (**M5**, see
+[docs/production-readiness.md](docs/production-readiness.md)).
+
+**M0–M4 complete — the full roadmap is done.** capture→recall core (MCP + CLI), ingestion +
 density selection, Notion **and** Markdown connectors (plugin seams frozen), read-only + interactive
 WebUI (search / recall / consolidation queue / graph / health), the librarian pass (CLI + WebUI + cron),
 reverse proxy + auth (Caddy), daily backups, recall@k eval, and storage optimizations (reembed, tiering).
@@ -251,7 +254,17 @@ as the adoption signal.
 
 ## 10. Decision Log
 
-Newest first. One line per notable decision; link to the PR/issue.
+Newest first.
+
+- **2026-07-01** — M5 (production readiness) started. **Actualization + ingest resilience (#68/#72):**
+  `Ingest` now reconciles **per document in one transaction** — unchanged chunks kept (by
+  `(hash)` for the source), edited-away/removed chunks **deleted** (`DeleteChunksBySourceURINotIn`), new
+  chunks inserted; so re-importing an edited doc no longer accumulates stale chunks. `source_modified_at`
+  is populated from the connector (Notion `last_edited_time`, Markdown mtime → `RawDoc.ModifiedAt`).
+  Embeddings computed outside the tx; the Ollama embedder retries transient failures with backoff
+  (`WithRetries`, default 3); a failed document is counted (`IngestStats.Failed`/`Deleted`) and skipped so
+  the run continues. Post-roadmap audit recorded in [docs/production-readiness.md](docs/production-readiness.md)
+  (#68–#87). (#68, #72) One line per notable decision; link to the PR/issue.
 
 - **2026-07-01** — Markdown connector + seams frozen (#31, **M4 & roadmap complete**):
   `internal/plugins/markdown` implements `plugins.SourceConnector` over a folder of `.md`/`.markdown`

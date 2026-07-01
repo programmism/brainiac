@@ -14,6 +14,7 @@ package plugins
 import (
 	"context"
 	"iter"
+	"time"
 )
 
 // RawDoc is a document produced by a connector, before selection and chunking.
@@ -22,6 +23,9 @@ type RawDoc struct {
 	SourceURI     string
 	SourceLocator map[string]any
 	Metadata      map[string]any
+	// ModifiedAt is the source's last-edited time, if the connector knows it.
+	// Stored as chunks.source_modified_at to power staleness signals.
+	ModifiedAt *time.Time
 }
 
 // ChangeKind classifies a source-side change.
