@@ -256,6 +256,9 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Startup + connector resilience (#78/#79): `store.ConnectWithRetry` (exponential
+  backoff, 60s cap) so `cmd/http`/`cmd/mcp` wait for Postgres instead of crash-looping. The Notion `do`
+  now retries **429** honoring `Retry-After` (bounded). (#78, #79)
 - **2026-07-01** — Retrieval/robustness bundle (#73/#74/#82/#84): recall traversal is **bounded** —
   `EdgesForNode` takes a limit (50/node) + caps on total edges (100) and evidence (30), so a hub node
   can't flood the bundle. **Embedding-dim validation**: `config.Validate` requires `dims == 768`
