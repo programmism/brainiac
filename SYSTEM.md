@@ -243,6 +243,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — M1 started. The four plugin interfaces + shared value types (`RawDoc`, `Change`,
+  `Entity`/`Relation`/`Extraction`, `Score`/`Decision`) landed in `internal/plugins`, with a generic
+  `Registry[T]` for config-by-name selection. Connectors use Go 1.23 range-over-func iterators
+  (`iter.Seq2`). No implementations yet (one per seam later). Fully unit-tested. (#7)
 - **2026-07-01** — One-command Docker Compose deploy landed (M0 done): `Dockerfile` (multi-stage →
   distroless static, ~small image), `docker-compose.yml` (db + ollama + ollama-pull + app), `.env.example`.
   App auto-migrates on boot and exposes `/healthz` + `/readyz` (`internal/server`); container
