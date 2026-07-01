@@ -54,10 +54,22 @@ type ConsolidationConfig struct {
 	Merge    string `yaml:"merge"`
 }
 
-// SourceConfig declares one connector and its selection strategy.
+// SourceConfig declares one connector and its selection strategy. Token is a
+// secret — prefer setting it via the environment (e.g. NOTION_TOKEN).
 type SourceConfig struct {
 	Type      string `yaml:"type"`
 	Selection string `yaml:"selection"`
+	Token     string `yaml:"token,omitempty"`
+}
+
+// Source returns the first configured source of the given type, or nil.
+func (c *Config) Source(typ string) *SourceConfig {
+	for i := range c.Sources {
+		if c.Sources[i].Type == typ {
+			return &c.Sources[i]
+		}
+	}
+	return nil
 }
 
 // ClientsConfig toggles the surfaces.
@@ -122,6 +134,13 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("HTTP_ADDR"); v != "" {
 		c.HTTP.Addr = v
+	}
+	if v := os.Getenv("NOTION_TOKEN"); v != "" {
+		for i := range c.Sources {
+			if c.Sources[i].Type == "notion" {
+				c.Sources[i].Token = v
+			}
+		}
 	}
 }
 

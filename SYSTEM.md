@@ -4,10 +4,9 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** M0 + M1 complete. One-command deploy, plugin seams, Ollama embedder, data-access, the full
-core operation set (search/remember/link/recall/supersede), the MCP server, and the cobra CLI all landed
-— the **capture→recall loop works end-to-end from both Claude (MCP) and the CLI**. Next: M2 (ingestion,
-selection, Notion connector, REST API, read-only WebUI). See the backlog on GitHub.
+**Status:** M0 + M1 + M2 complete. On top of the capture→recall core (MCP + CLI), the system now has the
+density selector, the ingest pipeline, the Notion connector, a read-only REST API, and a WebUI (search /
+recall / health). Next: M3 (consolidation / librarian pass + interactive WebUI). See the backlog on GitHub.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
 
 ---
@@ -245,6 +244,12 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Notion connector (#19, ADR 0002 — **M2 complete**): `internal/plugins/notion`
+  implements `plugins.SourceConnector` over the Notion API — `Fetch` paginates `/v1/search`, recurses
+  page blocks (bounded), flattens rich-text → `RawDoc` (URL provenance + `page_id`/`last_edited_time`
+  locator); `Watch` emits upserts. Token via config `sources[].token` / `NOTION_TOKEN`. `kb import
+  --source notion` now runs the real ingest. Unit-tested against a mocked Notion API (pagination +
+  flattening). Live token/scope to verify at deploy time. (#19)
 - **2026-07-01** — Read-only WebUI (#21, M2 done): `internal/webui` embeds a single static page
   (`embed.FS`) with Search / Recall / Health tabs (vanilla JS → `/api/*`); mounted by `server` as a
   catch-all after the API/health routes. UI is a client only — all logic stays in core. Unit tests cover

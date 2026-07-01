@@ -29,6 +29,7 @@ consolidation:
 sources:
   - type: notion
     selection: density-filter
+    # token: secret_xxx        # prefer NOTION_TOKEN in the environment
   # - type: git               # added when the 2nd domain is real
   #   selection: code-aware
 
