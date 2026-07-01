@@ -1,0 +1,17 @@
+# Dev override: exposes Postgres and Ollama on localhost so you can run the
+# host-built binaries (kb / brainiac-mcp) directly, if you prefer that over
+# `docker compose exec`.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# Then, from the host (after `go build -o bin/ ./cmd/...`):
+#   DATABASE_URL='postgres://brainiac:brainiac@localhost:5432/brainiac?sslmode=disable' \
+#   OLLAMA_URL='http://localhost:11434' ./bin/cli health
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:5432:5432"
+  ollama:
+    ports:
+      - "127.0.0.1:11434:11434"

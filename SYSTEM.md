@@ -256,6 +256,12 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Laptop DX (#101): the image now builds **all three** binaries (`/brainiac` http,
+  `/kb`, `/brainiac-mcp`), so first use needs **no Go and no exposed ports** — run `docker compose exec
+  app /kb …` (the container already has DATABASE_URL + OLLAMA_URL) and point Claude Desktop at
+  `docker compose exec -T app /brainiac-mcp`. `./data:/data:ro` mount for `kb import --source markdown`;
+  `docker-compose.dev.yml` optionally exposes db/ollama for host tooling. Guide: `docs/laptop.md`;
+  Makefile `import`/`kb`/`mcp-config` helpers. (#101)
 - **2026-07-01** — Content-defined chunking (#99): replaced positional chunking with a Gear/FastCDC-style
   rolling-hash chunker (`internal/chunk`, deterministic gear table, min/target/max bounds, cuts snapped to
   the nearest line/word break, UTF-8 safe). Boundaries are now **content-defined and self-healing**, so an
