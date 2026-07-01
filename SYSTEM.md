@@ -328,8 +328,8 @@ Newest first. One line per notable decision; link to the PR/issue.
 
 ## 12. Open questions
 
-- Notion ingestion path: native connector vs export (research spike, #33).
-- Core↔WebUI transport: REST vs MCP-also-serving-HTTP (research spike, #34) — pick once, keep clients thin.
-- Cold-tier tech if the archive outgrows pgvector (Qdrant/Milvus) and the two-store join at that scale (#... M4).
+- ~~Notion ingestion path~~ — **resolved**: native API connector, see [ADR 0002](docs/decisions/0002-notion-ingestion-path.md) (#32).
+- ~~Core↔WebUI transport~~ — **resolved**: REST (net/http+chi), MCP separate, see [ADR 0001](docs/decisions/0001-core-webui-transport.md) (#33).
+- Cold-tier tech if the archive outgrows pgvector (Qdrant/Milvus) and the two-store join at that scale (#34, M4).
 - Whether to ever introduce a local consolidation LLM, or keep all LLM work in Claude-in-chat.
 - Multi-team isolation vs shared graph (namespaces vs one corpus).
