@@ -256,6 +256,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Ops & config hardening (#80/#85/#86 — **M5 complete**): compose gains per-service
+  `mem_limit`/`cpus` (sized to the 4 GB box) and json-file **log rotation** (via a shared anchor), plus a
+  **backup sidecar** (`--profile backup`, daily `pg_dump`, keeps 14). `config.Validate` now also requires
+  `embedding.provider/model/base_url`; `config.RedactedDSN` masks the password (used in the startup log).
+  `restore.sh --force` runs unattended. (#80, #85, #86)
 - **2026-07-01** — Ingestion quality (#81/#83): `chunkText` now splits oversized paragraphs on
   **word/rune boundaries** (never mid-word or mid-rune) with a ~12% **overlap** (word-aligned) so
   boundary-spanning facts stay retrievable. Density selector: `hasEntityLike` catches acronyms/identifiers

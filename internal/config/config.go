@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
 
 	"github.com/programmism/brainiac/internal/model"
@@ -164,5 +165,20 @@ func (c *Config) Validate() error {
 	if c.Embedding.Dims != model.SchemaEmbeddingDims {
 		return fmt.Errorf("embedding.dims must be %d to match the schema, got %d", model.SchemaEmbeddingDims, c.Embedding.Dims)
 	}
+	if c.Embedding.Provider == "" || c.Embedding.Model == "" || c.Embedding.BaseURL == "" {
+		return errors.New("embedding.provider, embedding.model and embedding.base_url must all be set")
+	}
 	return nil
+}
+
+// RedactedDSN masks the password in a DSN for safe logging.
+func RedactedDSN(dsn string) string {
+	u, err := url.Parse(dsn)
+	if err != nil || u.User == nil {
+		return dsn
+	}
+	if _, hasPw := u.User.Password(); hasPw {
+		u.User = url.UserPassword(u.User.Username(), "****")
+	}
+	return u.String()
 }
