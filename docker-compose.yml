@@ -63,6 +63,28 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Reverse proxy + auth + TLS. Enable with: docker compose --profile proxy up
+  # In production, drop the app's host port mapping above so only Caddy is exposed.
+  caddy:
+    image: caddy:2
+    profiles: ["proxy"]
+    depends_on:
+      - app
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:-admin}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
 volumes:
   pgdata:
   ollama:
+  caddy_data:
+  caddy_config:
