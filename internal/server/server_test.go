@@ -6,12 +6,30 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
+
+func TestWebUIMounted(t *testing.T) {
+	h := New(fakePinger{}, nil, nil)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / = %d, want 200", rec.Code)
+	}
+	if !bytesContains(rec.Body.Bytes(), "Brainiac") {
+		t.Fatal("root did not serve the WebUI")
+	}
+}
+
+func bytesContains(b []byte, s string) bool {
+	return len(b) > 0 && strings.Contains(string(b), s)
+}
 
 func do(t *testing.T, h http.Handler, path string) (int, map[string]string) {
 	t.Helper()

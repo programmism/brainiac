@@ -245,6 +245,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Read-only WebUI (#21, M2 done): `internal/webui` embeds a single static page
+  (`embed.FS`) with Search / Recall / Health tabs (vanilla JS → `/api/*`); mounted by `server` as a
+  catch-all after the API/health routes. UI is a client only — all logic stays in core. Unit tests cover
+  embed serving + server mount. (#21)
 - **2026-07-01** — REST API (#20, ADR 0001): `internal/server` now uses **chi** and mounts read-only
   `/api/health`, `/api/search?q&k`, `/api/recall?q` over core (alongside `/healthz`/`/readyz`); `cmd/http`
   builds the core and passes it in. Writes stay on MCP/CLI (WebUI is read-only). Added `json` tags to
