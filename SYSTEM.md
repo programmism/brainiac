@@ -256,6 +256,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Secure by default (#69, last P0): the app binds **host-localhost only**
+  (`127.0.0.1:8080` in compose) — not the LAN. **Write endpoints are off by default**: mounted only when
+  `clients.webui=interactive` AND `AUTH_TOKEN` is set, then gated by `Authorization: Bearer` (constant-time
+  compare); merge body capped at 64 KiB. Reads stay open (protect via the Caddy proxy). `server.New` takes
+  an `Options{Writable, AuthToken}`. DB-gated test: `/api/merge` is 401 without the token, 200 with. (#69)
 - **2026-07-01** — Retrieval relevance floor (#70): `Search` and `Recall` now drop hits beyond a cosine
   cutoff (`MaxRelevantDistance`, default 0.75) so off-topic queries no longer return confidently-cited
   garbage chunks/nodes. Tunable against the eval harness (#29). (#70)

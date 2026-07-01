@@ -28,5 +28,15 @@ behind Caddy, which adds TLS + basic auth. See [`../Caddyfile`](../Caddyfile).
 4. **Do not expose the app or Postgres directly.** In production, remove the `app` service's host port
    mapping so only Caddy (80/443) is reachable; Postgres stays on the internal network.
 
+## Security defaults
+- The app binds to **host-localhost only** (`127.0.0.1:8080`) — not the LAN. Production exposes it solely
+  through Caddy (proxy profile).
+- **Write endpoints** (`/api/merge`, `/api/edges/{id}/confirm|flag-stale`, the WebUI merge/confirm
+  buttons) are **disabled by default**. To enable them:
+  1. set `clients.webui: interactive` in `config.yaml`;
+  2. set a strong `AUTH_TOKEN` in `.env`;
+  then send `Authorization: Bearer <AUTH_TOKEN>` with write requests. Reads stay open — protect them with
+  the Caddy proxy.
+
 ## Backups
 See [operations: backup & restore](operations.md).

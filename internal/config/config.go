@@ -27,6 +27,9 @@ type Config struct {
 // HTTPConfig configures the REST/WebUI server.
 type HTTPConfig struct {
 	Addr string `yaml:"addr"`
+	// AuthToken, if set, is the bearer token required for write endpoints.
+	// Prefer setting it via AUTH_TOKEN in the environment.
+	AuthToken string `yaml:"auth_token,omitempty"`
 }
 
 // StorageConfig points at Postgres. DSN is a secret — set it via DATABASE_URL.
@@ -135,6 +138,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("HTTP_ADDR"); v != "" {
 		c.HTTP.Addr = v
+	}
+	if v := os.Getenv("AUTH_TOKEN"); v != "" {
+		c.HTTP.AuthToken = v
 	}
 	if v := os.Getenv("NOTION_TOKEN"); v != "" {
 		for i := range c.Sources {
