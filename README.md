@@ -31,7 +31,7 @@ Foundation / bootstrap. The build is tracked as GitHub issues across five milest
 
 ## Stack
 
-Go 1.23+ · Postgres 16 + pgvector · Ollama (`nomic-embed-text`) · net/http + chi · pgx · cobra · MCP ·
+Go 1.25+ · Postgres 16 + pgvector · Ollama (`nomic-embed-text`) · net/http + chi · pgx · cobra · MCP ·
 Docker Compose · Caddy. See [SYSTEM.md §3](SYSTEM.md#3-technology-decisions-and-why) for the rationale
 behind each choice.
 
