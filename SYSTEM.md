@@ -4,7 +4,7 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** Foundation / bootstrap. No runtime code yet — see the milestone backlog on GitHub.
+**Status:** M0 in progress — Go skeleton, CI, and DB schema/migrations landed; Docker Compose + config next. See the milestone backlog on GitHub.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
 
 ---
@@ -70,11 +70,11 @@ the core; MCP and WebUI both call it. The MCP server is ~50 lines of tool defini
 
 | Area | Choice | Why (and what we rejected) |
 |---|---|---|
-| **Language** | **Go 1.23+** | The app is an HTTP server + Postgres + Ollama-over-HTTP + MCP tools — **no in-process ML**, so Python's data/embedding-ecosystem edge does not apply here. Go wins on the two hard requirements: a single static binary in a tiny distroless image (trivial deploy) and ~20–50 MB RAM on the shared 4 GB prototype box (OS + Postgres + Ollama). Also matches the goroutly stack. Rejected: Python (heavier RAM/image, separate stack; its only edge — the mature MCP SDK + reference memory server — is easily ported); TS (viable, heavier than Go). |
+| **Language** | **Go 1.25+** | The app is an HTTP server + Postgres + Ollama-over-HTTP + MCP tools — **no in-process ML**, so Python's data/embedding-ecosystem edge does not apply here. Go wins on the two hard requirements: a single static binary in a tiny distroless image (trivial deploy) and ~20–50 MB RAM on the shared 4 GB prototype box (OS + Postgres + Ollama). Also matches the goroutly stack. Rejected: Python (heavier RAM/image, separate stack; its only edge — the mature MCP SDK + reference memory server — is easily ported); TS (viable, heavier than Go). |
 | **Core shape** | Module `github.com/programmism/brainiac`; package `core` is the sole home of logic | PRD §3.1. Clients (`cmd/mcp`, `cmd/http`, `cmd/cli`) forward to `core`; they never hold logic. |
 | **Database** | **Postgres 16 + pgvector** (`pgvector/pgvector:pg16`) | One DB, two layers. Hot path `recall` joins graph→chunks by `source_uri` in one SQL join; one transaction; one backup; consolidation walks both layers as queries. Rejected: graph-in-JSON + separate vector store (cross-store glue, sync risk). |
 | **DB access** | **pgx** + **pgvector-go**, raw SQL in a thin repository layer | Repositories are the only place SQL lives; pgvector-go gives `halfvec` types. Rejected: heavy ORM (hides vector SQL, fights pgvector operators). |
-| **Migrations** | Forward-only SQL files via **goose** (embedded, applied on boot + `cli migrate`) | Schema is stable as we scale (add indexes, quantize — we don't reshape). Keep it boring. |
+| **Migrations** | Forward-only SQL files run by a **tiny embedded runner** (`internal/store`, `embed.FS`, applied on boot + `kb migrate`) | ~60 LOC, zero external migration dep, tracked in `schema_migrations`, each file atomic. Schema is stable as we scale (add indexes, quantize — we don't reshape), so a full framework (goose) is unwarranted. |
 | **Vectors** | `halfvec(768)` + HNSW on hot tier | nomic-embed-text = 768 dims; halfvec halves RAM at negligible loss. Room to go int8/binary later (§7). |
 | **Embeddings** | **Ollama `nomic-embed-text`** (~270 MB, 768-dim) | The genuinely-free workhorse; light on CPU. Embedder is a plugin, so not bound to Ollama. |
 | **HTTP API** | **net/http** (stdlib routing, Go 1.22+) + **chi** middleware | Serves WebUI + generic REST. Thin adapter over core; minimal deps. |
@@ -231,6 +231,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Core schema (`chunks`/`nodes`/`edges`, halfvec(768), HNSW on hot chunks) + a tiny
+  embedded forward-only migration runner (`internal/store`) landed; `kb migrate` wired; validated in CI
+  against the pgvector service (local `go test` skips without `DATABASE_URL`). Chose a ~60-LOC runner
+  over goose — no external migration dep, forward-only matches our stable-schema stance. Added pgx as
+  the only DB dependency. (#4)
 - **2026-07-01** — Go module scaffolding landed: `internal/core` (sole logic home) + `internal/plugins`,
   thin clients `cmd/cli` (binary `kb`), `cmd/http` (`brainiac-http`), `cmd/mcp` (`brainiac-mcp`),
   zero external deps yet. `Makefile` (fmt/lint/test/build/up/down), golangci-lint v2, version via
