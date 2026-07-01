@@ -117,6 +117,36 @@ func TestLinkCreatesNodesAndEdge(t *testing.T) {
 	}
 }
 
+func TestLinkIsIdempotent(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	e1, err := c.Link(ctx, LinkInput{From: "A", Type: "writes_to", To: "B", Why: "first"})
+	if err != nil {
+		t.Fatalf("link 1: %v", err)
+	}
+	e2, err := c.Link(ctx, LinkInput{From: "A", Type: "writes_to", To: "B", Why: "second"})
+	if err != nil {
+		t.Fatalf("link 2: %v", err)
+	}
+	if e1.ID != e2.ID {
+		t.Errorf("repeated link should return the same edge (%s vs %s)", e1.ID, e2.ID)
+	}
+
+	from, _ := store.GetNodeByCanonicalName(ctx, pool, "A")
+	edges, err := store.ListEdgesFrom(ctx, pool, from.ID)
+	if err != nil {
+		t.Fatalf("list edges: %v", err)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("want exactly 1 edge, got %d", len(edges))
+	}
+	if edges[0].Why != "second" {
+		t.Errorf("rationale not refreshed on re-link: %q", edges[0].Why)
+	}
+}
+
 func TestSearchReturnsNearestChunk(t *testing.T) {
 	c, pool := newTestCore(t)
 	defer pool.Close()
