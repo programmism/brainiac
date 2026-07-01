@@ -12,7 +12,5 @@ import (
 )
 
 func main() {
-	c := core.New()
-	_ = c
 	fmt.Printf("brainiac-mcp %s — MCP server (tools land in #15)\n", core.Version)
 }
