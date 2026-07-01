@@ -16,6 +16,11 @@ type HealthMetrics struct {
 	PercentEdgesStale   float64 `json:"percent_edges_stale"`
 }
 
+// IndexSizeBytes returns the hot vector index size on disk.
+func (c *Core) IndexSizeBytes(ctx context.Context) (int64, error) {
+	return store.IndexSizeBytes(ctx, c.pool)
+}
+
 // Health returns the current health metrics.
 func (c *Core) Health(ctx context.Context) (HealthMetrics, error) {
 	counts, err := store.HealthCounts(ctx, c.pool)

@@ -7,6 +7,8 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/metrics"
 	"github.com/programmism/brainiac/internal/webui"
 )
 
@@ -43,14 +46,29 @@ type Options struct {
 //   - POST /api/merge, /api/edges/{id}/confirm|flag-stale — writes, only when
 //     opts.Writable && opts.AuthToken != "", behind bearer auth.
 func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
+	reg := metrics.New()
+
 	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(reg.Middleware)
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": core.Version})
 	})
 	r.Get("/readyz", readyz(db, embedder))
+	r.Handle("/metrics", reg.Handler())
+
+	if c != nil {
+		reg.SetGauge("brainiac_vector_index_bytes", "hot-tier HNSW vector index size in bytes", func() float64 {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			n, _ := c.IndexSizeBytes(ctx)
+			return float64(n)
+		})
+	}
 
 	if c != nil {
 		r.Route("/api", func(r chi.Router) {
@@ -60,7 +78,14 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 					writeError(w, http.StatusInternalServerError, err)
 					return
 				}
-				writeJSON(w, http.StatusOK, m)
+				idx, _ := c.IndexSizeBytes(req.Context())
+				writeJSON(w, http.StatusOK, healthResponse{
+					HealthMetrics:   m,
+					Version:         core.Version,
+					VectorIndexByte: idx,
+					LatencyP50ms:    reg.Quantile(0.50) * 1000,
+					LatencyP95ms:    reg.Quantile(0.95) * 1000,
+				})
 			})
 			r.Get("/search", func(w http.ResponseWriter, req *http.Request) {
 				q := req.URL.Query().Get("q")
@@ -71,7 +96,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				k, _ := strconv.Atoi(req.URL.Query().Get("k"))
 				hits, err := c.Search(req.Context(), q, k)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err)
+					handleCoreErr(w, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, hits)
@@ -84,7 +109,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				}
 				res, err := c.Recall(req.Context(), q)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err)
+					handleCoreErr(w, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, res)
@@ -195,12 +220,37 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 	}
 }
 
+// healthResponse enriches the core metrics with operational fields.
+type healthResponse struct {
+	core.HealthMetrics
+	Version         string  `json:"version"`
+	VectorIndexByte int64   `json:"vector_index_bytes"`
+	LatencyP50ms    float64 `json:"latency_p50_ms"`
+	LatencyP95ms    float64 `json:"latency_p95_ms"`
+}
+
+// handleCoreErr maps an embedder outage to 503 and everything else to 500.
+func handleCoreErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, core.ErrEmbed) {
+		writeError(w, http.StatusServiceUnavailable, err)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, err)
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeError logs server-side (≥500) with the real error and returns a generic
+// message to the client, so internal details never leak (#77).
 func writeError(w http.ResponseWriter, code int, err error) {
+	if code >= http.StatusInternalServerError {
+		log.Printf("http %d: %v", code, err)
+		writeJSON(w, code, map[string]string{"error": http.StatusText(code)})
+		return
+	}
 	writeJSON(w, code, map[string]string{"error": err.Error()})
 }
