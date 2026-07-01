@@ -56,6 +56,14 @@ func healthCmd() *cobra.Command {
 			} else {
 				fmt.Fprintln(out, "embedder: ok")
 			}
+
+			m, err := buildCore(cfg, pool).Health(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "chunks:   %d hot, %d cold\n", m.ChunksHot, m.ChunksCold)
+			fmt.Fprintf(out, "nodes:    %d current, %d historical (%.1f%% historical)\n", m.Nodes, m.NodesHistorical, m.PercentNodesHistory)
+			fmt.Fprintf(out, "edges:    %d current, %d historical (%.2f per node)\n", m.Edges, m.EdgesHistorical, m.EdgesPerNode)
 			return nil
 		},
 	}
