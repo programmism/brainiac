@@ -44,3 +44,38 @@ func SetChunkTier(ctx context.Context, db DBTX, id string, tier model.Tier) erro
 	_, err := db.Exec(ctx, `UPDATE chunks SET tier = $2 WHERE id = $1`, id, string(tier))
 	return err
 }
+
+// ChunkHashesBySourceURI returns the set of content hashes currently stored for
+// a source, so re-ingest can keep unchanged chunks and reconcile the rest.
+func ChunkHashesBySourceURI(ctx context.Context, db DBTX, uri string) (map[string]bool, error) {
+	rows, err := db.Query(ctx, `SELECT content_hash FROM chunks WHERE source_uri = $1 AND content_hash IS NOT NULL`, uri)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out[h] = true
+	}
+	return out, rows.Err()
+}
+
+// DeleteChunksBySourceURINotIn removes chunks of a source whose content hash is
+// not in keepHashes — i.e. content that was edited away or deleted. With an
+// empty keepHashes, all chunks for the source are removed.
+func DeleteChunksBySourceURINotIn(ctx context.Context, db DBTX, uri string, keepHashes []string) (int64, error) {
+	if keepHashes == nil {
+		keepHashes = []string{}
+	}
+	tag, err := db.Exec(ctx,
+		`DELETE FROM chunks WHERE source_uri = $1 AND (content_hash IS NULL OR content_hash <> ALL($2))`,
+		uri, keepHashes)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}

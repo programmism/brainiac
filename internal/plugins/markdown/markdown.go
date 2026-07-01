@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/programmism/brainiac/internal/plugins"
 )
@@ -53,11 +54,17 @@ func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] 
 				return nil
 			}
 			rel, _ := filepath.Rel(c.root, path)
+			var modified *time.Time
+			if info, statErr := d.Info(); statErr == nil {
+				m := info.ModTime()
+				modified = &m
+			}
 			if !yield(plugins.RawDoc{
 				Text:          string(data),
 				SourceURI:     "markdown://" + filepath.ToSlash(rel),
 				SourceLocator: map[string]any{"path": filepath.ToSlash(rel)},
 				Metadata:      map[string]any{"source": "markdown"},
+				ModifiedAt:    modified,
 			}, nil) {
 				return fs.SkipAll
 			}

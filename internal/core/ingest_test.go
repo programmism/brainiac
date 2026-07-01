@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"iter"
+	"strings"
 	"testing"
 
 	"github.com/programmism/brainiac/internal/plugins"
@@ -64,5 +65,43 @@ func TestIngestSelectsChunksAndIsIdempotent(t *testing.T) {
 	}
 	if s2.Kept != 0 || s2.Skipped < stored {
 		t.Errorf("re-ingest: kept=%d skipped=%d, want kept=0 skipped>=%d", s2.Kept, s2.Skipped, stored)
+	}
+}
+
+func TestIngestActualizesEditedDoc(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	const uri = "doc://x"
+	v1 := sliceConn{docs: []plugins.RawDoc{{Text: "OrderService writes 1200 orders to Postgres for durability.", SourceURI: uri}}}
+	if _, err := c.Ingest(ctx, v1, IngestOptions{}); err != nil {
+		t.Fatalf("ingest v1: %v", err)
+	}
+
+	// Edit the same source: old content must be replaced, not accumulated.
+	v2 := sliceConn{docs: []plugins.RawDoc{{Text: "OrderService now writes 1200 orders to Kafka instead for throughput.", SourceURI: uri}}}
+	s2, err := c.Ingest(ctx, v2, IngestOptions{})
+	if err != nil {
+		t.Fatalf("ingest v2: %v", err)
+	}
+	if s2.Deleted < 1 || s2.Kept < 1 {
+		t.Fatalf("edit reconcile: deleted=%d kept=%d, want deleted>=1 kept>=1", s2.Deleted, s2.Kept)
+	}
+
+	// Exactly the new content remains for this source; the old chunk is gone.
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM chunks WHERE source_uri=$1", uri).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("chunks for %s = %d, want 1 (stale replaced)", uri, count)
+	}
+	var text string
+	if err := pool.QueryRow(ctx, "SELECT text FROM chunks WHERE source_uri=$1", uri).Scan(&text); err != nil {
+		t.Fatalf("text: %v", err)
+	}
+	if !strings.Contains(text, "Kafka") {
+		t.Fatalf("remaining chunk should be the edited (Kafka) text, got %q", text)
 	}
 }
