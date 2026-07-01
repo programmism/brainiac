@@ -1,0 +1,15 @@
+# Brainiac reverse proxy (SYSTEM.md §16, ADR 0001).
+# Fronts the app's HTTP surface (WebUI + REST) with auth and TLS. The MCP server
+# is stdio-only and is never network-exposed.
+#
+# Configure via environment (see .env.example):
+#   SITE_ADDRESS     your domain (auto-HTTPS) · ":443" (add `tls internal`) · ":80"
+#   BASIC_AUTH_USER  username
+#   BASIC_AUTH_HASH  bcrypt hash — generate with: caddy hash-password --plaintext '…'
+
+{$SITE_ADDRESS} {
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+	reverse_proxy app:8080
+}
