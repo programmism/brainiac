@@ -9,8 +9,8 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .eggs/
-build/
-dist/
+/build/
+/dist/
 .venv/
 venv/
 .mypy_cache/
@@ -24,10 +24,11 @@ htmlcov/
 *.local
 /config.yaml
 
-# Data / volumes (never commit corpus, DB dumps, or model files)
-data/
-pgdata/
-ollama/
+# Data / volumes (never commit corpus, DB dumps, or model files).
+# Root-anchored so they don't shadow source packages (e.g. internal/plugins/ollama).
+/data/
+/pgdata/
+/ollama/
 *.dump
 *.sql.gz
 
