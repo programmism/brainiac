@@ -251,6 +251,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Interactive WebUI consolidation queue (#25): REST gains write endpoints
+  `GET /api/consolidate`, `POST /api/merge`, `POST /api/edges/{id}/confirm|flag-stale`; the WebUI adds a
+  Consolidate tab with per-group **Merge** buttons and per-edge **Confirm** buttons (batch review — the
+  highest-value screen). All actions call core; nothing bypasses it. DB-gated httptest covers
+  consolidate→merge. (#25)
 - **2026-07-01** — CLI consolidate (#35): `kb consolidate` prints the librarian report (merge groups /
   conflicts / stale / rollups); `kb merge --keep --drop` applies an approved merge. Scheduling is external
   cron (`0 3 * * 0 kb consolidate`) per config `consolidation.schedule` — documented in §8. (#35)

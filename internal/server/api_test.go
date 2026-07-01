@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"hash/fnv"
@@ -78,6 +79,65 @@ func TestAPISearchHealthAndErrors(t *testing.T) {
 	}
 	if health["chunks_hot"].(float64) < 1 {
 		t.Fatalf("health chunks_hot = %v, want >= 1", health["chunks_hot"])
+	}
+}
+
+func TestAPIConsolidateAndMerge(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping consolidation API test")
+	}
+	ctx := context.Background()
+	pool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	if err := store.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	c := core.New(pool, fakeEmbedder{}, density.New())
+	if _, err := c.Remember(ctx, core.RememberInput{CanonicalName: "OrderService"}); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+	if _, err := c.Remember(ctx, core.RememberInput{CanonicalName: "Order Service"}); err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+
+	srv := httptest.NewServer(New(pool, nil, c))
+	defer srv.Close()
+
+	var rep struct {
+		MergeGroups [][]struct {
+			ID   string `json:"id"`
+			Name string `json:"canonical_name"`
+		} `json:"merge_groups"`
+	}
+	if code := getJSON(t, srv.URL+"/api/consolidate", &rep); code != http.StatusOK {
+		t.Fatalf("consolidate status %d", code)
+	}
+	if len(rep.MergeGroups) != 1 || len(rep.MergeGroups[0]) != 2 {
+		t.Fatalf("merge groups = %+v", rep.MergeGroups)
+	}
+
+	body, _ := json.Marshal(map[string]string{"Keep": rep.MergeGroups[0][0].ID, "Drop": rep.MergeGroups[0][1].ID})
+	resp, err := http.Post(srv.URL+"/api/merge", "application/json", bytes.NewReader(body)) //nolint:noctx // test
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("merge: err=%v code=%v", err, resp.StatusCode)
+	}
+	_ = resp.Body.Close()
+
+	// After the merge, no candidates remain.
+	var rep2 struct {
+		MergeGroups [][]any `json:"merge_groups"`
+	}
+	getJSON(t, srv.URL+"/api/consolidate", &rep2)
+	if len(rep2.MergeGroups) != 0 {
+		t.Fatalf("after merge, groups = %d, want 0", len(rep2.MergeGroups))
 	}
 }
 
