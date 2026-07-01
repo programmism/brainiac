@@ -78,7 +78,7 @@ func TestSupersedeMarksHistoricalAndLinks(t *testing.T) {
 	}
 
 	// A supersedes edge new -> old exists.
-	edges, err := store.EdgesForNode(ctx, pool, newR.Node.ID, true)
+	edges, err := store.EdgesForNode(ctx, pool, newR.Node.ID, true, 50)
 	if err != nil {
 		t.Fatalf("edges: %v", err)
 	}

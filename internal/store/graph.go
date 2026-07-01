@@ -55,17 +55,18 @@ func UpdateNodeStatus(ctx context.Context, db DBTX, id string, status model.Stat
 	return err
 }
 
-// EdgesForNode returns edges touching nodeID in either direction, oldest first.
-// With includeHistorical, superseded edges are included (for the "why we changed
-// our minds" history, §10, §11.2).
-func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical bool) ([]model.Edge, error) {
+// EdgesForNode returns up to limit edges touching nodeID in either direction,
+// most recent first. With includeHistorical, superseded edges are included (for
+// the "why we changed our minds" history, §10, §11.2). The limit bounds recall
+// on hub nodes (#73).
+func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical bool, limit int) ([]model.Edge, error) {
 	q := `SELECT ` + edgeCols + ` FROM edges WHERE (from_id = $1 OR to_id = $1)`
 	if !includeHistorical {
 		q += ` AND status = 'current'`
 	}
-	q += ` ORDER BY created_at`
+	q += ` ORDER BY created_at DESC LIMIT $2`
 
-	rows, err := db.Query(ctx, q, nodeID)
+	rows, err := db.Query(ctx, q, nodeID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +125,7 @@ func GetChunksBySourceURI(ctx context.Context, db DBTX, uri string, limit int) (
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier, content_hash, created_at, source_modified_at
 		FROM chunks
-		WHERE source_uri = $1
+		WHERE source_uri = $1 AND tier = 'hot'
 		ORDER BY created_at
 		LIMIT $2`, uri, limit)
 	if err != nil {

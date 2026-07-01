@@ -256,6 +256,12 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Retrieval/robustness bundle (#73/#74/#82/#84): recall traversal is **bounded** —
+  `EdgesForNode` takes a limit (50/node) + caps on total edges (100) and evidence (30), so a hub node
+  can't flood the bundle. **Embedding-dim validation**: `config.Validate` requires `dims == 768`
+  (`model.SchemaEmbeddingDims`) and `Ingest` rejects a wrong-length vector with a clear error (no opaque
+  pgvector failure). **Empty queries** short-circuit in `Search`/`Recall` (covers the MCP path). Evidence
+  join now filters to `tier='hot'` (cold chunks stay out of answers). (#73, #74, #82, #84)
 - **2026-07-01** — Observability + HTTP hardening (#75/#77/#87): request logging (`RequestID`+`Logger`);
   a hand-rolled `internal/metrics` (latency histogram + pull gauges) exposed at **`/metrics`** (Prometheus
   text, no heavy dep) with a `brainiac_vector_index_bytes` gauge (the ★ index-vs-RAM signal via
