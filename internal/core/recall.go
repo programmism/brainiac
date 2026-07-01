@@ -57,10 +57,16 @@ func (c *Core) Recall(ctx context.Context, query string) (*RecallResult, error) 
 	}
 
 	names := make(map[string]string)
+	relevant := nodeHits[:0]
 	for _, nh := range nodeHits {
+		if nh.Distance > MaxRelevantDistance {
+			continue // drop off-topic nodes (#70)
+		}
+		relevant = append(relevant, nh)
 		res.Nodes = append(res.Nodes, nh.Node)
 		names[nh.Node.ID] = nh.Node.CanonicalName
 	}
+	nodeHits = relevant
 
 	// 3. Traverse edges (incl. supersedes history) and join raw chunks by URI.
 	seenEdge := make(map[string]bool)
