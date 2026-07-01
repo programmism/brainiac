@@ -37,6 +37,7 @@
     <div class="tabs">
       <div class="tab active" data-tab="search">Search</div>
       <div class="tab" data-tab="recall">Recall</div>
+      <div class="tab" data-tab="consolidate">Consolidate</div>
       <div class="tab" data-tab="health">Health</div>
     </div>
   </header>
@@ -58,6 +59,11 @@
       <div id="recall-results"></div>
     </section>
 
+    <section id="consolidate" class="hidden">
+      <div class="row"><button onclick="doConsolidate()">Refresh</button></div>
+      <div id="consolidate-results"></div>
+    </section>
+
     <section id="health" class="hidden">
       <div class="row"><button onclick="doHealth()">Refresh</button></div>
       <div id="health-results"></div>
@@ -71,8 +77,9 @@
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
-      for (const s of ['search','recall','health']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
+      for (const s of ['search','recall','consolidate','health']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
       if (t.dataset.tab === 'health') doHealth();
+      if (t.dataset.tab === 'consolidate') doConsolidate();
     });
 
     async function getJSON(url) {
@@ -125,6 +132,52 @@
         box.innerHTML = '<div class="card"><table>' +
           rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + '</table></div>';
       } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+
+    async function post(url, body) {
+      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : null });
+      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
+      return r.json();
+    }
+
+    async function doConsolidate() {
+      const box = $('consolidate-results'); box.innerHTML = '<div class="empty">loading…</div>';
+      try {
+        const r = await getJSON('/api/consolidate');
+        const groups = (r.merge_groups || []).map(g => {
+          const keep = g[0];
+          const names = g.map(n => esc(n.canonical_name)).join(' ↔ ');
+          const btns = g.slice(1).map(n =>
+            `<button onclick="mergeNodes('${keep.id}','${n.id}')">Merge « ${esc(n.canonical_name)} » into « ${esc(keep.canonical_name)} »</button>`
+          ).join(' ');
+          return `<div class="card"><div>${names}</div><div class="row" style="margin-top:8px">${btns}</div></div>`;
+        }).join('') || '<div class="empty">no merge candidates</div>';
+
+        const conflicts = (r.conflicts || []).map(c =>
+          `<div class="edge"><span class="name">${esc(c.from)}</span> —${esc(c.type)}→ ${esc(c.to_a)} <span class="meta">vs</span> ${esc(c.to_b)}</div>`
+        ).join('') || '<div class="empty">no conflicts</div>';
+
+        const stale = (r.stale || []).map(e =>
+          `<div class="edge">${esc(e.type)} <span class="meta">[${esc(e.source_uri || e.id)}]</span> <button onclick="confirmEdge('${e.id}')">Confirm</button></div>`
+        ).join('') || '<div class="empty">no stale edges</div>';
+
+        const rollups = (r.rollups || []).map(x => `${esc(x.name)} (${x.edge_count})`).join(', ') || '—';
+
+        box.innerHTML =
+          `<h3>Merge candidates</h3>${groups}` +
+          `<h3>Conflicts</h3><div class="card">${conflicts}</div>` +
+          `<h3>Stale edges</h3><div class="card">${stale}</div>` +
+          `<h3>Rollup candidates</h3><div class="card">${rollups}</div>`;
+      } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+
+    async function mergeNodes(keep, drop) {
+      try { await post('/api/merge', { Keep: keep, Drop: drop }); doConsolidate(); }
+      catch (e) { alert('merge failed: ' + e.message); }
+    }
+    async function confirmEdge(id) {
+      try { await post('/api/edges/' + encodeURIComponent(id) + '/confirm'); doConsolidate(); }
+      catch (e) { alert('confirm failed: ' + e.message); }
     }
 
     $('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });

@@ -78,6 +78,42 @@ func New(db Pinger, embedder Checker, c *core.Core) http.Handler {
 				}
 				writeJSON(w, http.StatusOK, res)
 			})
+
+			// Consolidation queue (interactive).
+			r.Get("/consolidate", func(w http.ResponseWriter, req *http.Request) {
+				rep, err := c.Consolidate(req.Context())
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, rep)
+			})
+			r.Post("/merge", func(w http.ResponseWriter, req *http.Request) {
+				var body struct{ Keep, Drop string }
+				if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+					writeError(w, http.StatusBadRequest, err)
+					return
+				}
+				if err := c.ApplyMerge(req.Context(), body.Keep, body.Drop); err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+			})
+			r.Post("/edges/{id}/confirm", func(w http.ResponseWriter, req *http.Request) {
+				if err := c.Confirm(req.Context(), chi.URLParam(req, "id")); err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+			})
+			r.Post("/edges/{id}/flag-stale", func(w http.ResponseWriter, req *http.Request) {
+				if err := c.FlagStale(req.Context(), chi.URLParam(req, "id")); err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+			})
 		})
 	}
 
