@@ -266,6 +266,72 @@ func buildConnector(cfg *config.Config, source string) (plugins.SourceConnector,
 	}
 }
 
+func consolidateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "consolidate",
+		Short: "Run the librarian pass and print review candidates",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			rep, err := buildCore(cfg, pool).Consolidate(ctx)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "merge candidates (%d groups):\n", len(rep.MergeGroups))
+			for _, g := range rep.MergeGroups {
+				names := make([]string, 0, len(g))
+				for _, n := range g {
+					names = append(names, fmt.Sprintf("%s (%s)", n.CanonicalName, n.ID))
+				}
+				fmt.Fprintf(out, "  - %s\n", strings.Join(names, "  ↔  "))
+			}
+			fmt.Fprintf(out, "conflicts (%d):\n", len(rep.Conflicts))
+			for _, c := range rep.Conflicts {
+				fmt.Fprintf(out, "  - %s -%s-> %s  vs  %s\n", c.From, c.Type, c.ToA, c.ToB)
+			}
+			fmt.Fprintf(out, "stale edges: %d\n", len(rep.Stale))
+			fmt.Fprintf(out, "rollup candidates (%d):\n", len(rep.Rollups))
+			for _, r := range rep.Rollups {
+				fmt.Fprintf(out, "  - %s (%d edges)\n", r.Name, r.EdgeCount)
+			}
+			return nil
+		},
+	}
+}
+
+func mergeCmd() *cobra.Command {
+	var keep, drop string
+	cmd := &cobra.Command{
+		Use:   "merge",
+		Short: "Merge a duplicate node into a keeper (reversible)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			if err := buildCore(cfg, pool).ApplyMerge(ctx, keep, drop); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "merged %s into %s\n", drop, keep)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&keep, "keep", "", "id of the node to keep")
+	cmd.Flags().StringVar(&drop, "drop", "", "id of the duplicate node to fold in")
+	_ = cmd.MarkFlagRequired("keep")
+	_ = cmd.MarkFlagRequired("drop")
+	return cmd
+}
+
 func supersedeCmd() *cobra.Command {
 	var oldID, newID, why, author string
 	cmd := &cobra.Command{
