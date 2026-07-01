@@ -40,6 +40,27 @@ func TestQualityMonotonic(t *testing.T) {
 	}
 }
 
+func TestEntityLikeCatchesFirstWordIdentifiers(t *testing.T) {
+	for _, s := range []string{"OrderService handles orders", "S3 stores objects", "API returns json"} {
+		if !hasEntityLike(s) {
+			t.Errorf("hasEntityLike(%q) = false, want true", s)
+		}
+	}
+	if hasEntityLike("the cat sat on the mat quietly") {
+		t.Error("plain prose should not look entity-like")
+	}
+}
+
+func TestWithStopwordsPluggable(t *testing.T) {
+	// Treat the domain words as stop words → the chunk becomes low-signal.
+	custom := map[string]bool{"orders": true, "postgres": true, "writes": true, "the": true, "to": true, "for": true}
+	s := New(WithStopwords(custom))
+	got := s.Score("the writes orders to postgres for the orders")
+	if got.Decision == plugins.Keep {
+		t.Errorf("with domain stopwords the chunk should not be Keep, got %v (q=%.2f)", got.Decision, got.Quality)
+	}
+}
+
 func TestThresholdsConfigurable(t *testing.T) {
 	// With an impossible keep threshold nothing is kept.
 	s := New(WithThresholds(1.1, 1.05))

@@ -256,6 +256,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Ingestion quality (#81/#83): `chunkText` now splits oversized paragraphs on
+  **word/rune boundaries** (never mid-word or mid-rune) with a ~12% **overlap** (word-aligned) so
+  boundary-spanning facts stay retrievable. Density selector: `hasEntityLike` catches acronyms/identifiers
+  (`API`, `S3`, CamelCase) at the **first word** too; stop-words are **pluggable** via `WithStopwords`
+  (the seam for non-English corpora). (#81, #83)
 - **2026-07-01** — Startup + connector resilience (#78/#79): `store.ConnectWithRetry` (exponential
   backoff, 60s cap) so `cmd/http`/`cmd/mcp` wait for Postgres instead of crash-looping. The Notion `do`
   now retries **429** honoring `Retry-After` (bounded). (#78, #79)

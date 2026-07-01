@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"strings"
 	"testing"
@@ -65,6 +66,48 @@ func TestIngestSelectsChunksAndIsIdempotent(t *testing.T) {
 	}
 	if s2.Kept != 0 || s2.Skipped < stored {
 		t.Errorf("re-ingest: kept=%d skipped=%d, want kept=0 skipped>=%d", s2.Kept, s2.Skipped, stored)
+	}
+}
+
+func TestChunkTextWordBoundaryAndOverlap(t *testing.T) {
+	// A long single paragraph of distinct words.
+	var sb strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&sb, "word%d ", i)
+	}
+	text := strings.TrimSpace(sb.String())
+	const size = 100
+	chunks := chunkText(text, size)
+
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple chunks, got %d", len(chunks))
+	}
+	for _, c := range chunks {
+		if n := len([]rune(c)); n > size {
+			t.Errorf("chunk exceeds size: %d > %d", n, size)
+		}
+		// No chunk should end or start with a truncated "word<digits" fragment
+		// that isn't a whole token; every token must match the word pattern.
+		for _, tok := range strings.Fields(c) {
+			if !strings.HasPrefix(tok, "word") {
+				t.Errorf("mid-word split produced token %q", tok)
+			}
+		}
+	}
+	// Consecutive chunks overlap (share at least one word).
+	inSecond := map[string]bool{}
+	for _, w := range strings.Fields(chunks[1]) {
+		inSecond[w] = true
+	}
+	overlap := false
+	for _, w := range strings.Fields(chunks[0]) {
+		if inSecond[w] {
+			overlap = true
+			break
+		}
+	}
+	if !overlap {
+		t.Errorf("expected consecutive chunks to overlap; got %q / %q", chunks[0], chunks[1])
 	}
 }
 
