@@ -5,6 +5,10 @@ package model
 
 import "time"
 
+// SchemaEmbeddingDims is the vector dimension the schema is built for
+// (halfvec(768) = nomic-embed-text). Embeddings must match it.
+const SchemaEmbeddingDims = 768
+
 // Tier marks whether a chunk is in the active index or the archive.
 type Tier string
 

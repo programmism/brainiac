@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/store"
@@ -25,6 +26,10 @@ const MaxRelevantDistance = 0.75
 // Search embeds the query and returns hot-tier chunks within MaxRelevantDistance,
 // nearest first (§10 step 1). It is the vector half of retrieval.
 func (c *Core) Search(ctx context.Context, query string, k int) ([]model.ChunkHit, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil, nil
+	}
 	if k <= 0 {
 		k = DefaultSearchK
 	}

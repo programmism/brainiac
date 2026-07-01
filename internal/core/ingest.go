@@ -93,6 +93,9 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, size int, stat
 		if err != nil {
 			return fmt.Errorf("embed chunk: %w", err)
 		}
+		if len(emb) != model.SchemaEmbeddingDims {
+			return fmt.Errorf("embedding has %d dims, schema expects %d (wrong embedding model?)", len(emb), model.SchemaEmbeddingDims)
+		}
 		tier := model.TierHot
 		if score.Decision == plugins.Queue {
 			tier = model.TierCold

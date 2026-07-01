@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/programmism/brainiac/internal/model"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -159,8 +161,8 @@ func (c *Config) Validate() error {
 	if c.HTTP.Addr == "" {
 		return errors.New("http.addr is empty")
 	}
-	if c.Embedding.Dims <= 0 {
-		return fmt.Errorf("embedding.dims must be positive, got %d", c.Embedding.Dims)
+	if c.Embedding.Dims != model.SchemaEmbeddingDims {
+		return fmt.Errorf("embedding.dims must be %d to match the schema, got %d", model.SchemaEmbeddingDims, c.Embedding.Dims)
 	}
 	return nil
 }
