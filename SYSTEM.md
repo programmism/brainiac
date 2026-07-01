@@ -256,6 +256,9 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Retrieval relevance floor (#70): `Search` and `Recall` now drop hits beyond a cosine
+  cutoff (`MaxRelevantDistance`, default 0.75) so off-topic queries no longer return confidently-cited
+  garbage chunks/nodes. Tunable against the eval harness (#29). (#70)
 - **2026-07-01** — Edge uniqueness (#71): migration 0003 adds a partial unique index on current edges
   `(from_id,to_id,type) WHERE status='current'` (dedups any pre-existing first). `InsertEdge` is now an
   **upsert** — a repeated `link` refreshes the rationale/provenance instead of creating a duplicate.
