@@ -253,6 +253,10 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Eval harness (#29): `Core.Eval(golden, k)` runs a golden query set through `search`
+  and reports **recall@k** + mean source recall + per-query hits (PRD §18). `kb eval --golden <file> --k`
+  prints it; `eval/golden.example.json` shipped. Objective quality proof across growth/model/threshold
+  changes. DB-gated test. (#29)
 - **2026-07-01** — Backups (#28): `scripts/backup.sh` (gzipped `pg_dump --clean` through the `db`
   container, retention `BACKUP_RETENTION`=14) + `scripts/restore.sh` (confirmed restore) +
   `docs/operations.md` runbook (daily cron). One DB → one consistent snapshot covers graph + vectors +

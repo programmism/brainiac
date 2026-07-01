@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -329,6 +331,50 @@ func mergeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&drop, "drop", "", "id of the duplicate node to fold in")
 	_ = cmd.MarkFlagRequired("keep")
 	_ = cmd.MarkFlagRequired("drop")
+	return cmd
+}
+
+func evalCmd() *cobra.Command {
+	var goldenPath string
+	var k int
+	cmd := &cobra.Command{
+		Use:   "eval",
+		Short: "Run the golden query set and report recall@k",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			data, err := os.ReadFile(goldenPath) //nolint:gosec // operator-provided path
+			if err != nil {
+				return err
+			}
+			var golden []core.GoldenQuery
+			if err := json.Unmarshal(data, &golden); err != nil {
+				return fmt.Errorf("parse %s: %w", goldenPath, err)
+			}
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			res, err := buildCore(cfg, pool).Eval(ctx, golden, k)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "recall@%d: %.1f%%  ·  mean source recall: %.1f%%  (%d queries)\n",
+				res.K, res.RecallAtK*100, res.MeanSourceRecall*100, res.Queries)
+			for _, q := range res.PerQuery {
+				mark := "MISS"
+				if q.Hit {
+					mark = "ok  "
+				}
+				fmt.Fprintf(out, "  [%s] %d/%d  %s\n", mark, q.Found, q.Expected, q.Query)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&goldenPath, "golden", "eval/golden.json", "path to the golden query set JSON")
+	cmd.Flags().IntVar(&k, "k", core.DefaultEvalK, "recall@k cutoff")
 	return cmd
 }
 

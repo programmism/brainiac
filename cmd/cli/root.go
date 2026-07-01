@@ -35,6 +35,7 @@ func newRootCmd() *cobra.Command {
 		importCmd(),
 		consolidateCmd(),
 		mergeCmd(),
+		evalCmd(),
 		stubCmd("refresh", "#18 (connector actualization)"),
 		stubCmd("reembed", "#30 (re-embed from stored raw text)"),
 	)

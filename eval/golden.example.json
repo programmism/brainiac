@@ -1,0 +1,14 @@
+[
+  {
+    "query": "why does OrderService write to Postgres",
+    "expected_sources": ["repo://orders/README.md"]
+  },
+  {
+    "query": "how is the payment retry backoff configured",
+    "expected_sources": ["notion://payments-runbook"]
+  },
+  {
+    "query": "why was synchronous sync rejected",
+    "expected_sources": ["notion://arch-decisions", "repo://sync/design.md"]
+  }
+]
