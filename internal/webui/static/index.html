@@ -38,6 +38,7 @@
       <div class="tab active" data-tab="search">Search</div>
       <div class="tab" data-tab="recall">Recall</div>
       <div class="tab" data-tab="consolidate">Consolidate</div>
+      <div class="tab" data-tab="graph">Graph</div>
       <div class="tab" data-tab="health">Health</div>
     </div>
   </header>
@@ -64,6 +65,11 @@
       <div id="consolidate-results"></div>
     </section>
 
+    <section id="graph" class="hidden">
+      <div class="row"><button onclick="doGraph()">Refresh</button></div>
+      <div id="graph-canvas" class="card" style="padding:0;overflow:hidden"></div>
+    </section>
+
     <section id="health" class="hidden">
       <div class="row"><button onclick="doHealth()">Refresh</button></div>
       <div id="health-results"></div>
@@ -77,9 +83,10 @@
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
-      for (const s of ['search','recall','consolidate','health']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
+      for (const s of ['search','recall','consolidate','graph','health']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
       if (t.dataset.tab === 'health') doHealth();
       if (t.dataset.tab === 'consolidate') doConsolidate();
+      if (t.dataset.tab === 'graph') doGraph();
     });
 
     async function getJSON(url) {
@@ -178,6 +185,49 @@
     async function confirmEdge(id) {
       try { await post('/api/edges/' + encodeURIComponent(id) + '/confirm'); doConsolidate(); }
       catch (e) { alert('confirm failed: ' + e.message); }
+    }
+
+    // Compact built-in force-directed layout (no external lib; see SYSTEM.md).
+    async function doGraph() {
+      const box = $('graph-canvas'); box.innerHTML = '<div class="empty" style="padding:12px">loading…</div>';
+      let g;
+      try { g = await getJSON('/api/graph?limit=200'); }
+      catch (e) { box.innerHTML = `<div class="empty" style="padding:12px">error: ${esc(e.message)}</div>`; return; }
+      const nodes = g.nodes || [], edges = g.edges || [];
+      if (!nodes.length) { box.innerHTML = '<div class="empty" style="padding:12px">graph is empty</div>'; return; }
+
+      const W = 880, H = 520, idx = {};
+      nodes.forEach((n, i) => { idx[n.id] = i; n.x = W/2 + Math.cos(i) * 120 + (i%7)*5; n.y = H/2 + Math.sin(i) * 120 + (i%5)*5; n.vx = 0; n.vy = 0; });
+      const links = edges.filter(e => idx[e.from] != null && idx[e.to] != null);
+
+      for (let step = 0; step < 260; step++) {
+        for (let i = 0; i < nodes.length; i++) for (let j = i+1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          let dx = a.x-b.x, dy = a.y-b.y, d2 = dx*dx+dy*dy || 0.01, f = 1400/d2, d = Math.sqrt(d2);
+          dx/=d; dy/=d; a.vx += dx*f; a.vy += dy*f; b.vx -= dx*f; b.vy -= dy*f;
+        }
+        for (const e of links) {
+          const a = nodes[idx[e.from]], b = nodes[idx[e.to]];
+          let dx = b.x-a.x, dy = b.y-a.y, d = Math.sqrt(dx*dx+dy*dy) || 0.01, f = (d-90)*0.02;
+          dx/=d; dy/=d; a.vx += dx*f; a.vy += dy*f; b.vx -= dx*f; b.vy -= dy*f;
+        }
+        for (const n of nodes) {
+          n.vx += (W/2 - n.x)*0.002; n.vy += (H/2 - n.y)*0.002;
+          n.x += Math.max(-8, Math.min(8, n.vx)); n.y += Math.max(-8, Math.min(8, n.vy));
+          n.vx *= 0.85; n.vy *= 0.85;
+          n.x = Math.max(20, Math.min(W-20, n.x)); n.y = Math.max(20, Math.min(H-20, n.y));
+        }
+      }
+
+      const line = links.map(e => {
+        const a = nodes[idx[e.from]], b = nodes[idx[e.to]];
+        return `<line x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}" stroke="#3a4152" stroke-width="1"><title>${esc(e.type)}${e.why ? ': '+esc(e.why) : ''}</title></line>`;
+      }).join('');
+      const dot = nodes.map(n =>
+        `<g><circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="6" fill="#5b9dff"><title>${esc(n.name)}${n.type ? ' ('+esc(n.type)+')' : ''}</title></circle>` +
+        `<text x="${(n.x+9).toFixed(1)}" y="${(n.y+4).toFixed(1)}" fill="#c9cdd8" font-size="11">${esc(n.name)}</text></g>`
+      ).join('');
+      box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block;background:#12141a">${line}${dot}</svg>`;
     }
 
     $('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });

@@ -82,6 +82,42 @@ func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical
 	return edges, rows.Err()
 }
 
+// GraphSnapshot returns up to limit current nodes and the current edges among
+// them, for visualization.
+func GraphSnapshot(ctx context.Context, db DBTX, limit int) ([]model.Node, []model.Edge, error) {
+	nrows, err := db.Query(ctx, `SELECT `+nodeCols+` FROM nodes WHERE status = 'current' ORDER BY created_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer nrows.Close()
+	var nodes []model.Node
+	for nrows.Next() {
+		n, err := scanNode(nrows)
+		if err != nil {
+			return nil, nil, err
+		}
+		nodes = append(nodes, n)
+	}
+	if err := nrows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	erows, err := db.Query(ctx, `SELECT `+edgeCols+` FROM edges WHERE status = 'current' ORDER BY created_at LIMIT $1`, limit*4)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer erows.Close()
+	var edges []model.Edge
+	for erows.Next() {
+		e, err := scanEdge(erows)
+		if err != nil {
+			return nil, nil, err
+		}
+		edges = append(edges, e)
+	}
+	return nodes, edges, erows.Err()
+}
+
 // GetChunksBySourceURI returns up to limit chunks sharing a source URI — the raw
 // text behind an edge's provenance (§10 step 3).
 func GetChunksBySourceURI(ctx context.Context, db DBTX, uri string, limit int) ([]model.Chunk, error) {

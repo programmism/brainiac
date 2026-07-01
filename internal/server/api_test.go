@@ -141,6 +141,44 @@ func TestAPIConsolidateAndMerge(t *testing.T) {
 	}
 }
 
+func TestAPIGraph(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping graph API test")
+	}
+	ctx := context.Background()
+	pool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	if err := store.Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	c := core.New(pool, fakeEmbedder{}, density.New())
+	if _, err := c.Link(ctx, core.LinkInput{From: "A", Type: "depends_on", To: "B", Why: "x"}); err != nil {
+		t.Fatalf("link: %v", err)
+	}
+
+	srv := httptest.NewServer(New(pool, nil, c))
+	defer srv.Close()
+
+	var g struct {
+		Nodes []map[string]any `json:"nodes"`
+		Edges []map[string]any `json:"edges"`
+	}
+	if code := getJSON(t, srv.URL+"/api/graph", &g); code != http.StatusOK {
+		t.Fatalf("graph status %d", code)
+	}
+	if len(g.Nodes) != 2 || len(g.Edges) != 1 {
+		t.Fatalf("graph = %d nodes, %d edges; want 2, 1", len(g.Nodes), len(g.Edges))
+	}
+}
+
 func getJSON(t *testing.T, url string, out any) int {
 	t.Helper()
 	resp, err := http.Get(url) //nolint:noctx // test
