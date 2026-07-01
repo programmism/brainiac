@@ -3,7 +3,7 @@ package core
 import "testing"
 
 func TestNew(t *testing.T) {
-	if New(nil, nil) == nil {
+	if New(nil, nil, nil) == nil {
 		t.Fatal("New() returned nil")
 	}
 }

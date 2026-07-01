@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/programmism/brainiac/internal/model"
+	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -42,7 +43,7 @@ func newTestCore(t *testing.T) (*Core, *pgxpool.Pool) {
 	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
-	return New(pool, hashEmbedder{}), pool
+	return New(pool, hashEmbedder{}, density.New()), pool
 }
 
 func TestRememberCreateIdempotentAndDedup(t *testing.T) {

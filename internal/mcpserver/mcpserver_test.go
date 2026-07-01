@@ -63,7 +63,7 @@ func TestMCPRoundTrip(t *testing.T) {
 		t.Fatalf("truncate: %v", err)
 	}
 
-	server := New(core.New(pool, fakeEmbedder{}))
+	server := New(core.New(pool, fakeEmbedder{}, nil))
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		t.Fatalf("server connect: %v", err)
