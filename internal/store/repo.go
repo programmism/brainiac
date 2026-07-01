@@ -57,6 +57,14 @@ func InsertChunk(ctx context.Context, db DBTX, c *model.Chunk) error {
 	).Scan(&c.ID, &c.CreatedAt)
 }
 
+// ChunkExistsByHash reports whether a chunk with the given content hash is
+// already stored — used for dedup and change detection during ingest.
+func ChunkExistsByHash(ctx context.Context, db DBTX, hash string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM chunks WHERE content_hash = $1)`, hash).Scan(&exists)
+	return exists, err
+}
+
 // SearchChunks returns the k nearest hot-tier chunks to embedding by cosine
 // distance, with provenance.
 func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int) ([]model.ChunkHit, error) {

@@ -245,6 +245,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Ingest pipeline (#18): `Core.Ingest(connector, opts)` runs fetch → chunk → select →
+  embed → store per-chunk (PRD §8). Content-hash dedup skips unchanged chunks; Drop is discarded, Keep
+  stored hot, Queue stored cold (out of default search). `Core` now also holds a `plugins.Selector`
+  (interface — wired by clients as `density.New()`); `store.ChunkExistsByHash` added. DB-gated test
+  covers selection + idempotent re-ingest. (#18)
 - **2026-07-01** — M2 started. Density selector (#17): `internal/plugins/density` implements
   `plugins.Selector` — structural filter (empty/near-empty/short) + a no-LLM density heuristic
   (content-word ratio, lexical diversity, entity-like + number signals) → keep/queue/drop with reversible

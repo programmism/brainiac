@@ -10,6 +10,7 @@ import (
 
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -60,10 +61,11 @@ func connect(ctx context.Context) (*config.Config, *pgxpool.Pool, error) {
 	return cfg, pool, nil
 }
 
-// buildCore wires a Core over the pool and the configured embedder.
+// buildCore wires a Core over the pool, the configured embedder, and the
+// density selector.
 func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims)
-	return core.New(pool, embedder)
+	return core.New(pool, embedder, density.New())
 }
 
 // stubCmd is a placeholder for a command whose implementation lands later.
