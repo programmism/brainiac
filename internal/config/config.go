@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/programmism/brainiac/internal/model"
 
@@ -25,6 +26,22 @@ type Config struct {
 	Consolidation ConsolidationConfig `yaml:"consolidation"`
 	Sources       []SourceConfig      `yaml:"sources"`
 	Clients       ClientsConfig       `yaml:"clients"`
+	Ingest        IngestConfig        `yaml:"ingest"`
+}
+
+// IngestConfig controls optional background auto-import.
+type IngestConfig struct {
+	// Interval as a Go duration string (e.g. "60s"); empty disables auto-import.
+	Interval string `yaml:"interval"`
+}
+
+// AutoImportInterval returns the parsed interval, or 0 if unset/invalid.
+func (c *Config) AutoImportInterval() time.Duration {
+	d, err := time.ParseDuration(c.Ingest.Interval)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 // HTTPConfig configures the REST/WebUI server.
@@ -144,6 +161,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("AUTH_TOKEN"); v != "" {
 		c.HTTP.AuthToken = v
+	}
+	if v := os.Getenv("INGEST_INTERVAL"); v != "" {
+		c.Ingest.Interval = v
 	}
 	if v := os.Getenv("NOTION_TOKEN"); v != "" {
 		for i := range c.Sources {
