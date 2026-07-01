@@ -334,6 +334,28 @@ func mergeCmd() *cobra.Command {
 	return cmd
 }
 
+func reembedCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reembed",
+		Short: "Re-embed all chunks from stored raw text (after an embedding-model change)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			n, err := buildCore(cfg, pool).Reembed(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "re-embedded %d chunks\n", n)
+			return nil
+		},
+	}
+}
+
 func evalCmd() *cobra.Command {
 	var goldenPath string
 	var k int
