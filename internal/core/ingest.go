@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
@@ -136,10 +137,12 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, size int, stat
 	return nil
 }
 
-// chunkText splits text into chunks of roughly size characters, packing whole
-// paragraphs where possible and hard-splitting any paragraph longer than size.
+// chunkText splits text into chunks of roughly size characters: it packs whole
+// paragraphs where possible, and splits any oversized paragraph on word/rune
+// boundaries (never mid-word or mid-rune) with a small overlap so a fact that
+// spans a boundary stays retrievable (#81).
 func chunkText(text string, size int) []string {
-	paras := strings.Split(text, "\n\n")
+	overlap := size / 8 // ~12%
 	var chunks []string
 	var b strings.Builder
 
@@ -150,15 +153,15 @@ func chunkText(text string, size int) []string {
 		}
 	}
 
-	for _, p := range paras {
+	for _, p := range strings.Split(text, "\n\n") {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
 		}
-		for len(p) > size {
+		if len([]rune(p)) > size {
 			flush()
-			chunks = append(chunks, strings.TrimSpace(p[:size]))
-			p = p[size:]
+			chunks = append(chunks, splitLong(p, size, overlap)...)
+			continue
 		}
 		if b.Len()+len(p)+2 > size {
 			flush()
@@ -170,6 +173,39 @@ func chunkText(text string, size int) []string {
 	}
 	flush()
 	return chunks
+}
+
+// splitLong breaks an oversized string into ≤size-rune pieces, cutting at the
+// last whitespace before the limit and overlapping consecutive pieces.
+func splitLong(s string, size, overlap int) []string {
+	runes := []rune(s)
+	var out []string
+	for start := 0; start < len(runes); {
+		end := start + size
+		if end >= len(runes) {
+			out = append(out, strings.TrimSpace(string(runes[start:])))
+			break
+		}
+		cut := end
+		for cut > start && !unicode.IsSpace(runes[cut]) {
+			cut--
+		}
+		if cut == start { // no whitespace in range — hard cut
+			cut = end
+		}
+		out = append(out, strings.TrimSpace(string(runes[start:cut])))
+		// Start the next piece ~overlap runes back, aligned to a word boundary so
+		// the overlap never begins mid-word.
+		next := cut - overlap
+		for next > start && !unicode.IsSpace(runes[next]) {
+			next--
+		}
+		if next <= start {
+			next = cut
+		}
+		start = next
+	}
+	return out
 }
 
 func hashText(s string) string {

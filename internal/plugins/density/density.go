@@ -27,6 +27,7 @@ type Selector struct {
 	minChars   int
 	keepScore  float64
 	queueScore float64
+	stopwords  map[string]bool
 }
 
 // Option customizes a Selector.
@@ -42,9 +43,20 @@ func WithMinChars(n int) Option {
 	return func(s *Selector) { s.minChars = n }
 }
 
+// WithStopwords replaces the stop-word set — the seam for a non-English corpus
+// (the content-ratio signal is otherwise English-biased).
+func WithStopwords(set map[string]bool) Option {
+	return func(s *Selector) { s.stopwords = set }
+}
+
 // New builds a density Selector with the given options.
 func New(opts ...Option) *Selector {
-	s := &Selector{minChars: DefaultMinChars, keepScore: DefaultKeepScore, queueScore: DefaultQueueScore}
+	s := &Selector{
+		minChars:   DefaultMinChars,
+		keepScore:  DefaultKeepScore,
+		queueScore: DefaultQueueScore,
+		stopwords:  stopwords,
+	}
 	for _, o := range opts {
 		o(s)
 	}
@@ -67,7 +79,7 @@ func (s *Selector) Score(chunk string) plugins.Score {
 	content := 0
 	for _, t := range tokens {
 		unique[t] = struct{}{}
-		if !stopwords[t] {
+		if !s.stopwords[t] {
 			content++
 		}
 	}
@@ -122,23 +134,32 @@ func hasDigit(s string) bool {
 	return false
 }
 
-// hasEntityLike reports whether s contains a capitalized word that is not at the
-// very start of the text (a rough proper-noun / identifier signal).
+// hasEntityLike reports whether s contains a proper-noun / identifier / acronym
+// signal. It catches CamelCase, acronyms, and digit-bearing identifiers at any
+// position (including the first word — "OrderService handles…", "S3 stores…"),
+// and mid-sentence capitalized words.
 func hasEntityLike(s string) bool {
-	fields := strings.Fields(s)
-	for i, f := range fields {
+	for i, f := range strings.Fields(s) {
 		runes := []rune(f)
 		if len(runes) < 2 {
 			continue
 		}
 		if i > 0 && unicode.IsUpper(runes[0]) {
-			return true
+			return true // proper noun mid-sentence
 		}
-		// CamelCase / has an interior uppercase (e.g. OrderService).
-		for _, r := range runes[1:] {
+		uppers, hasDigit := 0, false
+		for _, r := range runes {
 			if unicode.IsUpper(r) {
-				return true
+				uppers++
 			}
+			if unicode.IsDigit(r) {
+				hasDigit = true
+			}
+		}
+		// ≥2 uppercase (CamelCase/acronym) or an embedded digit (identifier/version)
+		// is entity-like regardless of position.
+		if uppers >= 2 || hasDigit {
+			return true
 		}
 	}
 	return false
