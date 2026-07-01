@@ -243,6 +243,13 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — Core ops search/remember/link (#10/#11/#12): `Core` now holds `pool + embedder`.
+  `Search` embeds the query → cosine kNN. `Remember` upserts a node — exact-name is idempotent (aliases
+  merged); otherwise inserts and **flags** duplicate candidates by normalized name (strip non-alnum,
+  "Order Service"=="OrderService") and summary-embedding proximity (≤0.15 cosine), never auto-merging
+  (§11.1). `Link` creates the edge and any missing endpoint nodes in **one transaction** (capture flow,
+  §9). Added store node finders (`FindNodesByNormalizedName`, `FindSimilarNodes`, `UpdateNodeAliases`).
+  DB-gated core test (CI) covers create/idempotent/dedup/link/search. (#10,#11,#12)
 - **2026-07-01** — Ollama embedder (#8): `internal/plugins/ollama` implements `plugins.Embedder` over
   `POST /api/embeddings` (`{model,prompt}` → `{embedding}`), []float64→[]float32, non-2xx/empty = error
   (caller queues on failure, §11). Injectable HTTP client; unit-tested via `httptest` (no Ollama needed).
