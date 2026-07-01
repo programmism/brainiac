@@ -14,6 +14,7 @@ import (
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/plugins"
+	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -225,10 +226,10 @@ func linkCmd() *cobra.Command {
 }
 
 func importCmd() *cobra.Command {
-	var source string
+	var source, path string
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: "Ingest documents from a configured source (default: notion)",
+		Short: "Ingest documents from a configured source (notion | markdown)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, pool, err := connect(ctx)
@@ -237,7 +238,7 @@ func importCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			conn, err := buildConnector(cfg, source)
+			conn, err := buildConnector(cfg, source, path)
 			if err != nil {
 				return err
 			}
@@ -251,11 +252,12 @@ func importCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from")
+	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | markdown)")
+	cmd.Flags().StringVar(&path, "path", "", "root directory for the markdown source (overrides config)")
 	return cmd
 }
 
-func buildConnector(cfg *config.Config, source string) (plugins.SourceConnector, error) {
+func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConnector, error) {
 	switch source {
 	case "notion":
 		sc := cfg.Source("notion")
@@ -263,6 +265,17 @@ func buildConnector(cfg *config.Config, source string) (plugins.SourceConnector,
 			return nil, fmt.Errorf("notion source not configured (set a token via NOTION_TOKEN or config.yaml)")
 		}
 		return notion.New(sc.Token), nil
+	case "markdown":
+		dir := path
+		if dir == "" {
+			if sc := cfg.Source("markdown"); sc != nil {
+				dir = sc.Path
+			}
+		}
+		if dir == "" {
+			return nil, fmt.Errorf("markdown source needs a directory (--path or sources[].path)")
+		}
+		return markdown.New(dir), nil
 	default:
 		return nil, fmt.Errorf("unknown source %q", source)
 	}

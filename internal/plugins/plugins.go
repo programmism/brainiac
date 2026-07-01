@@ -2,10 +2,12 @@
 // connectors, extractors, selectors, and embedders — plus the value types they
 // exchange and a registry that lets configuration select a variant by name.
 //
-// The interfaces are drawn from the start (SYSTEM.md §2.3, §7) but each has
-// exactly one implementation for v1: the Notion connector (#18), the
-// chat-driven extractor (client-supplied), the density-filter selector (#17),
-// and the Ollama embedder (#14). The core depends only on these interfaces,
+// The interfaces are drawn from the start (SYSTEM.md §2.3, §7). The
+// SourceConnector seam is now **stable**: it was validated against a real second
+// implementation (the Markdown connector, #31) built after the Notion one, and
+// the interface fit both with no changes. Implementations: Notion + Markdown
+// connectors, the chat-driven extractor (client-supplied), the density-filter
+// selector, and the Ollama embedder. The core depends only on these interfaces,
 // never on a concrete plugin.
 package plugins
 
