@@ -1,0 +1,259 @@
+# Brainiac — System Specification
+
+> **This is the living spec.** Read it before working on any task. Update it in the *same* PR whenever
+> you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
+> lives here — code says *what*, SYSTEM.md says *why it is this way*.
+
+**Status:** Foundation / bootstrap. No runtime code yet — see the milestone backlog on GitHub.
+**Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
+
+---
+
+## 1. What Brainiac is
+
+A **self-hosted, general-purpose memory platform**. It stores not just *what* exists but *why it is this
+way* — decisions, trade-offs, rejected alternatives, who and when. Two layers in one Postgres:
+
+- **Layer 1 — semantic search (vectors):** pgvector over curated text chunks. Grows with the corpus.
+- **Layer 2 — curated graph (nodes/edges):** every edge carries a `why`, provenance, and author. Grows
+  with human effort. Small, never the bottleneck.
+
+Knowledge is captured **through conversation with Claude** ("save what we found: A writes to B; we
+rejected sync because of peak load") — Claude parses the structure and calls the core. There is **no
+expensive extraction LLM in the default pipeline**. Embeddings run **locally on Ollama**. No cloud-LLM
+bill.
+
+Reference (v1) deployment: an engineering team knowledge base over Notion + repos. But the core is
+domain-neutral — new domains come from swapping **plugins** and **config**, not forking the code.
+
+---
+
+## 2. Architecture — Core + Plugins + Clients
+
+Three parts with sharp boundaries. This separation is the single most important design rule.
+
+```
+ CLIENTS   Claude/MCP        WebUI            CLI          (thin adapters, NO business logic)
+                └──────────── all call ────────────┘
+                              │  CORE API  (single home of all logic)
+ CORE      operations: search · remember · link · recall · supersede ·
+ (stable)  consolidate · ingest · flag_stale · confirm · propose_merges · health
+           data model (chunks/nodes/edges) · storage · graph algorithms
+                │ uses plugins                         │ persists
+ PLUGINS   connectors · extractors · selectors ·   Postgres + pgvector (one DB, two layers)
+ (swappable) embedders                                 │ embeddings
+                                                    Ollama (local)
+```
+
+- **Core (stable — build it well, once).** Data model, storage, the operation set, retrieval, the
+  consolidation engine. Knows about *chunks, nodes, edges, provenance* — never about "Notion" or any
+  domain.
+- **Plugins (swappable — grow over time).** Four seams: connectors, extractors, selectors, embedders.
+- **Clients (thin adapters).** MCP (Claude), HTTP/REST (WebUI), CLI. They translate user intent into
+  core operations and render results — **no logic of their own**.
+
+**Anti-pattern we forbid:** putting `search`/`remember`/`recall` logic inside the MCP server. The moment
+the WebUI needs the same behavior it would be reimplemented and the two would drift. All logic lives in
+the core; MCP and WebUI both call it. The MCP server is ~50 lines of tool definitions forwarding to core.
+
+**The one rule that protects the project (premature generalization kills projects):**
+1. Build the core monolithically and well for the reference domain (Notion + engineering).
+2. Draw the four plugin boundaries as interfaces from the start, but implement **one variant each**.
+3. Add a second connector (Markdown/Git) only when actually needed — it reveals where the abstraction
+   leaks *before* we declare it stable. Generalize against a real second use case, never a hunch.
+
+---
+
+## 3. Technology decisions (and why)
+
+> Each decision records the alternative(s) rejected and the reason, so future changes are informed.
+
+| Area | Choice | Why (and what we rejected) |
+|---|---|---|
+| **Language** | **Python 3.12+** | First-class official MCP SDK; best embedding/data ecosystem; one language across core + MCP + HTTP + CLI so logic is never duplicated. Rejected: Go (single binary, but Postgres+Ollama still need Compose, and the LLM/data ecosystem is thinner); TS (viable, but Python is stronger for the data/embedding side). |
+| **Core shape** | One package `brainiac`, `core/` is the sole home of logic | PRD §3.1. Clients import/forward to `core`; they never hold logic. |
+| **Database** | **Postgres 16 + pgvector** (`pgvector/pgvector:pg16`) | One DB, two layers. Hot path `recall` joins graph→chunks by `source_uri` in one SQL join; one transaction; one backup; consolidation walks both layers as queries. Rejected: graph-in-JSON + separate vector store (cross-store glue, sync risk). |
+| **DB access** | `psycopg` 3, raw SQL in a thin repository layer | Repositories are the only place SQL lives. Rejected: heavy ORM (hides vector SQL, fights pgvector operators). |
+| **Migrations** | Forward-only SQL files + a tiny runner (applied on boot + `cli migrate`) | Schema is stable as we scale (add indexes, quantize — we don't reshape). Keep it boring. |
+| **Vectors** | `halfvec(768)` + HNSW on hot tier | nomic-embed-text = 768 dims; halfvec halves RAM at negligible loss. Room to go int8/binary later (§7). |
+| **Embeddings** | **Ollama `nomic-embed-text`** (~270 MB, 768-dim) | The genuinely-free workhorse; light on CPU. Embedder is a plugin, so not bound to Ollama. |
+| **HTTP API** | **FastAPI** (async) | Serves WebUI + generic REST + OpenAPI. Thin adapter over core. |
+| **MCP server** | Official Python `mcp` SDK | Tool shapes referenced from `modelcontextprotocol/servers` *memory* server; we replace its flat-jsonl store with core/Postgres and add the vector ops it lacks. |
+| **CLI** | **Typer** | `kb import/refresh/consolidate/reembed/health/migrate` for operators + cron. |
+| **Config** | Single **YAML** (`config.yaml`) + env for secrets, via pydantic-settings | All domain specificity in one file (PRD §19). Same engine, different domain = different YAML. |
+| **WebUI v1** | One static HTML+JS file served by FastAPI (read-only) | PRD §6.2 phasing — removes 80% of "I don't want the terminal" in a few evenings. Interactive (React/Svelte) + graph (Cytoscape/react-force-graph) come later. |
+| **Reverse proxy** | **Caddy** (auto-TLS + auth) | Fronts MCP + WebUI; Postgres never exposed (PRD §16). |
+| **Deploy** | **Docker Compose**, one command | See §4 — the headline requirement. |
+| **CI** | GitHub Actions: ruff + mypy + pytest with a pgvector service container | Gate every PR. |
+
+If any decision here changes, edit this table and add a dated line to §10 (Decision Log).
+
+---
+
+## 4. Deployment — "very easy to deploy" is a hard requirement
+
+The product must be trivial to stand up. The target is:
+
+```bash
+git clone https://github.com/programmism/brainiac
+cd brainiac
+cp .env.example .env      # sane defaults; only secrets to set
+docker compose up         # → healthy stack: db + ollama + app
+```
+
+Compose brings up three services:
+- **`db`** — `pgvector/pgvector:pg16`, internal network only, named volume for data.
+- **`ollama`** — local embeddings; a bootstrap step runs `ollama pull nomic-embed-text` on first boot.
+- **`app`** — the Python service (core + MCP + HTTP + CLI). On boot it applies migrations idempotently
+  and waits for `db`/`ollama` healthchecks.
+
+Design constraints for deploy:
+- **No manual steps** beyond editing `.env`. Model pull + schema migration are automatic and idempotent.
+- **Healthchecks + `depends_on: condition: service_healthy`** so the app never races an unready DB/Ollama.
+- **Prototype tier runs on 4 GB** (PRD §12): keep Ollama `num_ctx` small, use `keep_alive` so the
+  embedder and any pipeline LLM are not co-resident.
+- Production adds **Caddy** (TLS + auth) in front and a **daily `pg_dump`** — see the M4 backlog.
+
+---
+
+## 5. Data model (domain-neutral)
+
+Three tables; vectors and graph in the same Postgres. Full DDL in `migrations/` (mirrors PRD Appendix A).
+
+- **`chunks` (Layer 1)** — `id, text (raw, always stored), embedding halfvec(768), source_uri,
+  source_locator jsonb, quality_score, tier(hot|cold), content_hash, created_at, source_modified_at`.
+  HNSW cosine index on `embedding WHERE tier='hot'`.
+  - *Raw text is mandatory:* needed to answer, and to **re-embed on model change without re-reading
+    sources** (§7 optimization).
+- **`nodes` (Layer 2)** — `id, canonical_name, aliases[], type, summary_embedding halfvec(768),
+  status(current|historical), created_at, last_confirmed_at`. `summary_embedding` powers semantic dedup.
+- **`edges` (Layer 2)** — `id, from_id, to_id, type, why, source_uri, source_locator, author, status,
+  created_at, last_confirmed_at`. FK indexes on `from_id`/`to_id`.
+
+**Design rule:** every edge carries **`why` + provenance + author**. That triple is what makes this a
+memory of *decisions*, not a fact dump.
+
+**Supersession, not deletion:** changed decisions add a `supersedes` edge and mark the old node/edge
+`status='historical'`. "Why we changed our minds" is the most valued content for onboarding.
+
+---
+
+## 6. Core operation set (the shared API)
+
+Every client calls these; no client reimplements them. Surfaced as MCP tools, REST endpoints, and CLI
+commands — same functions underneath.
+
+| Operation | Purpose |
+|---|---|
+| `search(query, k, filters)` | Vector search Layer 1 (hot tier) → chunks + provenance |
+| `remember(node)` | Upsert node with semantic dedup check (flags dups, never auto-merges) |
+| `link(from, type, to, why, source, author)` | Insert edge with rationale + provenance |
+| `recall(query)` | Vector search + graph traversal (incl. `supersedes` history) + join raw chunks → cited evidence bundle |
+| `supersede(old, new)` | Replacement-not-deletion |
+| `flag_stale(edge)` / `confirm(edge)` | Staleness lifecycle |
+| `propose_merges()` | Dedup candidates for consolidation |
+| `consolidate(options)` | The librarian pass (§8) |
+| `ingest(source, opts)` | connector → select → chunk → embed → store |
+| `health()` | Metrics (§9) |
+
+**Retrieval flow (`recall`):** vector search → graph lookup for the entity → traverse edges → join raw
+chunks by `source_uri` → Claude synthesizes **with citations**. Every claim maps to `source_uri` +
+locator. **An answer without a source is a quality bug.**
+
+**Capture flow (default, chat-driven):** human investigates → tells Claude to save it → Claude calls
+`remember`/`link` → core upserts node(s) + edge (with `why`, provenance, author) in one transaction. No
+pipeline LLM; the "extraction" is the chat itself.
+
+---
+
+## 7. Plugin seams + ingestion + storage optimizations
+
+**Four seams** (interfaces from the start, one impl each for v1):
+- `SourceConnector.fetch()/watch()` — "give me documents, tell me when they change." v1: Notion.
+- `Extractor.extract(chunk)` — text → nodes/edges. v1 default: **chat-driven** (bypassed; Claude
+  supplies the structure). Optional `local-llm` (Ollama + structured output) for bulk.
+- `Selector.score(chunk)` — the water filter; keep/queue/drop. v1: `density-filter`.
+- `Embedder.embed()/dims()` — v1: Ollama nomic-embed-text.
+
+**Ingestion pipeline (selection *before* the index — PRD §8):** structural filter (free rules) → density
+heuristic (unique nouns/terms, entities/numbers) → chunk then select **per-chunk** → LLM gatekeeper on
+the borderline queue only (Ollama small model *or* deferred Claude batch) → embed + store raw text +
+provenance + `quality_score`. Thresholds are **reversible** because raw text + score are stored.
+
+> **Day-one:** the ingest script is *not* required. Prototype ingest goes **through Claude** (paste a
+> link/export; Claude reads → selects → calls `remember`/`link`). Write connector automation only when
+> ingest becomes a repeatable bulk/scheduled routine.
+
+**Storage optimizations (apply progressively, by need — PRD §13):** selection (strongest lever) →
+quantization (`halfvec` → int8 → binary + re-rank) → Matryoshka dim reduction (768→256) → hot/cold
+tiering → **re-embed from stored raw text** on model upgrade (why raw text is mandatory).
+
+---
+
+## 8. Consolidation ("Librarian" pass)
+
+Scheduled or on-demand; walks the graph (small), not the corpus. Drivable by Claude-in-chat or a local
+Ollama LLM; reviewable in the WebUI consolidation queue.
+
+1. **Node dedup / canonicalization** — propose merges by name similarity or `summary_embedding`
+   proximity; **human confirms** (auto-merge collapses real entities — always reversible, alias history
+   kept). Without this the graph fragments into disconnected islands.
+2. **Replacement, not deletion** — `supersedes` edge + `status=historical`.
+3. **Staleness** — if `source_modified_at > edge.created_at`, flag "possibly stale, verify."
+4. **Conflict detection** — surface contradictions for human resolution.
+5. **Rollups** — a node with many edges gets a "current state of X" summary linking to detailed history;
+   creates the two reading levels (*what is now* over *how we got here*).
+
+The librarian pass is **mandatory, not optional** — skipping node dedup is the top failure mode (§11).
+
+---
+
+## 9. Health, scaling, evaluation
+
+**Metrics (from day one; ★ = load-bearing for scaling):** ★ vector index size vs RAM (healthy: index
+< ½ RAM), ★ query p95 latency (< ~200 ms, rises on disk spill), recall@k on the golden set, chunk count
+(hot/cold), node/edge count + edges/node, % edges stale-flagged, % nodes historical, ingest throughput,
+open conflicts, capture rate (saves/week — adoption; friction kills the system).
+
+**Scaling is observed, not theoretical.** The binding constraint is the vector index in RAM
+(~3 KB/vector float32; halved with halfvec). Act when the index approaches ~½ RAM, **or** p95 climbs,
+**or** golden-set recall degrades — not at an abstract row count. Rough tiers: 100–300K chunks = 4 GB
+prototype OK; ~1M = first wall (move off 4 GB); ~10M = 32–64 GB node; ~100M = quantize + shard or a
+dedicated vector DB.
+
+**Evaluation:** a golden query set (~20–50 questions with expected sources) run at every notable growth
+step and after model/threshold changes; citation discipline (uncited answer = quality bug); capture rate
+as the adoption signal.
+
+---
+
+## 10. Decision Log
+
+Newest first. One line per notable decision; link to the PR/issue.
+
+- **2026-07-01** — Bootstrapped repo + full milestone backlog (#1–#35). Chose Python + Postgres/pgvector
+  + Ollama + FastAPI + Typer + Docker Compose. Rationale captured in §3. (#1)
+
+---
+
+## 11. Failure modes & graceful degradation
+
+| Failure | Effect | Mitigation |
+|---|---|---|
+| Ollama down | No new embeddings; existing search works | Queue ingest; graph capture unaffected |
+| Index spills to disk | Slow search | Quantize / add RAM / tier (§7, §9) |
+| Bad merge in dedup | Two real entities collapsed | Merges human-approved + reversible (alias history kept) |
+| Stale knowledge served | Wrong "why" | Staleness flags + provenance let the reader verify vs source |
+| Graph fragments (no dedup) | Disconnected islands, weak recall | Librarian pass is mandatory |
+| Logic duplicated in a client | Claude vs WebUI disagree | All logic in core; clients call core only |
+| 4 GB OOM on large corpus | Crash | Prototype tier only; size up before real load |
+
+---
+
+## 12. Open questions
+
+- Notion ingestion path: native connector vs export (research spike, #33).
+- Core↔WebUI transport: REST vs MCP-also-serving-HTTP (research spike, #34) — pick once, keep clients thin.
+- Cold-tier tech if the archive outgrows pgvector (Qdrant/Milvus) and the two-store join at that scale (#... M4).
+- Whether to ever introduce a local consolidation LLM, or keep all LLM work in Claude-in-chat.
+- Multi-team isolation vs shared graph (namespaces vs one corpus).

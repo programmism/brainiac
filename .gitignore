@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment / secrets
+.env
+*.local
+
+# Data / volumes (never commit corpus, DB dumps, or model files)
+data/
+pgdata/
+ollama/
+*.dump
+*.sql.gz
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
