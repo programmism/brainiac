@@ -245,6 +245,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — M2 started. Density selector (#17): `internal/plugins/density` implements
+  `plugins.Selector` — structural filter (empty/near-empty/short) + a no-LLM density heuristic
+  (content-word ratio, lexical diversity, entity-like + number signals) → keep/queue/drop with reversible
+  thresholds. Unit-tested. Wired into ingest next (#18). Transport + Notion paths resolved via ADRs
+  ([0001](docs/decisions/0001-core-webui-transport.md), [0002](docs/decisions/0002-notion-ingestion-path.md); #32/#33).
 - **2026-07-01** — cobra CLI (#16, M1 complete): `kb` exposes `migrate`, `health`, `search`, `recall`,
   `remember`, `link`, `supersede` over core, plus `import/refresh/consolidate/reembed` stubs that error
   with their issue ref. Command tree unit-tested; errcheck configured to ignore `fmt.Fprint*` (CLI output
