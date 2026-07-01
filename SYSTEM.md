@@ -256,6 +256,13 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-01** — Content-defined chunking (#99): replaced positional chunking with a Gear/FastCDC-style
+  rolling-hash chunker (`internal/chunk`, deterministic gear table, min/target/max bounds, cuts snapped to
+  the nearest line/word break, UTF-8 safe). Boundaries are now **content-defined and self-healing**, so an
+  edit near the top of a document only re-embeds the chunk(s) it touches — downstream boundaries
+  re-synchronize and their content hashes stay identical (skipped on reconcile), instead of the whole tail
+  cascading. Dropped the old size knob and overlap. Unit test proves an early insert changes ≤3 chunks;
+  DB test proves re-ingest re-embeds only the local region. (#99)
 - **2026-07-01** — Ops & config hardening (#80/#85/#86 — **M5 complete**): compose gains per-service
   `mem_limit`/`cpus` (sized to the 4 GB box) and json-file **log rotation** (via a shared anchor), plus a
   **backup sidecar** (`--profile backup`, daily `pg_dump`, keeps 14). `config.Validate` now also requires

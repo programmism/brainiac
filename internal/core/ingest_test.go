@@ -69,45 +69,40 @@ func TestIngestSelectsChunksAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestChunkTextWordBoundaryAndOverlap(t *testing.T) {
-	// A long single paragraph of distinct words.
-	var sb strings.Builder
-	for i := 0; i < 200; i++ {
-		fmt.Fprintf(&sb, "word%d ", i)
-	}
-	text := strings.TrimSpace(sb.String())
-	const size = 100
-	chunks := chunkText(text, size)
+func TestIngestReembedsOnlyLocalRegion(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
 
-	if len(chunks) < 2 {
-		t.Fatalf("expected multiple chunks, got %d", len(chunks))
+	var sb strings.Builder
+	for i := 0; i < 400; i++ {
+		fmt.Fprintf(&sb, "Sentence %d: the quick brown fox jumps over the lazy dog by the river. ", i)
 	}
-	for _, c := range chunks {
-		if n := len([]rune(c)); n > size {
-			t.Errorf("chunk exceeds size: %d > %d", n, size)
-		}
-		// No chunk should end or start with a truncated "word<digits" fragment
-		// that isn't a whole token; every token must match the word pattern.
-		for _, tok := range strings.Fields(c) {
-			if !strings.HasPrefix(tok, "word") {
-				t.Errorf("mid-word split produced token %q", tok)
-			}
-		}
+	text := sb.String()
+	const uri = "doc://big"
+
+	s1, err := c.Ingest(ctx, sliceConn{docs: []plugins.RawDoc{{Text: text, SourceURI: uri}}}, IngestOptions{})
+	if err != nil {
+		t.Fatalf("ingest v1: %v", err)
 	}
-	// Consecutive chunks overlap (share at least one word).
-	inSecond := map[string]bool{}
-	for _, w := range strings.Fields(chunks[1]) {
-		inSecond[w] = true
+	stored := s1.Kept + s1.Queued // both are embedded + stored
+	if stored < 8 {
+		t.Fatalf("expected many chunks first time, stored=%d", stored)
 	}
-	overlap := false
-	for _, w := range strings.Fields(chunks[0]) {
-		if inSecond[w] {
-			overlap = true
-			break
-		}
+
+	// Edit near the very top and re-ingest.
+	edited := text[:40] + "INSERTEDWORD " + text[40:]
+	s2, err := c.Ingest(ctx, sliceConn{docs: []plugins.RawDoc{{Text: edited, SourceURI: uri}}}, IngestOptions{})
+	if err != nil {
+		t.Fatalf("ingest v2: %v", err)
 	}
-	if !overlap {
-		t.Errorf("expected consecutive chunks to overlap; got %q / %q", chunks[0], chunks[1])
+	// Content-defined boundaries self-heal: only a few chunks re-embed; the rest
+	// are unchanged and skipped.
+	if reembedded := s2.Kept + s2.Queued; reembedded > 3 {
+		t.Errorf("early edit re-embedded %d chunks; expected <=3 (cascade!)", reembedded)
+	}
+	if s2.Skipped < stored-3 {
+		t.Errorf("only %d chunks skipped; expected most of %d to be unchanged", s2.Skipped, stored)
 	}
 }
 
