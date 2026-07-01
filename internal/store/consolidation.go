@@ -152,11 +152,32 @@ func FindRollupCandidates(ctx context.Context, db DBTX, minEdges int) ([]RollupC
 	return out, rows.Err()
 }
 
-// RepointEdges moves every edge endpoint from oldID to newID.
+// RepointEdges moves current edges from oldID to newID during a merge. Edges
+// that would collide with an existing current (from,to,type) at newID are marked
+// historical instead of repointed, so the (from,to,type) uniqueness invariant
+// (migration 0003) holds. Historical edges keep their original endpoints.
 func RepointEdges(ctx context.Context, db DBTX, oldID, newID string) error {
-	if _, err := db.Exec(ctx, `UPDATE edges SET from_id = $2 WHERE from_id = $1`, oldID, newID); err != nil {
+	// Repoint from_id where it does not collide, then retire the rest.
+	if _, err := db.Exec(ctx, `
+		UPDATE edges e SET from_id = $2
+		WHERE e.from_id = $1 AND e.status = 'current'
+		  AND NOT EXISTS (SELECT 1 FROM edges x
+		                  WHERE x.from_id = $2 AND x.to_id = e.to_id AND x.type = e.type
+		                    AND x.status = 'current' AND x.id <> e.id)`, oldID, newID); err != nil {
 		return err
 	}
-	_, err := db.Exec(ctx, `UPDATE edges SET to_id = $2 WHERE to_id = $1`, oldID, newID)
+	if _, err := db.Exec(ctx, `UPDATE edges SET status = 'historical' WHERE from_id = $1 AND status = 'current'`, oldID); err != nil {
+		return err
+	}
+	// Same for to_id.
+	if _, err := db.Exec(ctx, `
+		UPDATE edges e SET to_id = $2
+		WHERE e.to_id = $1 AND e.status = 'current'
+		  AND NOT EXISTS (SELECT 1 FROM edges x
+		                  WHERE x.to_id = $2 AND x.from_id = e.from_id AND x.type = e.type
+		                    AND x.status = 'current' AND x.id <> e.id)`, oldID, newID); err != nil {
+		return err
+	}
+	_, err := db.Exec(ctx, `UPDATE edges SET status = 'historical' WHERE to_id = $1 AND status = 'current'`, oldID)
 	return err
 }
