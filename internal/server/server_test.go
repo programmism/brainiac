@@ -24,7 +24,7 @@ func do(t *testing.T, h http.Handler, path string) (int, map[string]string) {
 }
 
 func TestHealthz(t *testing.T) {
-	h := New(fakePinger{}, nil)
+	h := New(fakePinger{}, nil, nil)
 	code, body := do(t, h, "/healthz")
 	if code != http.StatusOK || body["status"] != "ok" {
 		t.Fatalf("healthz = %d %v", code, body)
@@ -32,7 +32,7 @@ func TestHealthz(t *testing.T) {
 }
 
 func TestReadyzDBOK_EmbedderNotConfigured(t *testing.T) {
-	h := New(fakePinger{}, nil)
+	h := New(fakePinger{}, nil, nil)
 	code, body := do(t, h, "/readyz")
 	if code != http.StatusOK {
 		t.Fatalf("readyz code = %d", code)
@@ -44,7 +44,7 @@ func TestReadyzDBOK_EmbedderNotConfigured(t *testing.T) {
 
 func TestReadyzEmbedderUnreachableStillReady(t *testing.T) {
 	down := func(context.Context) error { return errors.New("no ollama") }
-	h := New(fakePinger{}, down)
+	h := New(fakePinger{}, down, nil)
 	code, body := do(t, h, "/readyz")
 	if code != http.StatusOK { // graceful degradation: embedder down != not ready
 		t.Fatalf("readyz code = %d, want 200", code)
@@ -55,7 +55,7 @@ func TestReadyzEmbedderUnreachableStillReady(t *testing.T) {
 }
 
 func TestReadyzDBDownIs503(t *testing.T) {
-	h := New(fakePinger{err: errors.New("db gone")}, nil)
+	h := New(fakePinger{err: errors.New("db gone")}, nil, nil)
 	code, body := do(t, h, "/readyz")
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("readyz code = %d, want 503", code)

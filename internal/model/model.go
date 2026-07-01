@@ -25,49 +25,50 @@ const (
 
 // Chunk is a unit of the semantic-search layer (Layer 1). Raw Text is always
 // stored so vectors can be rebuilt on a model change without re-reading sources.
+// The Embedding is never serialized to clients (json:"-").
 type Chunk struct {
-	ID               string
-	Text             string
-	Embedding        []float32
-	SourceURI        string
-	SourceLocator    map[string]any
-	QualityScore     float64
-	Tier             Tier
-	ContentHash      string
-	CreatedAt        time.Time
-	SourceModifiedAt *time.Time
+	ID               string         `json:"id"`
+	Text             string         `json:"text"`
+	Embedding        []float32      `json:"-"`
+	SourceURI        string         `json:"source_uri"`
+	SourceLocator    map[string]any `json:"source_locator,omitempty"`
+	QualityScore     float64        `json:"quality_score"`
+	Tier             Tier           `json:"tier"`
+	ContentHash      string         `json:"content_hash,omitempty"`
+	CreatedAt        time.Time      `json:"created_at"`
+	SourceModifiedAt *time.Time     `json:"source_modified_at,omitempty"`
 }
 
 // Node is an entity in the curated graph (Layer 2).
 type Node struct {
-	ID               string
-	CanonicalName    string
-	Aliases          []string
-	Type             string
-	SummaryEmbedding []float32
-	Status           Status
-	CreatedAt        time.Time
-	LastConfirmedAt  *time.Time
+	ID               string     `json:"id"`
+	CanonicalName    string     `json:"canonical_name"`
+	Aliases          []string   `json:"aliases,omitempty"`
+	Type             string     `json:"type,omitempty"`
+	SummaryEmbedding []float32  `json:"-"`
+	Status           Status     `json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
+	LastConfirmedAt  *time.Time `json:"last_confirmed_at,omitempty"`
 }
 
 // Edge is a relationship in the curated graph. Why + provenance + author are
 // what make this a memory of decisions, not a fact dump.
 type Edge struct {
-	ID              string
-	FromID          string
-	ToID            string
-	Type            string
-	Why             string
-	SourceURI       string
-	SourceLocator   map[string]any
-	Author          string
-	Status          Status
-	CreatedAt       time.Time
-	LastConfirmedAt *time.Time
+	ID              string         `json:"id"`
+	FromID          string         `json:"from_id"`
+	ToID            string         `json:"to_id"`
+	Type            string         `json:"type"`
+	Why             string         `json:"why,omitempty"`
+	SourceURI       string         `json:"source_uri,omitempty"`
+	SourceLocator   map[string]any `json:"source_locator,omitempty"`
+	Author          string         `json:"author,omitempty"`
+	Status          Status         `json:"status"`
+	CreatedAt       time.Time      `json:"created_at"`
+	LastConfirmedAt *time.Time     `json:"last_confirmed_at,omitempty"`
 }
 
 // ChunkHit is a search result: a chunk plus its cosine distance to the query.
 type ChunkHit struct {
 	Chunk
-	Distance float64
+	Distance float64 `json:"distance"`
 }
