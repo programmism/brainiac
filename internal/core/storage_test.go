@@ -19,12 +19,13 @@ func TestReembedRebuildsFromText(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
+	// The wrong embedding is beyond the relevance floor, so "alpha" finds nothing.
 	before, err := c.Search(ctx, "alpha", 1)
-	if err != nil || len(before) == 0 {
+	if err != nil {
 		t.Fatalf("search before: %v", err)
 	}
-	if before[0].Distance < 0.5 {
-		t.Fatalf("expected far distance before reembed, got %.3f", before[0].Distance)
+	if len(before) != 0 {
+		t.Fatalf("expected no relevant hit before reembed, got %+v", before)
 	}
 
 	n, err := c.Reembed(ctx)
@@ -32,6 +33,7 @@ func TestReembedRebuildsFromText(t *testing.T) {
 		t.Fatalf("reembed: n=%d err=%v", n, err)
 	}
 
+	// After rebuilding the vector from the stored text, the chunk is found at ~0.
 	after, err := c.Search(ctx, "alpha", 1)
 	if err != nil || len(after) == 0 {
 		t.Fatalf("search after: %v", err)
