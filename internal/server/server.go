@@ -1,13 +1,19 @@
-// Package server builds the HTTP surface for the app: the WebUI/REST handler.
-// For now it exposes the health endpoints that make the deployment
-// self-verifiable; the core operations land in #19/#21. See SYSTEM.md §4.
+// Package server builds the HTTP surface for the app: health endpoints and the
+// read-only REST API over the core (ADR 0001). It is a thin adapter — handlers
+// forward to internal/core and render JSON; no business logic lives here.
 package server
 
 import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
+	"github.com/programmism/brainiac/internal/core"
 )
 
 // Pinger is the minimal storage dependency readiness needs.
@@ -19,26 +25,71 @@ type Pinger interface {
 // A nil Checker means "not configured".
 type Checker func(ctx context.Context) error
 
-// New builds the HTTP handler exposing:
-//
-//   - GET /healthz — liveness: 200 as long as the process serves.
-//   - GET /readyz  — readiness: gates on the database only. The embedder being
-//     unreachable is reported but does NOT fail readiness, because capture and
-//     existing search keep working without it (graceful degradation, §11).
-func New(db Pinger, embedder Checker) http.Handler {
-	mux := http.NewServeMux()
+// New builds the HTTP handler:
+//   - GET /healthz — liveness.
+//   - GET /readyz  — readiness (DB-gated; embedder reported, not fatal — §11).
+//   - GET /api/health, /api/search, /api/recall — read-only REST over core
+//     (mounted only when c is non-nil).
+func New(db Pinger, embedder Checker, c *core.Core) http.Handler {
+	r := chi.NewRouter()
+	r.Use(middleware.Recoverer)
+	r.Use(middleware.Timeout(30 * time.Second))
 
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	r.Get("/readyz", readyz(db, embedder))
 
-	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+	if c != nil {
+		r.Route("/api", func(r chi.Router) {
+			r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
+				m, err := c.Health(req.Context())
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, m)
+			})
+			r.Get("/search", func(w http.ResponseWriter, req *http.Request) {
+				q := req.URL.Query().Get("q")
+				if q == "" {
+					writeError(w, http.StatusBadRequest, errMissingQ)
+					return
+				}
+				k, _ := strconv.Atoi(req.URL.Query().Get("k"))
+				hits, err := c.Search(req.Context(), q, k)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, hits)
+			})
+			r.Get("/recall", func(w http.ResponseWriter, req *http.Request) {
+				q := req.URL.Query().Get("q")
+				if q == "" {
+					writeError(w, http.StatusBadRequest, errMissingQ)
+					return
+				}
+				res, err := c.Recall(req.Context(), q)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, res)
+			})
+		})
+	}
+
+	return r
+}
+
+func readyz(db Pinger, embedder Checker) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
 		resp := map[string]string{"db": "ok", "embedder": "ok"}
 		code := http.StatusOK
-
 		if err := db.Ping(ctx); err != nil {
 			resp["db"] = "error"
 			code = http.StatusServiceUnavailable
@@ -49,13 +100,21 @@ func New(db Pinger, embedder Checker) http.Handler {
 			resp["embedder"] = "unreachable" // reported, not fatal
 		}
 		writeJSON(w, code, resp)
-	})
-
-	return mux
+	}
 }
+
+type stringError string
+
+func (e stringError) Error() string { return string(e) }
+
+const errMissingQ = stringError("missing required query parameter 'q'")
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeError(w http.ResponseWriter, code int, err error) {
+	writeJSON(w, code, map[string]string{"error": err.Error()})
 }

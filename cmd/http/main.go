@@ -20,6 +20,8 @@ import (
 
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/plugins/density"
+	"github.com/programmism/brainiac/internal/plugins/ollama"
 	"github.com/programmism/brainiac/internal/server"
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -57,7 +59,9 @@ func run() error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	handler := server.New(pool, ollamaChecker(cfg.Embedding.BaseURL))
+	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims)
+	c := core.New(pool, embedder, density.New())
+	handler := server.New(pool, ollamaChecker(cfg.Embedding.BaseURL), c)
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,
 		Handler:           handler,

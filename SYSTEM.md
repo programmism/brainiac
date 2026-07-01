@@ -245,6 +245,11 @@ as the adoption signal.
 
 Newest first. One line per notable decision; link to the PR/issue.
 
+- **2026-07-01** — REST API (#20, ADR 0001): `internal/server` now uses **chi** and mounts read-only
+  `/api/health`, `/api/search?q&k`, `/api/recall?q` over core (alongside `/healthz`/`/readyz`); `cmd/http`
+  builds the core and passes it in. Writes stay on MCP/CLI (WebUI is read-only). Added `json` tags to
+  `model` (embeddings are `json:"-"`, never sent). DB-gated httptest covers search/health + missing-param
+  400. Added chi. (#20)
 - **2026-07-01** — Health metrics (#22): `Core.Health()` + `store.HealthCounts` (one round-trip) report
   chunks (hot/cold), nodes (current/historical), edges (current/historical), edges-per-node, and %
   historical (§14). `kb health` now prints them. REST `/health` exposes them in #20. Stale/conflict
