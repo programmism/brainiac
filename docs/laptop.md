@@ -29,6 +29,24 @@ Then search:
 ./brainiac health
 ```
 
+## 2b. Import from Notion (optional)
+1. In Notion, create an **internal integration** (Settings → Connections → Develop
+   or integrations) and copy its token (`secret_…`).
+2. **Share** the pages/databases you want with that integration
+   (page → Share → add your integration).
+3. Put the token in `.env`:
+   ```
+   NOTION_TOKEN=secret_xxxxxxxx
+   ```
+   and restart: `./brainiac down && ./brainiac up`.
+4. Import (on demand — Notion isn't polled every minute like local files):
+   ```bash
+   ./brainiac import --source notion
+   ```
+   Re-run it whenever you want to sync; it's idempotent (only changed pages
+   re-embed). Notion and Markdown land in the same corpus, so search/recall span
+   both. (For a schedule, add a cron entry that runs the same command.)
+
 ## 3. Connect Claude (capture & recall the "why" via MCP)
 ```bash
 ./brainiac mcp-config

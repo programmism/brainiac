@@ -256,6 +256,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-02** — Notion works out of the box (#105): compose now passes `NOTION_TOKEN` (and
+  `INGEST_INTERVAL` — which was missing, so auto-import never fired in Docker) into the app; setting
+  `NOTION_TOKEN` alone **auto-creates** a notion source (no config.yaml needed), so `./brainiac import
+  --source notion` works. Notion is on-demand/cron (not in the per-minute local auto-import loop) to
+  avoid hammering the API. Notion + Markdown share one corpus. Laptop guide gets a Notion section. (#105)
 - **2026-07-01** — Simpler laptop UX (#103): a `./brainiac` wrapper turns `docker compose exec app /kb …`
   into `./brainiac …` (+ `up`/`down`/`logs`/`mcp-config`, and `import` defaults to `/data/docs`). Optional
   **auto-import**: `INGEST_INTERVAL` (env/`ingest.interval`) runs a background loop re-ingesting
