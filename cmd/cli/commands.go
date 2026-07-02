@@ -148,7 +148,7 @@ func recallCmd() *cobra.Command {
 }
 
 func rememberCmd() *cobra.Command {
-	var typ, summary string
+	var typ, summary, project string
 	var aliases []string
 	cmd := &cobra.Command{
 		Use:   "remember [canonical-name]",
@@ -164,6 +164,7 @@ func rememberCmd() *cobra.Command {
 
 			r, err := buildCore(cfg, pool).Remember(ctx, core.RememberInput{
 				CanonicalName: args[0], Type: typ, Aliases: aliases, Summary: summary,
+				Discriminators: projectScope(project),
 			})
 			if err != nil {
 				return err
@@ -187,11 +188,12 @@ func rememberCmd() *cobra.Command {
 	cmd.Flags().StringVar(&typ, "type", "", "node type (service, datastore, decision, ...)")
 	cmd.Flags().StringVar(&summary, "summary", "", "short description; embedded for semantic dedup")
 	cmd.Flags().StringArrayVar(&aliases, "alias", nil, "alternative surface form (repeatable)")
+	cmd.Flags().StringVar(&project, "project", "", "project this entity belongs to (scopes identity; omit for global)")
 	return cmd
 }
 
 func linkCmd() *cobra.Command {
-	var from, typ, to, why, source, author string
+	var from, typ, to, why, source, author, project string
 	cmd := &cobra.Command{
 		Use:   "link",
 		Short: "Record a relationship (edge) with rationale and provenance",
@@ -205,6 +207,7 @@ func linkCmd() *cobra.Command {
 
 			edge, err := buildCore(cfg, pool).Link(ctx, core.LinkInput{
 				From: from, Type: typ, To: to, Why: why, SourceURI: source, Author: author,
+				Discriminators: projectScope(project),
 			})
 			if err != nil {
 				return err
@@ -219,6 +222,7 @@ func linkCmd() *cobra.Command {
 	cmd.Flags().StringVar(&why, "why", "", "the rationale")
 	cmd.Flags().StringVar(&source, "source", "", "provenance URI")
 	cmd.Flags().StringVar(&author, "author", "", "who recorded this")
+	cmd.Flags().StringVar(&project, "project", "", "project both endpoints belong to (scopes identity; omit for global)")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("type")
 	_ = cmd.MarkFlagRequired("to")

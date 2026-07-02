@@ -84,6 +84,18 @@ func TestMCPRoundTrip(t *testing.T) {
 		t.Fatalf("remember: %+v", rem)
 	}
 
+	// The project arg scopes identity across the MCP boundary (#116): same name,
+	// different projects → two distinct nodes.
+	pa := callTool[rememberOut](ctx, t, cs, "remember", map[string]any{"canonical_name": "Config", "project": "alpha"})
+	pb := callTool[rememberOut](ctx, t, cs, "remember", map[string]any{"canonical_name": "Config", "project": "beta"})
+	if !pa.Created || !pb.Created || pa.NodeID == pb.NodeID {
+		t.Fatalf("project scoping failed: alpha=%+v beta=%+v", pa, pb)
+	}
+	paAgain := callTool[rememberOut](ctx, t, cs, "remember", map[string]any{"canonical_name": "Config", "project": "alpha"})
+	if paAgain.Created || paAgain.NodeID != pa.NodeID {
+		t.Fatalf("same-project re-remember should match: %+v", paAgain)
+	}
+
 	callTool[linkOut](ctx, t, cs, "link", map[string]any{
 		"from": "OrderService", "type": "writes_to", "to": "Postgres",
 		"why": "orders persisted", "source_uri": "doc://orders", "author": "claude",
