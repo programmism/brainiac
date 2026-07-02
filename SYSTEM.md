@@ -206,6 +206,12 @@ provenance + `quality_score`. Thresholds are **reversible** because raw text + s
 quantization (`halfvec` → int8 → binary + re-rank) → Matryoshka dim reduction (768→256) → hot/cold
 tiering → **re-embed from stored raw text** on model upgrade (why raw text is mandatory).
 
+**Retention on source deletion (intentional).** Editing a source updates its chunks (per-source
+reconcile); **deleting a source file does NOT remove already-imported content** — Brainiac is a *memory*,
+so what it learned persists even after the source disappears. Ingest only reconciles sources it still
+sees; it never prunes vanished ones (#107, decided to keep). To drop content: `docker compose down -v`
+(wipe all) or delete the specific rows in Postgres.
+
 ---
 
 ## 8. Consolidation ("Librarian" pass)
@@ -256,6 +262,9 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-02** — Decided: **content is retained after a source file is deleted** (#107 closed, not
+  built). Editing reconciles a source; deletion does not prune it — a memory persists even if the source
+  is gone. Documented in §7; drop content via `docker compose down -v` or targeted DB deletes.
 - **2026-07-02** — MCP `ingest` tool (#108): Claude can now drive imports — `ingest{source, target}`
   (source notion|markdown; target a Notion page URL/id or path; empty = whole source). The Notion
   connector gained single-page fetch (`NewForPages` + `ParsePageID`, `GET /v1/pages/{id}`), so *"import
