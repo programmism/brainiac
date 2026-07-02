@@ -22,15 +22,17 @@ func ConfirmEdge(ctx context.Context, db DBTX, edgeID string) error {
 }
 
 // ProposeNodeMerges returns groups of current nodes that share a normalized
-// name (likely duplicates), each group ordered oldest-first.
+// name AND identity scope (likely duplicates), each group ordered oldest-first.
+// Scoping by scope_key means same-named entities in different projects are never
+// proposed for merge — Consolidate must respect the identity model (#117/#118).
 func ProposeNodeMerges(ctx context.Context, db DBTX) ([][]model.Node, error) {
 	rows, err := db.Query(ctx, `
-		SELECT `+nodeCols+`, `+normExpr+` AS norm
+		SELECT `+nodeCols+`, scope_key, `+normExpr+` AS norm
 		FROM nodes
-		WHERE status = 'current' AND `+normExpr+` IN (
-			SELECT `+normExpr+` FROM nodes WHERE status = 'current' GROUP BY 1 HAVING count(*) > 1
+		WHERE status = 'current' AND (scope_key, `+normExpr+`) IN (
+			SELECT scope_key, `+normExpr+` FROM nodes WHERE status = 'current' GROUP BY scope_key, `+normExpr+` HAVING count(*) > 1
 		)
-		ORDER BY norm, created_at`)
+		ORDER BY scope_key, norm, created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -38,16 +40,17 @@ func ProposeNodeMerges(ctx context.Context, db DBTX) ([][]model.Node, error) {
 
 	var groups [][]model.Node
 	var cur []model.Node
-	var curNorm string
+	var curKey string
 	for rows.Next() {
 		var (
-			n      model.Node
-			typ    *string
-			status string
-			disc   []byte
-			norm   string
+			n        model.Node
+			typ      *string
+			status   string
+			disc     []byte
+			scopeKey string
+			norm     string
 		)
-		if err := rows.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &disc, &n.CreatedAt, &n.LastConfirmedAt, &norm); err != nil {
+		if err := rows.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &disc, &n.CreatedAt, &n.LastConfirmedAt, &scopeKey, &norm); err != nil {
 			return nil, err
 		}
 		if typ != nil {
@@ -55,11 +58,14 @@ func ProposeNodeMerges(ctx context.Context, db DBTX) ([][]model.Node, error) {
 		}
 		n.Status = model.Status(status)
 		n.Discriminators = decodeDiscriminators(disc)
-		if norm != curNorm && len(cur) > 0 {
+		// Group boundary is (scope, normalized name); the NUL separator can't
+		// occur in either, so distinct pairs never collide.
+		key := scopeKey + "\x00" + norm
+		if key != curKey && len(cur) > 0 {
 			groups = append(groups, cur)
 			cur = nil
 		}
-		curNorm = norm
+		curKey = key
 		cur = append(cur, n)
 	}
 	if len(cur) > 0 {
