@@ -13,9 +13,14 @@ import (
 	"github.com/programmism/brainiac/internal/core"
 )
 
-// New builds an MCP server exposing search/remember/link/recall/supersede over
-// the given core.
-func New(c *core.Core) *mcp.Server {
+// ImportFunc runs an ingest for a source ("notion"|"markdown") and optional
+// target (a Notion page URL/id or a path). It is supplied by the app wiring so
+// the core/mcp layers stay plugin-agnostic; nil disables the ingest tool.
+type ImportFunc func(ctx context.Context, source, target string) (core.IngestStats, error)
+
+// New builds an MCP server exposing search/remember/link/recall/supersede (and
+// ingest, if importFn is set) over the given core.
+func New(c *core.Core, importFn ImportFunc) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "brainiac", Version: core.Version}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -42,6 +47,13 @@ func New(c *core.Core) *mcp.Server {
 		Name:        "supersede",
 		Description: "Record that a new entity replaces an old one: adds a supersedes link and marks the old one historical (kept, not deleted).",
 	}, supersedeTool(c))
+
+	if importFn != nil {
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "ingest",
+			Description: "Import documents into the memory. source is 'notion' or 'markdown'; target is a Notion page URL/id or a path (empty = the whole source). Use this when the user shares a doc link or asks to import.",
+		}, ingestTool(importFn))
+	}
 
 	return s
 }
@@ -108,6 +120,21 @@ type recallOut struct {
 	Nodes    []string   `json:"nodes"`
 	Edges    []edgeDTO  `json:"edges"`
 	Evidence []chunkDTO `json:"evidence"`
+}
+
+type ingestIn struct {
+	Source string `json:"source" jsonschema:"where to import from: notion or markdown"`
+	Target string `json:"target,omitempty" jsonschema:"a Notion page URL/id, or a path; empty imports the whole source"`
+}
+type ingestOut struct {
+	Docs    int `json:"docs"`
+	Chunks  int `json:"chunks"`
+	Kept    int `json:"kept"`
+	Queued  int `json:"queued"`
+	Dropped int `json:"dropped"`
+	Skipped int `json:"skipped"`
+	Deleted int `json:"deleted"`
+	Failed  int `json:"failed"`
 }
 
 type supersedeIn struct {
@@ -205,6 +232,21 @@ func supersedeTool(c *core.Core) mcp.ToolHandlerFor[supersedeIn, supersedeOut] {
 			return nil, supersedeOut{}, err
 		}
 		return text("superseded"), supersedeOut{OK: true}, nil
+	}
+}
+
+func ingestTool(importFn ImportFunc) mcp.ToolHandlerFor[ingestIn, ingestOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in ingestIn) (*mcp.CallToolResult, ingestOut, error) {
+		st, err := importFn(ctx, in.Source, in.Target)
+		if err != nil {
+			return nil, ingestOut{}, err
+		}
+		out := ingestOut{
+			Docs: st.Docs, Chunks: st.Chunks, Kept: st.Kept, Queued: st.Queued,
+			Dropped: st.Dropped, Skipped: st.Skipped, Deleted: st.Deleted, Failed: st.Failed,
+		}
+		return text(fmt.Sprintf("ingested %d doc(s): %d new, %d skipped, %d dropped, %d deleted",
+			st.Docs, st.Kept+st.Queued, st.Skipped, st.Dropped, st.Deleted)), out, nil
 	}
 }
 
