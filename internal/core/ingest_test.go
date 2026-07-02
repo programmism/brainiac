@@ -106,6 +106,41 @@ func TestIngestReembedsOnlyLocalRegion(t *testing.T) {
 	}
 }
 
+func TestIngestText(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	const uri = "notion://team-wiki"
+	st, err := c.IngestText(ctx, uri, "OrderService streams events to Kafka for durability and audit.")
+	if err != nil {
+		t.Fatalf("ingest text: %v", err)
+	}
+	if st.Docs != 1 || st.Kept < 1 {
+		t.Fatalf("ingest text stats: %+v", st)
+	}
+
+	// Editing the same source reconciles (old replaced, not accumulated).
+	st2, err := c.IngestText(ctx, uri, "OrderService streams events to RabbitMQ now for throughput reasons.")
+	if err != nil {
+		t.Fatalf("re-ingest text: %v", err)
+	}
+	if st2.Deleted < 1 || st2.Kept < 1 {
+		t.Fatalf("edit reconcile stats: %+v", st2)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM chunks WHERE source_uri=$1", uri).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("chunks for %s = %d, want 1", uri, count)
+	}
+
+	if _, err := c.IngestText(ctx, "", "x"); err == nil {
+		t.Error("empty source_uri should error")
+	}
+}
+
 func TestIngestActualizesEditedDoc(t *testing.T) {
 	c, pool := newTestCore(t)
 	defer pool.Close()

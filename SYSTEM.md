@@ -265,6 +265,12 @@ Newest first.
 - **2026-07-02** — Decided: **content is retained after a source file is deleted** (#107 closed, not
   built). Editing reconciles a source; deletion does not prune it — a memory persists even if the source
   is gone. Documented in §7; drop content via `docker compose down -v` or targeted DB deletes.
+- **2026-07-02** — MCP `add_document` (#111): `add_document{source_uri, text}` → `core.IngestText` runs
+  supplied text through the pipeline (chunk→select→embed→store, per-source reconcile). Enables the
+  **chat-driven** path: Claude reads a source with **its own** integration (Notion, web) and pushes the
+  text into the searchable memory — no `NOTION_TOKEN`/connector needed for ad-hoc imports. `remember`/`link`
+  still build the graph; the connector (`ingest`) remains for bulk/scheduled. DB-gated tests
+  (`IngestText` + MCP add_document→search). (#111)
 - **2026-07-02** — MCP `ingest` tool (#108): Claude can now drive imports — `ingest{source, target}`
   (source notion|markdown; target a Notion page URL/id or path; empty = whole source). The Notion
   connector gained single-page fetch (`NewForPages` + `ParsePageID`, `GET /v1/pages/{id}`), so *"import

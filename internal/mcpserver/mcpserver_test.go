@@ -101,6 +101,25 @@ func TestMCPRoundTrip(t *testing.T) {
 	if !found {
 		t.Fatalf("recall edges missing writes_to: %+v", rec.Edges)
 	}
+
+	// add_document: store text Claude "read elsewhere", then find it via search.
+	const doc = "OrderService streams events to Kafka for durability and audit."
+	add := callTool[ingestOut](ctx, t, cs, "add_document", map[string]any{
+		"source_uri": "notion://wiki", "text": doc,
+	})
+	if add.Kept < 1 {
+		t.Fatalf("add_document kept=%d, want >=1", add.Kept)
+	}
+	hits := callTool[searchOut](ctx, t, cs, "search", map[string]any{"query": doc})
+	gotDoc := false
+	for _, h := range hits.Chunks {
+		if h.SourceURI == "notion://wiki" {
+			gotDoc = true
+		}
+	}
+	if !gotDoc {
+		t.Fatalf("search did not return the added document: %+v", hits.Chunks)
+	}
 }
 
 func contains(ss []string, s string) bool {
