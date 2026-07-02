@@ -44,15 +44,17 @@ func ProposeNodeMerges(ctx context.Context, db DBTX) ([][]model.Node, error) {
 			n      model.Node
 			typ    *string
 			status string
+			disc   []byte
 			norm   string
 		)
-		if err := rows.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &n.CreatedAt, &n.LastConfirmedAt, &norm); err != nil {
+		if err := rows.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &disc, &n.CreatedAt, &n.LastConfirmedAt, &norm); err != nil {
 			return nil, err
 		}
 		if typ != nil {
 			n.Type = *typ
 		}
 		n.Status = model.Status(status)
+		n.Discriminators = decodeDiscriminators(disc)
 		if norm != curNorm && len(cur) > 0 {
 			groups = append(groups, cur)
 			cur = nil

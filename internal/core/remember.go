@@ -18,6 +18,10 @@ type RememberInput struct {
 	CanonicalName string
 	Type          string
 	Aliases       []string
+	// Discriminators are the identity-bearing axes (project, env, ...) that scope
+	// this entity. Empty = global/shared. Two nodes are the same identity iff they
+	// share CanonicalName AND discriminators (#117).
+	Discriminators map[string]string
 	// Summary is optional text embedded for semantic dedup and stored on the
 	// node's summary_embedding.
 	Summary string
@@ -42,7 +46,8 @@ type RememberResult struct {
 // inserted and likely duplicates — by normalized name or summary-embedding
 // proximity — are returned for consolidation to review. Nothing is auto-merged.
 func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult, error) {
-	existing, err := store.GetNodeByCanonicalName(ctx, c.pool, in.CanonicalName)
+	scope := model.ScopeKey(in.Discriminators)
+	existing, err := store.GetNodeByCanonicalNameScoped(ctx, c.pool, in.CanonicalName, scope)
 	if err != nil {
 		return nil, fmt.Errorf("lookup node: %w", err)
 	}
@@ -65,7 +70,7 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 		}
 	}
 
-	dups, err := c.findDuplicates(ctx, in.CanonicalName, emb)
+	dups, err := c.findDuplicates(ctx, in.CanonicalName, scope, emb)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +79,7 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 		CanonicalName:    in.CanonicalName,
 		Type:             in.Type,
 		Aliases:          in.Aliases,
+		Discriminators:   in.Discriminators,
 		SummaryEmbedding: emb,
 	}
 	if err := store.InsertNode(ctx, c.pool, node); err != nil {
@@ -82,10 +88,12 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 	return &RememberResult{Node: node, Created: true, Duplicates: dups}, nil
 }
 
-func (c *Core) findDuplicates(ctx context.Context, name string, emb []float32) ([]DuplicateCandidate, error) {
+func (c *Core) findDuplicates(ctx context.Context, name, scope string, emb []float32) ([]DuplicateCandidate, error) {
 	var dups []DuplicateCandidate
 
-	byName, err := store.FindNodesByNormalizedName(ctx, c.pool, name)
+	// Dedup only within the same identity scope: two same-named entities in
+	// different projects are distinct, not duplicates (#117).
+	byName, err := store.FindNodesByNormalizedName(ctx, c.pool, name, scope)
 	if err != nil {
 		return nil, fmt.Errorf("normalized-name dedup: %w", err)
 	}
@@ -94,7 +102,7 @@ func (c *Core) findDuplicates(ctx context.Context, name string, emb []float32) (
 	}
 
 	if emb != nil {
-		hits, err := store.FindSimilarNodes(ctx, c.pool, emb, 5)
+		hits, err := store.FindSimilarNodes(ctx, c.pool, emb, 5, scope)
 		if err != nil {
 			return nil, fmt.Errorf("semantic dedup: %w", err)
 		}

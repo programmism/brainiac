@@ -144,7 +144,11 @@ Three tables; vectors and graph in the same Postgres. Full DDL in `migrations/` 
   - *Raw text is mandatory:* needed to answer, and to **re-embed on model change without re-reading
     sources** (§7 optimization).
 - **`nodes` (Layer 2)** — `id, canonical_name, aliases[], type, summary_embedding halfvec(768),
-  status(current|historical), created_at, last_confirmed_at`. `summary_embedding` powers semantic dedup.
+  status(current|historical), discriminators jsonb, scope_key text, created_at, last_confirmed_at`.
+  `summary_embedding` powers semantic dedup. **Node identity = `canonical_name` + `discriminators`**
+  (the identity-bearing axes: `project`, `env`, …; empty = global/shared). `scope_key` is their canonical
+  serialization (sorted `k=v;` pairs, written by the app) and keys idempotent upsert + dedup, so same-named
+  entities in different projects stay distinct while universal ones accrue globally (#117, §12).
 - **`edges` (Layer 2)** — `id, from_id, to_id, type, why, source_uri, source_locator, author, status,
   created_at, last_confirmed_at`. FK indexes on `from_id`/`to_id`.
 
@@ -262,6 +266,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-02** — Scoped node identity (#117, part of #113): a node's identity is now `canonical_name` +
+  a **discriminator** set (identity axes like `project`/`env`; empty = **global/shared**), not name alone.
+  Migration 0004 adds `discriminators jsonb` + a canonical `scope_key` (sorted `k=v;`, app-written); upsert
+  and dedup (`GetNodeByCanonicalNameScoped`, `FindNodesByNormalizedName`, `FindSimilarNodes` all scope-keyed)
+  key on `(scope_key, canonical_name)`. Effect: same-named entities in different projects stay distinct and
+  accrue their own facts; universal entities (empty discriminators) accrue globally. **Backward-compatible**:
+  discriminators default to `{}`/global, so existing nodes and callers behave exactly as before until #116
+  auto-populates `project` from context. Recall reads across all scopes (`store.AnyScope`) — the soft
+  per-project lens is #119; Consolidate scoping is #118. DB-gated test: two `Config{project:…}` stay distinct,
+  same-scope re-remember is idempotent, global `Config` is a third identity. (#117)
 - **2026-07-02** — Agent-memory docs (#111 follow-up): documented how to make Brainiac **any MCP agent's
   long-term memory** — connect the stdio MCP server (Claude Desktop/Code, Cursor, Cline, custom SDK) and
   paste an agent-agnostic **memory instruction** (recall-before-answering + save findings/decisions
@@ -520,4 +534,11 @@ Newest first.
 - ~~Cold-tier tech if the archive outgrows pgvector~~ — **resolved**: escalation ladder (selection →
   quantization → Matryoshka → tiering → external cold store), see [ADR 0003](docs/decisions/0003-cold-tier-at-scale.md) (#34).
 - Whether to ever introduce a local consolidation LLM, or keep all LLM work in Claude-in-chat.
-- Multi-team isolation vs shared graph (namespaces vs one corpus).
+- **Multi-project / multi-team memory** (#113) — reframed as two independent axes:
+  - **Identity** (should same-named entities merge) — **resolved & partly shipped**: identity = `canonical_name` +
+    a declared **discriminator** set (`project`, `env`, …; empty = global), so same-named entities in different
+    projects stay distinct without any wall (#117 shipped; discriminators are auto-derived from context in #116;
+    Consolidate scoping in #118). Descriptive **facets** are not identity.
+  - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall lens
+    that widens on demand (#119). **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for
+    privacy/compliance/multi-tenant (#120); until then, hard isolation = a separate stack per team.

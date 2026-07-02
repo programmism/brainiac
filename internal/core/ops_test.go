@@ -91,6 +91,59 @@ func TestRememberCreateIdempotentAndDedup(t *testing.T) {
 	}
 }
 
+func TestRememberScopedIdentity(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Same name, different projects → two distinct nodes, neither flagged as a
+	// duplicate of the other (identity = name + discriminators, #117).
+	a, err := c.Remember(ctx, RememberInput{CanonicalName: "Config", Discriminators: map[string]string{"project": "goroutly"}})
+	if err != nil {
+		t.Fatalf("remember A: %v", err)
+	}
+	b, err := c.Remember(ctx, RememberInput{CanonicalName: "Config", Discriminators: map[string]string{"project": "brainiac"}})
+	if err != nil {
+		t.Fatalf("remember B: %v", err)
+	}
+	if !a.Created || !b.Created {
+		t.Fatalf("both scoped Configs should be created: a=%v b=%v", a.Created, b.Created)
+	}
+	if a.Node.ID == b.Node.ID {
+		t.Fatal("scoped Configs collapsed into one node")
+	}
+	if len(b.Duplicates) != 0 {
+		t.Fatalf("cross-project same name must not be flagged as duplicate: %+v", b.Duplicates)
+	}
+
+	// Re-remember within the same scope is idempotent (same identity).
+	again, err := c.Remember(ctx, RememberInput{CanonicalName: "Config", Discriminators: map[string]string{"project": "goroutly"}})
+	if err != nil {
+		t.Fatalf("re-remember A: %v", err)
+	}
+	if again.Created || again.Node.ID != a.Node.ID {
+		t.Fatalf("same-scope re-remember should hit the same node: created=%v id=%s", again.Created, again.Node.ID)
+	}
+
+	// A global Config (no discriminators) is yet another identity, not a dup.
+	g, err := c.Remember(ctx, RememberInput{CanonicalName: "Config"})
+	if err != nil {
+		t.Fatalf("remember global: %v", err)
+	}
+	if !g.Created || len(g.Duplicates) != 0 {
+		t.Fatalf("global Config: created=%v dups=%+v", g.Created, g.Duplicates)
+	}
+
+	// Scoped lookup returns the right node per scope.
+	got, err := store.GetNodeByCanonicalNameScoped(ctx, pool, "Config", model.ScopeKey(map[string]string{"project": "brainiac"}))
+	if err != nil || got == nil || got.ID != b.Node.ID {
+		t.Fatalf("scoped lookup wrong: node=%+v err=%v", got, err)
+	}
+	if got.Discriminators["project"] != "brainiac" {
+		t.Fatalf("discriminators not round-tripped: %+v", got.Discriminators)
+	}
+}
+
 func TestLinkCreatesNodesAndEdge(t *testing.T) {
 	c, pool := newTestCore(t)
 	defer pool.Close()
