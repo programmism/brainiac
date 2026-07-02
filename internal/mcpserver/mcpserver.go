@@ -48,6 +48,11 @@ func New(c *core.Core, importFn ImportFunc) *mcp.Server {
 		Description: "Record that a new entity replaces an old one: adds a supersedes link and marks the old one historical (kept, not deleted).",
 	}, supersedeTool(c))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "add_document",
+		Description: "Store a document's text into the searchable memory (chunked + embedded). Use when you've read content elsewhere — e.g. a Notion page via your own integration, or a web page — and want it searchable/recall-able later. Give a stable source_uri (the page URL) for citation; re-adding the same source_uri updates it.",
+	}, addDocumentTool(c))
+
 	if importFn != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        "ingest",
@@ -120,6 +125,11 @@ type recallOut struct {
 	Nodes    []string   `json:"nodes"`
 	Edges    []edgeDTO  `json:"edges"`
 	Evidence []chunkDTO `json:"evidence"`
+}
+
+type addDocumentIn struct {
+	SourceURI string `json:"source_uri" jsonschema:"stable identifier for citation, e.g. the page URL"`
+	Text      string `json:"text" jsonschema:"the document's text content to store"`
 }
 
 type ingestIn struct {
@@ -232,6 +242,20 @@ func supersedeTool(c *core.Core) mcp.ToolHandlerFor[supersedeIn, supersedeOut] {
 			return nil, supersedeOut{}, err
 		}
 		return text("superseded"), supersedeOut{OK: true}, nil
+	}
+}
+
+func addDocumentTool(c *core.Core) mcp.ToolHandlerFor[addDocumentIn, ingestOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in addDocumentIn) (*mcp.CallToolResult, ingestOut, error) {
+		st, err := c.IngestText(ctx, in.SourceURI, in.Text)
+		if err != nil {
+			return nil, ingestOut{}, err
+		}
+		out := ingestOut{
+			Docs: st.Docs, Chunks: st.Chunks, Kept: st.Kept, Queued: st.Queued,
+			Dropped: st.Dropped, Skipped: st.Skipped, Deleted: st.Deleted, Failed: st.Failed,
+		}
+		return text(fmt.Sprintf("stored %q: %d new chunk(s), %d skipped, %d dropped", in.SourceURI, st.Kept+st.Queued, st.Skipped, st.Dropped)), out, nil
 	}
 }
 

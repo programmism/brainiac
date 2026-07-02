@@ -53,6 +53,25 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, _ Inges
 	return stats, nil
 }
 
+// IngestText stores a single document's text into the memory (chunk → select →
+// embed → store, with per-source reconcile), for content a client already has
+// in hand — e.g. Claude reading Notion/web via its own integration and pushing
+// it in (the chat-driven path; no server-side connector/token needed).
+func (c *Core) IngestText(ctx context.Context, sourceURI, text string) (IngestStats, error) {
+	if c.selector == nil {
+		return IngestStats{}, fmt.Errorf("ingest requires a selector")
+	}
+	if sourceURI == "" {
+		return IngestStats{}, fmt.Errorf("source_uri is required")
+	}
+	stats := IngestStats{Docs: 1}
+	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, &stats); err != nil {
+		stats.Failed++
+		return stats, err
+	}
+	return stats, nil
+}
+
 // ingestDoc actualizes a single document. Embeddings are computed outside the
 // transaction (no network held open); the reconcile (delete stale + insert new)
 // runs in one short transaction.
