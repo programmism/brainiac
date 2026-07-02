@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -63,7 +64,7 @@ func TestMCPRoundTrip(t *testing.T) {
 		t.Fatalf("truncate: %v", err)
 	}
 
-	server := New(core.New(pool, fakeEmbedder{}, nil), nil)
+	server := New(core.New(pool, fakeEmbedder{}, density.New()), nil)
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		t.Fatalf("server connect: %v", err)
