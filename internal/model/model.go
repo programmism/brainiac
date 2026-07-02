@@ -3,7 +3,11 @@
 // but the standard library, so both layers can import it without cycles.
 package model
 
-import "time"
+import (
+	"sort"
+	"strings"
+	"time"
+)
 
 // SchemaEmbeddingDims is the vector dimension the schema is built for
 // (halfvec(768) = nomic-embed-text). Embeddings must match it.
@@ -45,14 +49,42 @@ type Chunk struct {
 
 // Node is an entity in the curated graph (Layer 2).
 type Node struct {
-	ID               string     `json:"id"`
-	CanonicalName    string     `json:"canonical_name"`
-	Aliases          []string   `json:"aliases,omitempty"`
-	Type             string     `json:"type,omitempty"`
-	SummaryEmbedding []float32  `json:"-"`
-	Status           Status     `json:"status"`
-	CreatedAt        time.Time  `json:"created_at"`
-	LastConfirmedAt  *time.Time `json:"last_confirmed_at,omitempty"`
+	ID            string   `json:"id"`
+	CanonicalName string   `json:"canonical_name"`
+	Aliases       []string `json:"aliases,omitempty"`
+	Type          string   `json:"type,omitempty"`
+	// Discriminators are the identity-bearing axes (project, env, ...) that make
+	// same-named entities distinct. Empty = global/shared. Facet/descriptive tags
+	// are NOT identity and are not stored here (#117).
+	Discriminators   map[string]string `json:"discriminators,omitempty"`
+	SummaryEmbedding []float32         `json:"-"`
+	Status           Status            `json:"status"`
+	CreatedAt        time.Time         `json:"created_at"`
+	LastConfirmedAt  *time.Time        `json:"last_confirmed_at,omitempty"`
+}
+
+// ScopeKey is the canonical identity serialization of a discriminator set:
+// sorted "k=v" pairs joined by ";". Empty (global) when there are none. Two nodes
+// are the same identity iff they share canonical_name AND ScopeKey.
+func ScopeKey(disc map[string]string) string {
+	if len(disc) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(disc))
+	for k := range disc {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(';')
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(disc[k])
+	}
+	return b.String()
 }
 
 // Edge is a relationship in the curated graph. Why + provenance + author are
