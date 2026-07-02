@@ -63,7 +63,7 @@ func TestMCPRoundTrip(t *testing.T) {
 		t.Fatalf("truncate: %v", err)
 	}
 
-	server := New(core.New(pool, fakeEmbedder{}, nil))
+	server := New(core.New(pool, fakeEmbedder{}, nil), nil)
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		t.Fatalf("server connect: %v", err)
@@ -110,4 +110,34 @@ func contains(ss []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestIngestToolCallsImporter(t *testing.T) {
+	ctx := context.Background()
+	var gotSource, gotTarget string
+	importFn := func(_ context.Context, source, target string) (core.IngestStats, error) {
+		gotSource, gotTarget = source, target
+		return core.IngestStats{Docs: 1, Kept: 3}, nil
+	}
+	// core is unused by the ingest tool, so nil is fine here.
+	server := New(nil, importFn)
+	serverT, clientT := mcp.NewInMemoryTransports()
+	if _, err := server.Connect(ctx, serverT, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer func() { _ = cs.Close() }()
+
+	out := callTool[ingestOut](ctx, t, cs, "ingest", map[string]any{
+		"source": "notion", "target": "https://notion.so/Team-Wiki-abc123def4567890abc123def4567890",
+	})
+	if out.Docs != 1 || out.Kept != 3 {
+		t.Fatalf("ingest out = %+v", out)
+	}
+	if gotSource != "notion" || gotTarget == "" {
+		t.Fatalf("importer got source=%q target=%q", gotSource, gotTarget)
+	}
 }

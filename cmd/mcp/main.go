@@ -15,6 +15,8 @@ import (
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/mcpserver"
 	"github.com/programmism/brainiac/internal/plugins/density"
+	"github.com/programmism/brainiac/internal/plugins/markdown"
+	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -47,12 +49,38 @@ func run() error {
 
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims)
 	c := core.New(pool, embedder, density.New())
-	srv := mcpserver.New(c)
+	srv := mcpserver.New(c, importFunc(c, cfg))
 
 	// stdio: logs must go to stderr so they don't corrupt the protocol stream.
 	log.SetOutput(os.Stderr)
 	log.Printf("brainiac-mcp %s: serving over stdio", core.Version)
 	return srv.Run(ctx, &mcp.StdioTransport{})
+}
+
+// importFunc dispatches an MCP ingest request to the right connector, keeping
+// the mcp/core layers plugin-agnostic.
+func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
+	return func(ctx context.Context, source, target string) (core.IngestStats, error) {
+		switch source {
+		case "markdown":
+			dir := target
+			if dir == "" {
+				dir = "/data/docs"
+			}
+			return c.Ingest(ctx, markdown.New(dir), core.IngestOptions{})
+		case "notion":
+			sc := cfg.Source("notion")
+			if sc == nil || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("notion is not configured (set NOTION_TOKEN)")
+			}
+			if target == "" {
+				return c.Ingest(ctx, notion.New(sc.Token), core.IngestOptions{})
+			}
+			return c.Ingest(ctx, notion.NewForPages(sc.Token, []string{target}), core.IngestOptions{})
+		default:
+			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion or markdown)", source)
+		}
+	}
 }
 
 func configPath() string {
