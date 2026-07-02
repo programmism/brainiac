@@ -80,6 +80,10 @@ because …"*, then later *"why is A built this way?"*.
 ```
 
 ## Notes
+- **Deleting a source file keeps its content.** Once imported, text + embeddings live in the DB, so you
+  can delete files from `./data/docs` freely — search/recall keep working, and Brainiac *retains* the
+  content (a memory persists even if the source is gone). Editing a file updates it. To actually drop
+  content: `./brainiac down -v` (wipe all) or delete rows in Postgres.
 - **Windows:** the `./brainiac` script is POSIX sh — use WSL, or run the commands
   directly (`docker compose exec app /kb …`) / the `make` targets.
 - **WebUI merge/confirm buttons** are off by default; enable with
