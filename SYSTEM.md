@@ -224,8 +224,9 @@ Scheduled or on-demand; walks the graph (small), not the corpus. Drivable by Cla
 Ollama LLM; reviewable in the WebUI consolidation queue.
 
 1. **Node dedup / canonicalization** — propose merges by name similarity or `summary_embedding`
-   proximity; **human confirms** (auto-merge collapses real entities — always reversible, alias history
-   kept). Without this the graph fragments into disconnected islands.
+   proximity, **within a single identity scope** (proposals never cross `scope_key`, so same-named entities
+   in different projects are never merged, #118); **human confirms** (auto-merge collapses real entities —
+   always reversible, alias history kept). Without this the graph fragments into disconnected islands.
 2. **Replacement, not deletion** — `supersedes` edge + `status=historical`.
 3. **Staleness** — if `source_modified_at > edge.created_at`, flag "possibly stale, verify."
 4. **Conflict detection** — surface contradictions for human resolution.
@@ -266,6 +267,12 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-02** — Consolidate respects identity scope (#118, part of #113): `ProposeNodeMerges` now groups
+  duplicate-name candidates by `(scope_key, normalized_name)` instead of name alone, so Consolidate never
+  proposes merging same-named entities across projects — closing the loop opened by #117/#116 (otherwise the
+  librarian pass would re-merge what scoped identity kept apart). Same-project duplicates still group as
+  before. DB-gated test: `OrderService{alpha}` vs `Order Service{beta}` → no proposal; two `Pay Service` in
+  the same project → one group. (#118)
 - **2026-07-02** — Project tagging at capture (#116, part of #113): `remember`/`link` (MCP + CLI) gained
   an optional **`project`** — the agent, which knows its working context, passes the project it's in, and it
   becomes the identity discriminator `{project: …}` (empty = global). Decided **agent-passes-in-call** over a
@@ -547,7 +554,7 @@ Newest first.
   - **Identity** (should same-named entities merge) — **resolved & partly shipped**: identity = `canonical_name` +
     a declared **discriminator** set (`project`, `env`, …; empty = global), so same-named entities in different
     projects stay distinct without any wall (#117 shipped; the agent passes its `project` per call as the
-    discriminator, #116 shipped; Consolidate scoping in #118). Descriptive **facets** are not identity.
+    discriminator, #116 shipped; Consolidate scoped to identity, #118 shipped). Descriptive **facets** are not identity.
   - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall lens
     that widens on demand (#119). **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for
     privacy/compliance/multi-tenant (#120); until then, hard isolation = a separate stack per team.
