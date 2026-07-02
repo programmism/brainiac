@@ -262,6 +262,13 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-02** — Agent-memory docs (#111 follow-up): documented how to make Brainiac **any MCP agent's
+  long-term memory** — connect the stdio MCP server (Claude Desktop/Code, Cursor, Cline, custom SDK) and
+  paste an agent-agnostic **memory instruction** (recall-before-answering + save findings/decisions
+  proactively) globally or per-project. New `./brainiac instructions` prints that block; `docs/agent-memory.md`
+  covers connect + instruct + global-vs-per-project. **Per-project scoping is a soft convention today**
+  (source_uri prefixes + a `project:` note); **hard isolation = namespaces is future** (#113, PRD §21) —
+  until then run a separate stack per project.
 - **2026-07-02** — Decided: **content is retained after a source file is deleted** (#107 closed, not
   built). Editing reconciles a source; deletion does not prune it — a memory persists even if the source
   is gone. Documented in §7; drop content via `docker compose down -v` or targeted DB deletes.
