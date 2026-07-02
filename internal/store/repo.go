@@ -108,7 +108,9 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int) ([]m
 	return hits, rows.Err()
 }
 
-// InsertNode inserts a node and fills in its generated ID and CreatedAt.
+// InsertNode inserts a node and fills in its generated ID and CreatedAt. The
+// node's discriminators (identity axes; empty = global) are stored alongside a
+// canonical scope_key so identity lookups never have to recompute it (#117).
 func InsertNode(ctx context.Context, db DBTX, n *model.Node) error {
 	status := n.Status
 	if status == "" {
@@ -118,23 +120,39 @@ func InsertNode(ctx context.Context, db DBTX, n *model.Node) error {
 	if aliases == nil {
 		aliases = []string{}
 	}
+	disc := n.Discriminators
+	if disc == nil {
+		disc = map[string]string{}
+	}
+	discJSON, err := json.Marshal(disc)
+	if err != nil {
+		return err
+	}
 	return db.QueryRow(ctx, `
-		INSERT INTO nodes (canonical_name, aliases, type, summary_embedding, status)
-		VALUES ($1, $2, $3, $4::halfvec, $5)
+		INSERT INTO nodes (canonical_name, aliases, type, summary_embedding, status, discriminators, scope_key)
+		VALUES ($1, $2, $3, $4::halfvec, $5, $6::jsonb, $7)
 		RETURNING id, created_at`,
 		n.CanonicalName, aliases, nullStr(n.Type), encodeVec(n.SummaryEmbedding), string(status),
+		discJSON, model.ScopeKey(n.Discriminators),
 	).Scan(&n.ID, &n.CreatedAt)
 }
 
 // GetNodeByCanonicalName returns the most recent current node with the given
-// name, or (nil, nil) if none exists.
+// name in the global scope, or (nil, nil) if none exists. Equivalent to
+// GetNodeByCanonicalNameScoped with an empty scope.
 func GetNodeByCanonicalName(ctx context.Context, db DBTX, name string) (*model.Node, error) {
+	return GetNodeByCanonicalNameScoped(ctx, db, name, "")
+}
+
+// GetNodeByCanonicalNameScoped returns the most recent current node with the
+// given name within the given identity scope, or (nil, nil) if none exists.
+func GetNodeByCanonicalNameScoped(ctx context.Context, db DBTX, name, scopeKey string) (*model.Node, error) {
 	n, err := scanNode(db.QueryRow(ctx, `
 		SELECT `+nodeCols+`
 		FROM nodes
-		WHERE canonical_name = $1 AND status = 'current'
+		WHERE canonical_name = $1 AND scope_key = $2 AND status = 'current'
 		ORDER BY created_at DESC
-		LIMIT 1`, name))
+		LIMIT 1`, name, scopeKey))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

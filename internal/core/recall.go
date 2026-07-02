@@ -59,7 +59,8 @@ func (c *Core) Recall(ctx context.Context, query string) (*RecallResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes)
+	// Recall reads across all projects; the soft per-project lens is #119.
+	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, store.AnyScope)
 	if err != nil {
 		return nil, fmt.Errorf("find nodes: %w", err)
 	}
