@@ -27,10 +27,12 @@ const defaultBaseURL = "https://api.notion.com"
 const maxBlockDepth = 3
 
 // Connector reads pages from a Notion workspace the integration can access.
+// If pages is non-empty, only those specific pages are fetched (by id).
 type Connector struct {
 	token   string
 	baseURL string
 	client  *http.Client
+	pages   []string
 }
 
 // Option customizes a Connector.
@@ -53,11 +55,54 @@ func New(token string, opts ...Option) *Connector {
 	return c
 }
 
+// NewForPages builds a connector that fetches only the given pages (by id or
+// URL), for targeted imports (e.g. "import this Notion link").
+func NewForPages(token string, pages []string, opts ...Option) *Connector {
+	c := New(token, opts...)
+	for _, p := range pages {
+		c.pages = append(c.pages, ParsePageID(p))
+	}
+	return c
+}
+
 var _ plugins.SourceConnector = (*Connector)(nil)
 
-// Fetch yields every page the integration can read, as a RawDoc (title + block
-// text) with the page URL as provenance.
+// ParsePageID extracts the 32-hex Notion page id from a page URL (or returns the
+// input if it already looks like an id).
+func ParsePageID(s string) string {
+	if i := strings.IndexAny(s, "?#"); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.LastIndex(s, "/"); i >= 0 {
+		s = s[i+1:]
+	}
+	compact := strings.ReplaceAll(s, "-", "")
+	if len(compact) >= 32 {
+		if tail := compact[len(compact)-32:]; isHex(tail) {
+			return tail
+		}
+	}
+	return s
+}
+
+func isHex(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// Fetch yields pages as RawDocs (title + block text) with the page URL as
+// provenance — either the specific pages set via NewForPages, or every page the
+// integration can read.
 func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] {
+	if len(c.pages) > 0 {
+		return c.fetchPages(ctx)
+	}
 	return func(yield func(plugins.RawDoc, error) bool) {
 		var cursor string
 		for {
@@ -132,6 +177,31 @@ func (c *Connector) searchPages(ctx context.Context, cursor string) (*listRespon
 		return nil, err
 	}
 	return &out, nil
+}
+
+// fetchPages yields the specific pages requested via NewForPages.
+func (c *Connector) fetchPages(ctx context.Context) iter.Seq2[plugins.RawDoc, error] {
+	return func(yield func(plugins.RawDoc, error) bool) {
+		for _, id := range c.pages {
+			var page map[string]any
+			if err := c.do(ctx, http.MethodGet, "/v1/pages/"+id, nil, &page); err != nil {
+				if !yield(plugins.RawDoc{}, err) {
+					return
+				}
+				continue
+			}
+			doc, err := c.pageToDoc(ctx, page)
+			if err != nil {
+				if !yield(plugins.RawDoc{}, err) {
+					return
+				}
+				continue
+			}
+			if !yield(doc, nil) {
+				return
+			}
+		}
+	}
 }
 
 func (c *Connector) pageToDoc(ctx context.Context, page map[string]any) (plugins.RawDoc, error) {

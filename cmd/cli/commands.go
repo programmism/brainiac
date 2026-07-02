@@ -264,6 +264,9 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 		if sc == nil || sc.Token == "" {
 			return nil, fmt.Errorf("notion source not configured (set a token via NOTION_TOKEN or config.yaml)")
 		}
+		if path != "" { // --path holds a page URL/id for a targeted import
+			return notion.NewForPages(sc.Token, []string{path}), nil
+		}
 		return notion.New(sc.Token), nil
 	case "markdown":
 		dir := path

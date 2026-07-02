@@ -54,8 +54,15 @@ Then search:
 Paste the printed JSON into Claude Desktop's config
 (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) and
 restart Claude. Keep the stack running. Claude now has `search`, `remember`,
-`link`, `recall`, `supersede` — e.g. *"save that A writes to B because …"*, then
-later *"why is A built this way?"*.
+`link`, `recall`, `supersede`, and `ingest` — e.g. *"save that A writes to B
+because …"*, then later *"why is A built this way?"*.
+
+**Claude can import for you.** Just paste a link or ask:
+- *"import this Notion page: https://notion.so/…"* → Claude calls `ingest{source:"notion", target:"<url>"}`.
+- *"import my Notion workspace"* → `ingest{source:"notion"}` (needs `NOTION_TOKEN`).
+- *"import the docs in ./data/docs"* → `ingest{source:"markdown"}`.
+
+(CLI equivalents: `./brainiac import --source notion --path <url>`, `./brainiac import --source notion`, `./brainiac import`.)
 
 ## Everyday commands
 ```bash

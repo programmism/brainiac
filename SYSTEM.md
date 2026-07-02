@@ -256,6 +256,12 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-02** — MCP `ingest` tool (#108): Claude can now drive imports — `ingest{source, target}`
+  (source notion|markdown; target a Notion page URL/id or path; empty = whole source). The Notion
+  connector gained single-page fetch (`NewForPages` + `ParsePageID`, `GET /v1/pages/{id}`), so *"import
+  this Notion link"* imports just that page. `mcpserver.New(core, ImportFunc)` takes an app-supplied
+  dispatcher (keeps core/mcp plugin-agnostic); `cmd/mcp` builds it from config. CLI parity:
+  `kb import --source notion --path <url>`. Tests: ParsePageID, single-page fetch, MCP ingest round-trip. (#108)
 - **2026-07-02** — Notion works out of the box (#105): compose now passes `NOTION_TOKEN` (and
   `INGEST_INTERVAL` — which was missing, so auto-import never fired in Docker) into the app; setting
   `NOTION_TOKEN` alone **auto-creates** a notion source (no config.yaml needed), so `./brainiac import

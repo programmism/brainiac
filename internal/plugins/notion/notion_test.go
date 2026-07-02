@@ -117,6 +117,48 @@ func TestFetchRetriesOn429(t *testing.T) {
 	}
 }
 
+func TestParsePageID(t *testing.T) {
+	id := "abc123def4567890abc123def4567890"
+	cases := map[string]string{
+		"https://www.notion.so/Team-Wiki-" + id: id,
+		"https://notion.so/" + id:               id,
+		id:                                      id,
+		"abc123de-f456-7890-abc1-23def4567890":  id, // dashed UUID
+	}
+	for in, want := range cases {
+		if got := ParsePageID(in); got != want {
+			t.Errorf("ParsePageID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestFetchSinglePage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/pages/p1":
+			_ = json.NewEncoder(w).Encode(page("p1", "OrderService"))
+		case "/v1/blocks/p1/children":
+			_ = json.NewEncoder(w).Encode(blocks("writes orders"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewForPages("tok", []string{"p1"}, WithBaseURL(srv.URL))
+	var docs []plugins.RawDoc
+	for d, err := range c.Fetch(context.Background()) {
+		if err != nil {
+			t.Fatalf("fetch: %v", err)
+		}
+		docs = append(docs, d)
+	}
+	if len(docs) != 1 || docs[0].SourceURI != "https://notion.so/p1" || docs[0].Text != "OrderService\n\nwrites orders" {
+		t.Fatalf("single-page fetch = %+v", docs)
+	}
+}
+
 func TestWatchEmitsUpserts(t *testing.T) {
 	srv := mockNotion(t)
 	defer srv.Close()
