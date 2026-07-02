@@ -133,3 +133,16 @@ func TestAutoImportInterval(t *testing.T) {
 		t.Error("invalid interval should be 0")
 	}
 }
+
+func TestNotionTokenAutoCreatesSource(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	t.Setenv("NOTION_TOKEN", "secret_abc")
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	s := c.Source("notion")
+	if s == nil || s.Token != "secret_abc" {
+		t.Fatalf("NOTION_TOKEN should auto-create a notion source with the token, got %+v", s)
+	}
+}

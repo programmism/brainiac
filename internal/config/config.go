@@ -166,10 +166,16 @@ func (c *Config) applyEnvOverrides() {
 		c.Ingest.Interval = v
 	}
 	if v := os.Getenv("NOTION_TOKEN"); v != "" {
+		found := false
 		for i := range c.Sources {
 			if c.Sources[i].Type == "notion" {
 				c.Sources[i].Token = v
+				found = true
 			}
+		}
+		if !found {
+			// Auto-create a notion source so the token alone is enough to import.
+			c.Sources = append(c.Sources, SourceConfig{Type: "notion", Selection: "density-filter", Token: v})
 		}
 	}
 }
