@@ -64,6 +64,12 @@ because …"*, then later *"why is A built this way?"*.
 
 (CLI equivalents: `./brainiac import --source notion --path <url>`, `./brainiac import --source notion`, `./brainiac import`.)
 
+**Already gave Claude its own Notion access?** Then you don't even need `NOTION_TOKEN` for ad-hoc
+imports: just say *"read this Notion page and add it to my memory"* — Claude reads it with its own
+integration and calls `add_document{source_uri, text}` to store it (searchable + recall-able). Two paths:
+- **Claude-fetch (`add_document`)** — no token, Claude curates; best for ad-hoc / "save this doc".
+- **Brainiac connector (`ingest` + `NOTION_TOKEN`)** — best for bulk / "import my whole workspace" / cron.
+
 ## Everyday commands
 ```bash
 ./brainiac search "…"     ./brainiac recall "…"     ./brainiac health
