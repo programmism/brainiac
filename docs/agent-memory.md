@@ -47,9 +47,12 @@ source_uri of each claim. If nothing relevant is found, say so briefly, then ans
 Whenever we learn or decide something worth keeping — a finding from a document, a
 conclusion from our discussion, a decision and its rationale, "X works like Y",
 "we chose A over B because C" — save it proactively, without being asked:
-- `remember` the entities involved (canonical name, type, a short summary).
-- `link` the relationships, always filling in `why`, and set source_uri/author
-  when known.
+- `remember` the entities involved (canonical name, type, a short summary), and set
+  `project` to the project you're working in (its repo/workspace name) so same-named
+  entities in different projects stay distinct. Omit `project` for universal facts
+  (a vendor, a standard, a shared tool) — those are global.
+- `link` the relationships, always filling in `why`, set source_uri/author when
+  known, and pass the same `project` as the entities.
 - For a document or passage that should be findable verbatim later (e.g. a page
   you read via your own integration), call `add_document` with a stable source_uri
   and the text.
