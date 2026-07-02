@@ -83,6 +83,45 @@ func TestConsolidationFlow(t *testing.T) {
 	}
 }
 
+func TestProposeMergesRespectsScope(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Same normalized name in two different projects → NOT a merge candidate.
+	if _, err := c.Remember(ctx, RememberInput{CanonicalName: "OrderService", Discriminators: map[string]string{"project": "alpha"}}); err != nil {
+		t.Fatalf("remember alpha: %v", err)
+	}
+	if _, err := c.Remember(ctx, RememberInput{CanonicalName: "Order Service", Discriminators: map[string]string{"project": "beta"}}); err != nil {
+		t.Fatalf("remember beta: %v", err)
+	}
+	merges, err := c.ProposeMerges(ctx)
+	if err != nil {
+		t.Fatalf("propose merges: %v", err)
+	}
+	if len(merges) != 0 {
+		t.Fatalf("cross-project same-name must not be proposed for merge: %+v", merges)
+	}
+
+	// Two normalized-duplicates within the SAME project → one merge group.
+	if _, err := c.Remember(ctx, RememberInput{CanonicalName: "PayService", Discriminators: map[string]string{"project": "alpha"}}); err != nil {
+		t.Fatalf("remember pay1: %v", err)
+	}
+	if _, err := c.Remember(ctx, RememberInput{CanonicalName: "Pay Service", Discriminators: map[string]string{"project": "alpha"}}); err != nil {
+		t.Fatalf("remember pay2: %v", err)
+	}
+	merges, err = c.ProposeMerges(ctx)
+	if err != nil {
+		t.Fatalf("propose merges 2: %v", err)
+	}
+	if len(merges) != 1 || len(merges[0]) != 2 {
+		t.Fatalf("same-project duplicates should form one group of 2: %+v", merges)
+	}
+	if merges[0][0].Discriminators["project"] != "alpha" {
+		t.Fatalf("merge group should be within project alpha: %+v", merges[0][0].Discriminators)
+	}
+}
+
 func mustLink(ctx context.Context, t *testing.T, c *Core, from, typ, to string) {
 	t.Helper()
 	if _, err := c.Link(ctx, LinkInput{From: from, Type: typ, To: to, Why: "x"}); err != nil {
