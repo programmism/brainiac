@@ -266,6 +266,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-02** — Project tagging at capture (#116, part of #113): `remember`/`link` (MCP + CLI) gained
+  an optional **`project`** — the agent, which knows its working context, passes the project it's in, and it
+  becomes the identity discriminator `{project: …}` (empty = global). Decided **agent-passes-in-call** over a
+  per-MCP-registration default: one Brainiac serves many projects/agents, and the memory instruction already
+  nudges the agent to tag saves. `Link` now resolves/creates **both endpoints within that scope** (scoped
+  `ensureNode`). Universal facts (a vendor, a standard) omit `project` and stay global. Instruction block +
+  `./brainiac instructions` updated to tell agents to tag by project. This activates the #117 machinery;
+  richer multi-axis discriminators (env/client) remain supported at the core level. DB-gated MCP test: same
+  name + different `project` → distinct nodes; same project → idempotent. (#116)
 - **2026-07-02** — Scoped node identity (#117, part of #113): a node's identity is now `canonical_name` +
   a **discriminator** set (identity axes like `project`/`env`; empty = **global/shared**), not name alone.
   Migration 0004 adds `discriminators jsonb` + a canonical `scope_key` (sorted `k=v;`, app-written); upsert
@@ -537,8 +546,8 @@ Newest first.
 - **Multi-project / multi-team memory** (#113) — reframed as two independent axes:
   - **Identity** (should same-named entities merge) — **resolved & partly shipped**: identity = `canonical_name` +
     a declared **discriminator** set (`project`, `env`, …; empty = global), so same-named entities in different
-    projects stay distinct without any wall (#117 shipped; discriminators are auto-derived from context in #116;
-    Consolidate scoping in #118). Descriptive **facets** are not identity.
+    projects stay distinct without any wall (#117 shipped; the agent passes its `project` per call as the
+    discriminator, #116 shipped; Consolidate scoping in #118). Descriptive **facets** are not identity.
   - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall lens
     that widens on demand (#119). **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for
     privacy/compliance/multi-tenant (#120); until then, hard isolation = a separate stack per team.

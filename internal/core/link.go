@@ -19,6 +19,9 @@ type LinkInput struct {
 	SourceURI     string
 	SourceLocator map[string]any
 	Author        string
+	// Discriminators scope both endpoints' identity (project, env, …). Empty =
+	// global. Both endpoints of a link share the same scope (#116/#117).
+	Discriminators map[string]string
 }
 
 // Link creates an edge, creating either endpoint node if it does not yet exist.
@@ -35,11 +38,11 @@ func (c *Core) Link(ctx context.Context, in LinkInput) (*model.Edge, error) {
 		Author:        in.Author,
 	}
 	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
-		from, err := ensureNode(ctx, db, in.From)
+		from, err := ensureNode(ctx, db, in.From, in.Discriminators)
 		if err != nil {
 			return fmt.Errorf("resolve from-node: %w", err)
 		}
-		to, err := ensureNode(ctx, db, in.To)
+		to, err := ensureNode(ctx, db, in.To, in.Discriminators)
 		if err != nil {
 			return fmt.Errorf("resolve to-node: %w", err)
 		}
@@ -53,17 +56,17 @@ func (c *Core) Link(ctx context.Context, in LinkInput) (*model.Edge, error) {
 	return edge, nil
 }
 
-// ensureNode returns the current node with the given canonical name, creating a
-// bare one if none exists.
-func ensureNode(ctx context.Context, db store.DBTX, name string) (*model.Node, error) {
-	n, err := store.GetNodeByCanonicalName(ctx, db, name)
+// ensureNode returns the current node with the given canonical name within the
+// given identity scope, creating a bare one (in that scope) if none exists.
+func ensureNode(ctx context.Context, db store.DBTX, name string, disc map[string]string) (*model.Node, error) {
+	n, err := store.GetNodeByCanonicalNameScoped(ctx, db, name, model.ScopeKey(disc))
 	if err != nil {
 		return nil, err
 	}
 	if n != nil {
 		return n, nil
 	}
-	n = &model.Node{CanonicalName: name}
+	n = &model.Node{CanonicalName: name, Discriminators: disc}
 	if err := store.InsertNode(ctx, db, n); err != nil {
 		return nil, err
 	}

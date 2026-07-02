@@ -70,6 +70,15 @@ func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
 	return core.New(pool, embedder, density.New())
 }
 
+// projectScope turns a --project value into the identity discriminator set;
+// empty = global/shared identity (#116).
+func projectScope(project string) map[string]string {
+	if project == "" {
+		return nil
+	}
+	return map[string]string{"project": project}
+}
+
 // stubCmd is a placeholder for a command whose implementation lands later.
 func stubCmd(name, ref string) *cobra.Command {
 	return &cobra.Command{
