@@ -30,6 +30,10 @@ embedder reported), and a CI smoke test boots the stack and asserts readiness en
 `./brainiac search "…"`, and `./brainiac mcp-config` to connect Claude. No Go, no exposed ports.
 See [docs/laptop.md](docs/laptop.md).
 
+**👉 Making it an agent's memory** — connect any MCP agent (Claude, Cursor, Cline, or your own),
+then give it the memory instruction (`./brainiac instructions`) so it recalls before answering and
+saves findings/decisions on its own — globally or per-project. See [docs/agent-memory.md](docs/agent-memory.md).
+
 ## Status
 
 **M0 complete** — Go skeleton, CI (+ deploy smoke test), DB schema/migrations, config, and one-command
