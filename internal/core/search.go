@@ -24,8 +24,10 @@ const DefaultSearchK = 10
 const MaxRelevantDistance = 0.75
 
 // Search embeds the query and returns hot-tier chunks within MaxRelevantDistance,
-// nearest first (§10 step 1). It is the vector half of retrieval.
-func (c *Core) Search(ctx context.Context, query string, k int) ([]model.ChunkHit, error) {
+// nearest first (§10 step 1). It is the vector half of retrieval. The project
+// scopes the soft retrieval lens (project + global); an empty project spans all
+// scopes, preserving cross-project search (#119).
+func (c *Core) Search(ctx context.Context, query string, k int, project string) ([]model.ChunkHit, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, nil
@@ -37,7 +39,7 @@ func (c *Core) Search(ctx context.Context, query string, k int) ([]model.ChunkHi
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	hits, err := store.SearchChunks(ctx, c.pool, emb, k)
+	hits, err := store.SearchChunks(ctx, c.pool, emb, k, store.LensFor(project))
 	if err != nil {
 		return nil, err
 	}

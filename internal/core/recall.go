@@ -39,28 +39,29 @@ type RecallResult struct {
 
 // Recall runs the retrieval flow: vector search + graph traversal + join of the
 // raw chunks behind relevant edges. It returns an evidence bundle; the client
-// composes the answer and must cite every claim.
-func (c *Core) Recall(ctx context.Context, query string) (*RecallResult, error) {
+// composes the answer and must cite every claim. The project scopes the soft
+// retrieval lens (project + global) over both chunks and nodes; an empty project
+// spans all scopes (#119).
+func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult, error) {
 	query = strings.TrimSpace(query)
 	res := &RecallResult{Query: query}
 	if query == "" {
 		return res, nil
 	}
 
-	// 1. Vector search over chunks.
-	chunks, err := c.Search(ctx, query, DefaultRecallChunks)
+	// 1. Vector search over chunks (scoped to the lens).
+	chunks, err := c.Search(ctx, query, DefaultRecallChunks, project)
 	if err != nil {
 		return nil, err
 	}
 	res.Chunks = chunks
 
-	// 2. Relevant nodes by summary-embedding proximity.
+	// 2. Relevant nodes by summary-embedding proximity, same lens.
 	emb, err := c.embedder.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	// Recall reads across all projects; the soft per-project lens is #119.
-	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, store.AnyScope)
+	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, store.LensFor(project))
 	if err != nil {
 		return nil, fmt.Errorf("find nodes: %w", err)
 	}

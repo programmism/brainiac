@@ -43,6 +43,8 @@ Before answering anything non-trivial (how or why something works, a decision, a
 fact about our systems, projects, or past choices), first call `recall` (or
 `search`) to check what is already known, and ground your answer in it — cite the
 source_uri of each claim. If nothing relevant is found, say so briefly, then answer.
+When you're working within a project, pass its name as `project` to `recall`/`search`
+so results focus on that project plus universal facts; omit it to look across everything.
 
 Whenever we learn or decide something worth keeping — a finding from a document, a
 conclusion from our discussion, a decision and its rationale, "X works like Y",

@@ -94,7 +94,9 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 					return
 				}
 				k, _ := strconv.Atoi(req.URL.Query().Get("k"))
-				hits, err := c.Search(req.Context(), q, k)
+				// Optional ?project= scopes the lens to that project + global;
+				// omitting it spans all scopes (#119).
+				hits, err := c.Search(req.Context(), q, k, req.URL.Query().Get("project"))
 				if err != nil {
 					handleCoreErr(w, err)
 					return
@@ -107,7 +109,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 					writeError(w, http.StatusBadRequest, errMissingQ)
 					return
 				}
-				res, err := c.Recall(req.Context(), q)
+				res, err := c.Recall(req.Context(), q, req.URL.Query().Get("project"))
 				if err != nil {
 					handleCoreErr(w, err)
 					return

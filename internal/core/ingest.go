@@ -14,7 +14,20 @@ import (
 
 // IngestOptions tunes an ingest run. (Chunking is content-defined, so there is
 // no size knob; see internal/chunk.)
-type IngestOptions struct{}
+type IngestOptions struct {
+	// Project scopes every chunk from this run to the retrieval lens (#119).
+	// Empty = global.
+	Project string
+}
+
+// discFromProject builds the identity discriminator set for a project name;
+// empty project = nil = global.
+func discFromProject(project string) map[string]string {
+	if project == "" {
+		return nil
+	}
+	return map[string]string{"project": project}
+}
 
 // IngestStats reports what happened during an ingest run.
 type IngestStats struct {
@@ -34,18 +47,19 @@ type IngestStats struct {
 // or removed are deleted, and new chunks are inserted — all in one transaction
 // per document. A document that fails (e.g. the embedder is down) is counted and
 // skipped; the run continues.
-func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, _ IngestOptions) (IngestStats, error) {
+func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts IngestOptions) (IngestStats, error) {
 	if c.selector == nil {
 		return IngestStats{}, fmt.Errorf("ingest requires a selector")
 	}
 
+	disc := discFromProject(opts.Project)
 	var stats IngestStats
 	for doc, err := range conn.Fetch(ctx) {
 		if err != nil {
 			return stats, fmt.Errorf("fetch: %w", err)
 		}
 		stats.Docs++
-		if err := c.ingestDoc(ctx, doc, &stats); err != nil {
+		if err := c.ingestDoc(ctx, doc, disc, &stats); err != nil {
 			stats.Failed++ // skip this doc, keep going
 			continue
 		}
@@ -57,7 +71,7 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, _ Inges
 // embed → store, with per-source reconcile), for content a client already has
 // in hand — e.g. Claude reading Notion/web via its own integration and pushing
 // it in (the chat-driven path; no server-side connector/token needed).
-func (c *Core) IngestText(ctx context.Context, sourceURI, text string) (IngestStats, error) {
+func (c *Core) IngestText(ctx context.Context, sourceURI, text, project string) (IngestStats, error) {
 	if c.selector == nil {
 		return IngestStats{}, fmt.Errorf("ingest requires a selector")
 	}
@@ -65,7 +79,7 @@ func (c *Core) IngestText(ctx context.Context, sourceURI, text string) (IngestSt
 		return IngestStats{}, fmt.Errorf("source_uri is required")
 	}
 	stats := IngestStats{Docs: 1}
-	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, &stats); err != nil {
+	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, discFromProject(project), &stats); err != nil {
 		stats.Failed++
 		return stats, err
 	}
@@ -75,7 +89,7 @@ func (c *Core) IngestText(ctx context.Context, sourceURI, text string) (IngestSt
 // ingestDoc actualizes a single document. Embeddings are computed outside the
 // transaction (no network held open); the reconcile (delete stale + insert new)
 // runs in one short transaction.
-func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, stats *IngestStats) error {
+func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[string]string, stats *IngestStats) error {
 	chunks := chunk.Split(doc.Text)
 	hashes := make([]string, len(chunks))
 	for i, ck := range chunks {
@@ -117,6 +131,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, stats *IngestS
 		inserts = append(inserts, &model.Chunk{
 			Text: ck, Embedding: emb, SourceURI: doc.SourceURI, SourceLocator: doc.SourceLocator,
 			QualityScore: score.Quality, Tier: tier, ContentHash: hashes[i], SourceModifiedAt: doc.ModifiedAt,
+			Discriminators: disc,
 		})
 	}
 

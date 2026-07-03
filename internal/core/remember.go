@@ -93,7 +93,7 @@ func (c *Core) findDuplicates(ctx context.Context, name, scope string, emb []flo
 
 	// Dedup only within the same identity scope: two same-named entities in
 	// different projects are distinct, not duplicates (#117).
-	byName, err := store.FindNodesByNormalizedName(ctx, c.pool, name, scope)
+	byName, err := store.FindNodesByNormalizedName(ctx, c.pool, name, store.ExactScope(scope))
 	if err != nil {
 		return nil, fmt.Errorf("normalized-name dedup: %w", err)
 	}
@@ -102,7 +102,7 @@ func (c *Core) findDuplicates(ctx context.Context, name, scope string, emb []flo
 	}
 
 	if emb != nil {
-		hits, err := store.FindSimilarNodes(ctx, c.pool, emb, 5, scope)
+		hits, err := store.FindSimilarNodes(ctx, c.pool, emb, 5, store.ExactScope(scope))
 		if err != nil {
 			return nil, fmt.Errorf("semantic dedup: %w", err)
 		}

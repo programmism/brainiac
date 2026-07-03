@@ -35,16 +35,19 @@ const (
 // stored so vectors can be rebuilt on a model change without re-reading sources.
 // The Embedding is never serialized to clients (json:"-").
 type Chunk struct {
-	ID               string         `json:"id"`
-	Text             string         `json:"text"`
-	Embedding        []float32      `json:"-"`
-	SourceURI        string         `json:"source_uri"`
-	SourceLocator    map[string]any `json:"source_locator,omitempty"`
-	QualityScore     float64        `json:"quality_score"`
-	Tier             Tier           `json:"tier"`
-	ContentHash      string         `json:"content_hash,omitempty"`
-	CreatedAt        time.Time      `json:"created_at"`
-	SourceModifiedAt *time.Time     `json:"source_modified_at,omitempty"`
+	ID            string         `json:"id"`
+	Text          string         `json:"text"`
+	Embedding     []float32      `json:"-"`
+	SourceURI     string         `json:"source_uri"`
+	SourceLocator map[string]any `json:"source_locator,omitempty"`
+	QualityScore  float64        `json:"quality_score"`
+	Tier          Tier           `json:"tier"`
+	ContentHash   string         `json:"content_hash,omitempty"`
+	// Discriminators scope the chunk's identity for the retrieval lens (#119),
+	// mirroring Node. Empty = global. Facet tags are not identity.
+	Discriminators   map[string]string `json:"discriminators,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
+	SourceModifiedAt *time.Time        `json:"source_modified_at,omitempty"`
 }
 
 // Node is an entity in the curated graph (Layer 2).

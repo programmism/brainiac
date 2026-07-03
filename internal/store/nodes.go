@@ -12,9 +12,38 @@ import (
 // nodeCols is the shared node column list (without embedding).
 const nodeCols = "id, canonical_name, aliases, type, status, discriminators, created_at, last_confirmed_at"
 
-// AnyScope is a sentinel scope_key that matches nodes in every identity scope.
-// It cannot collide with a real scope_key (those are "k=v" pairs or "" for global).
-const AnyScope = "*"
+// ScopeFilter is the set of identity scope_keys a read spans. An empty filter
+// spans ALL scopes (no lens); otherwise a row matches if its scope_key is in the
+// set. "" in the set means the global scope.
+type ScopeFilter []string
+
+// AllScopes spans every identity scope (used by dedup-free reads and the WebUI).
+func AllScopes() ScopeFilter { return ScopeFilter{} }
+
+// ExactScope matches a single scope_key (used by dedup, which compares like with like).
+func ExactScope(scopeKey string) ScopeFilter { return ScopeFilter{scopeKey} }
+
+// LensFor is the soft retrieval lens for a project: the project's own scope plus
+// global. An empty project means no lens (all scopes) — preserving cross-project
+// search for callers that don't specify one (#119).
+func LensFor(project string) ScopeFilter {
+	if project == "" {
+		return AllScopes()
+	}
+	return ScopeFilter{"", model.ScopeKey(map[string]string{"project": project})}
+}
+
+// arg returns the filter as a non-nil []string for the SQL predicate
+//
+//	(cardinality($n::text[]) = 0 OR scope_key = ANY($n::text[]))
+//
+// where an empty array means "all scopes".
+func (f ScopeFilter) arg() []string {
+	if f == nil {
+		return []string{}
+	}
+	return f
+}
 
 // rowScanner is satisfied by both pgx.Row and pgx.Rows.
 type rowScanner interface {
@@ -67,14 +96,14 @@ func UpdateNodeAliases(ctx context.Context, db DBTX, id string, aliases []string
 // ("Order Service" == "OrderService"), excluding the exact-name match (handled
 // separately). Scoping keeps same-named entities in different projects from being
 // flagged as duplicates of each other (#117).
-func FindNodesByNormalizedName(ctx context.Context, db DBTX, name, scopeKey string) ([]model.Node, error) {
+func FindNodesByNormalizedName(ctx context.Context, db DBTX, name string, scope ScopeFilter) ([]model.Node, error) {
 	rows, err := db.Query(ctx, `
 		SELECT `+nodeCols+`
 		FROM nodes
 		WHERE status = 'current'
-		  AND scope_key = $2
+		  AND (cardinality($2::text[]) = 0 OR scope_key = ANY($2::text[]))
 		  AND regexp_replace(lower(canonical_name), '[^a-z0-9]', '', 'g') = regexp_replace(lower($1), '[^a-z0-9]', '', 'g')
-		  AND canonical_name <> $1`, name, scopeKey)
+		  AND canonical_name <> $1`, name, scope.arg())
 	if err != nil {
 		return nil, err
 	}
@@ -98,18 +127,17 @@ type NodeHit struct {
 }
 
 // FindSimilarNodes returns the k current nodes whose summary_embedding is
-// nearest to emb by cosine distance. When scopeKey is non-empty results are
-// restricted to that identity scope; the sentinel AnyScope spans all scopes
-// (used by recall, which reads across projects).
-func FindSimilarNodes(ctx context.Context, db DBTX, emb []float32, k int, scopeKey string) ([]NodeHit, error) {
+// nearest to emb by cosine distance, restricted to the given scope filter (an
+// empty filter spans all scopes).
+func FindSimilarNodes(ctx context.Context, db DBTX, emb []float32, k int, scope ScopeFilter) ([]NodeHit, error) {
 	vec := pgvector.NewHalfVector(emb).String()
 	rows, err := db.Query(ctx, `
 		SELECT `+nodeCols+`, (summary_embedding <=> $1::halfvec)::float8 AS distance
 		FROM nodes
 		WHERE status = 'current' AND summary_embedding IS NOT NULL
-		  AND ($3 = '*' OR scope_key = $3)
+		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
 		ORDER BY summary_embedding <=> $1::halfvec
-		LIMIT $2`, vec, k, scopeKey)
+		LIMIT $2`, vec, k, scope.arg())
 	if err != nil {
 		return nil, err
 	}

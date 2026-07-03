@@ -146,9 +146,9 @@ func contains(ss []string, s string) bool {
 
 func TestIngestToolCallsImporter(t *testing.T) {
 	ctx := context.Background()
-	var gotSource, gotTarget string
-	importFn := func(_ context.Context, source, target string) (core.IngestStats, error) {
-		gotSource, gotTarget = source, target
+	var gotSource, gotTarget, gotProject string
+	importFn := func(_ context.Context, source, target, project string) (core.IngestStats, error) {
+		gotSource, gotTarget, gotProject = source, target, project
 		return core.IngestStats{Docs: 1, Kept: 3}, nil
 	}
 	// core is unused by the ingest tool, so nil is fine here.
@@ -165,11 +165,12 @@ func TestIngestToolCallsImporter(t *testing.T) {
 
 	out := callTool[ingestOut](ctx, t, cs, "ingest", map[string]any{
 		"source": "notion", "target": "https://notion.so/Team-Wiki-abc123def4567890abc123def4567890",
+		"project": "wiki",
 	})
 	if out.Docs != 1 || out.Kept != 3 {
 		t.Fatalf("ingest out = %+v", out)
 	}
-	if gotSource != "notion" || gotTarget == "" {
-		t.Fatalf("importer got source=%q target=%q", gotSource, gotTarget)
+	if gotSource != "notion" || gotTarget == "" || gotProject != "wiki" {
+		t.Fatalf("importer got source=%q target=%q project=%q", gotSource, gotTarget, gotProject)
 	}
 }
