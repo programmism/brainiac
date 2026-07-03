@@ -13,6 +13,7 @@ import (
 
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
@@ -242,6 +243,38 @@ func linkCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("type")
 	_ = cmd.MarkFlagRequired("to")
+	return cmd
+}
+
+func disambiguateCmd() *cobra.Command {
+	var project string
+	var discs []string
+	cmd := &cobra.Command{
+		Use:   "disambiguate [node-id]",
+		Short: "Re-scope an existing entity by adding identity axes (e.g. --disc env=prod)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			disc, err := parseDiscs(discs)
+			if err != nil {
+				return err
+			}
+			node, err := buildCore(cfg, pool).Disambiguate(ctx, args[0], core.Discriminators(project, disc))
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "re-scoped %s to %q\n", node.CanonicalName, model.ScopeKey(node.Discriminators))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "project axis to add")
+	cmd.Flags().StringArrayVar(&discs, "disc", nil, "identity axis key=value to add (repeatable, e.g. --disc env=prod)")
 	return cmd
 }
 

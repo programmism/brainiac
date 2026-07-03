@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/model"
 )
 
 // ImportFunc runs an ingest for a source ("notion"|"markdown"), optional target
@@ -48,6 +49,11 @@ func New(c *core.Core, importFn ImportFunc) *mcp.Server {
 		Name:        "supersede",
 		Description: "Record that a new entity replaces an old one: adds a supersedes link and marks the old one historical (kept, not deleted).",
 	}, supersedeTool(c))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "disambiguate",
+		Description: "Re-scope an existing entity by adding identity axes (e.g. env=prod) when you notice it actually conflates two things. The entity keeps its facts; a later save of the other variant becomes a distinct entity. Errors if the target identity is already taken (merge instead).",
+	}, disambiguateTool(c))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "add_document",
@@ -162,6 +168,16 @@ type supersedeIn struct {
 	Why    string `json:"why" jsonschema:"why the change was made"`
 	Author string `json:"author,omitempty"`
 }
+
+type disambiguateIn struct {
+	NodeID         string            `json:"node_id" jsonschema:"id of the entity to re-scope"`
+	Project        string            `json:"project,omitempty" jsonschema:"project axis to add"`
+	Discriminators map[string]string `json:"discriminators,omitempty" jsonschema:"identity axes to add, e.g. {\"env\":\"prod\"}; keys/values must not contain ';' or '='"`
+}
+type disambiguateOut struct {
+	NodeID   string `json:"node_id"`
+	ScopeKey string `json:"scope_key"`
+}
 type supersedeOut struct {
 	OK bool `json:"ok"`
 }
@@ -253,6 +269,17 @@ func supersedeTool(c *core.Core) mcp.ToolHandlerFor[supersedeIn, supersedeOut] {
 			return nil, supersedeOut{}, err
 		}
 		return text("superseded"), supersedeOut{OK: true}, nil
+	}
+}
+
+func disambiguateTool(c *core.Core) mcp.ToolHandlerFor[disambiguateIn, disambiguateOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in disambiguateIn) (*mcp.CallToolResult, disambiguateOut, error) {
+		node, err := c.Disambiguate(ctx, in.NodeID, core.Discriminators(in.Project, in.Discriminators))
+		if err != nil {
+			return nil, disambiguateOut{}, err
+		}
+		scope := model.ScopeKey(node.Discriminators)
+		return text(fmt.Sprintf("re-scoped %q to %q", node.CanonicalName, scope)), disambiguateOut{NodeID: node.ID, ScopeKey: scope}, nil
 	}
 }
 
