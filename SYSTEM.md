@@ -269,6 +269,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-03** — Generic discriminators (#125): capture accepts **arbitrary identity axes**, not just
+  `project` — `remember`/`link` take a `discriminators` map (MCP) / repeatable `--disc key=value` (CLI),
+  merged with `project` (sugar; the flag wins on conflict) via `core.Discriminators`. `model.ValidateDiscriminators`
+  rejects empty or `;`/`=`-bearing keys/values (they'd corrupt the `k=v;` `scope_key` and let a crafted single
+  pair collide with a multi-pair set). Enables finer identity (`env=prod` vs `env=staging`) and unlocks the
+  **reactive** model (#126): live on `project`, introduce an axis only when you actually see a conflation —
+  no upfront vocabulary. DB-free tests (scope_key order-independence, validation, merge) + DB test (env axis
+  yields a distinct node; invalid disc rejected). (#125)
 - **2026-07-03** — Soft retrieval lens (#119, part of #113): `Search`/`Recall` (MCP + CLI + HTTP) gained an
   optional **`project`** — when set, retrieval is scoped to that project **+ global** over *both* chunks and
   nodes; when omitted, it spans all scopes (cross-project search, unchanged default). Chose **default-scoped-
@@ -566,7 +574,10 @@ Newest first.
   - **Identity** (should same-named entities merge) — **resolved & partly shipped**: identity = `canonical_name` +
     a declared **discriminator** set (`project`, `env`, …; empty = global), so same-named entities in different
     projects stay distinct without any wall (#117 shipped; the agent passes its `project` per call as the
-    discriminator, #116 shipped; Consolidate scoped to identity, #118 shipped). Descriptive **facets** are not identity.
+    discriminator, #116 shipped; Consolidate scoped to identity, #118 shipped). Any axis is expressible
+    (`project`/`env`/`client`, #125 shipped); the intended UX is **reactive** — introduce an axis only when a
+    real conflation appears (#126 `disambiguate` op planned; #127 tangled-node split + librarian detector,
+    future), not a declared-upfront vocabulary. Descriptive **facets** are not identity.
   - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall/search
     lens over chunks + nodes that widens on demand (#119 shipped — pass `project` to scope, omit to span all).
     **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for privacy/compliance/multi-tenant

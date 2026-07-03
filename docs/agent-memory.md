@@ -68,17 +68,30 @@ substantive session, briefly list what you saved.
 `./brainiac instructions` prints this block so you can pipe it into a rules file.
 
 ## Global vs per-project memory
-- **Global memory (today, out of the box):** one shared corpus. Everything every
-  agent saves goes into one pool — ideal as your personal/team-wide brain.
-- **Per-project memory (soft convention, today):** keep one Brainiac but *scope by
-  naming*. In a project's instructions add: *"This memory is for project **Alpha**:
-  prefix source_uris with `alpha/…`, add a `project: Alpha` note to what you save,
-  and prefer Alpha facts when recalling."* It's a nudge, not enforced isolation.
-- **Per-project isolation (hard, future):** true separate memories per project/team
-  = **namespaces** (a `namespace` column + scoped ops). Not built yet — see
-  [issue #113](https://github.com/programmism/brainiac/issues/113) and PRD §21
-  (multi-team isolation vs shared graph). Until then, run a **separate Brainiac
-  stack** per project if you need hard isolation.
+One Brainiac serves many projects. How they share and stay distinct is built in
+around one idea: **identity** (does a saved entity collide with a same-named one)
+and **visibility** (what surfaces on recall) are separate.
+
+- **Global memory (default):** save without a `project` and it's shared — one pool
+  for universal facts (a vendor, a standard, a shared tool). Recall without a
+  `project` spans everything.
+- **Per-project memory (built in):** pass `project` when saving and recalling.
+  - **Distinct identity:** `Config` in project *alpha* and `Config` in *beta* are
+    two separate entities that accrue their own facts — they never merge, and the
+    Consolidate pass won't propose merging them.
+  - **Focused recall:** `recall`/`search` with a `project` return that project **+
+    global**, not other projects; omit `project` to look across everything.
+- **Finer axes (when a project alone isn't enough):** identity takes extra
+  discriminators beyond `project` — e.g. `env=prod` vs `env=staging` for the same
+  service. Pass them on `remember`/`link` (`discriminators` over MCP, repeatable
+  `--disc key=value` on the CLI). Introduce an axis reactively: work with `project`
+  until you actually see two things conflated, then add the axis that tells them
+  apart. Keep the set small — these are identity keys, not descriptive tags.
+- **Per-project isolation (hard, future):** the above is a *soft* lens (nothing is
+  hidden — widen by omitting `project`). True separate memories with an enforced
+  wall (privacy/compliance) are a future opt-in — see
+  [issue #113](https://github.com/programmism/brainiac/issues/113) / #120. Until
+  then, run a **separate Brainiac stack** per team if you need hard isolation.
 
 ## How it behaves
 Tool calls are model-driven: the instruction strongly nudges the agent, but it

@@ -4,6 +4,7 @@
 package model
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -64,6 +65,25 @@ type Node struct {
 	Status           Status            `json:"status"`
 	CreatedAt        time.Time         `json:"created_at"`
 	LastConfirmedAt  *time.Time        `json:"last_confirmed_at,omitempty"`
+}
+
+// ValidateDiscriminators rejects discriminator sets that would corrupt the
+// scope_key serialization. Keys/values must be non-empty and free of the ';' and
+// '=' delimiters, otherwise a single crafted pair could collide with a
+// multi-pair set (e.g. {"a":"b;c=d"} vs {"a":"b","c":"d"}).
+func ValidateDiscriminators(disc map[string]string) error {
+	for k, v := range disc {
+		if k == "" {
+			return fmt.Errorf("discriminator key must not be empty")
+		}
+		if v == "" {
+			return fmt.Errorf("discriminator %q has an empty value", k)
+		}
+		if strings.ContainsAny(k, ";=") || strings.ContainsAny(v, ";=") {
+			return fmt.Errorf("discriminator %q=%q must not contain ';' or '='", k, v)
+		}
+	}
+	return nil
 }
 
 // ScopeKey is the canonical identity serialization of a discriminator set:

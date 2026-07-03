@@ -30,6 +30,9 @@ func (c *Core) Link(ctx context.Context, in LinkInput) (*model.Edge, error) {
 	if in.From == "" || in.To == "" || in.Type == "" {
 		return nil, fmt.Errorf("link requires from, to, and type")
 	}
+	if err := model.ValidateDiscriminators(in.Discriminators); err != nil {
+		return nil, err
+	}
 	edge := &model.Edge{
 		Type:          in.Type,
 		Why:           in.Why,
