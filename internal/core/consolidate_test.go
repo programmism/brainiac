@@ -122,6 +122,62 @@ func TestProposeMergesRespectsScope(t *testing.T) {
 	}
 }
 
+func TestDisambiguate(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// A node in project goroutly with an edge (a fact) attached.
+	if _, err := c.Link(ctx, LinkInput{
+		From: "Config", Type: "loaded_by", To: "Bootstrap", Why: "startup",
+		Discriminators: map[string]string{"project": "goroutly"},
+	}); err != nil {
+		t.Fatalf("seed link: %v", err)
+	}
+	orig, err := store.GetNodeByCanonicalNameScoped(ctx, pool, "Config", "project=goroutly")
+	if err != nil || orig == nil {
+		t.Fatalf("seed node missing: %v", err)
+	}
+
+	// Realize it's the prod one → add env=prod. Node id and edges are preserved.
+	got, err := c.Disambiguate(ctx, orig.ID, map[string]string{"env": "prod"})
+	if err != nil {
+		t.Fatalf("disambiguate: %v", err)
+	}
+	if got.ID != orig.ID {
+		t.Fatalf("disambiguate should re-scope in place, id changed %s→%s", orig.ID, got.ID)
+	}
+	if got.Discriminators["project"] != "goroutly" || got.Discriminators["env"] != "prod" {
+		t.Fatalf("merged discriminators wrong: %+v", got.Discriminators)
+	}
+	// Edge still attached to the (re-scoped) node.
+	edges, err := store.ListEdgesFrom(ctx, pool, orig.ID)
+	if err != nil || len(edges) != 1 {
+		t.Fatalf("edge must survive re-scope: edges=%d err=%v", len(edges), err)
+	}
+	// It now lives at the new identity, not the old one.
+	if n, _ := store.GetNodeByCanonicalNameScoped(ctx, pool, "Config", "project=goroutly"); n != nil {
+		t.Fatalf("old scope should be empty after re-scope, got %s", n.ID)
+	}
+	if n, _ := store.GetNodeByCanonicalNameScoped(ctx, pool, "Config", "env=prod;project=goroutly"); n == nil || n.ID != orig.ID {
+		t.Fatalf("node should be findable at new scope")
+	}
+
+	// A later save of the staging variant is a distinct entity.
+	staging, err := c.Remember(ctx, RememberInput{CanonicalName: "Config", Discriminators: map[string]string{"project": "goroutly", "env": "staging"}})
+	if err != nil {
+		t.Fatalf("remember staging: %v", err)
+	}
+	if !staging.Created || staging.Node.ID == orig.ID {
+		t.Fatalf("staging Config must be distinct: created=%v", staging.Created)
+	}
+
+	// Disambiguating into an occupied identity errors (points to merge).
+	if _, err := c.Disambiguate(ctx, staging.Node.ID, map[string]string{"env": "prod"}); err == nil {
+		t.Fatal("disambiguate into an occupied identity should error")
+	}
+}
+
 func mustLink(ctx context.Context, t *testing.T, c *Core, from, typ, to string) {
 	t.Helper()
 	if _, err := c.Link(ctx, LinkInput{From: from, Type: typ, To: to, Why: "x"}); err != nil {

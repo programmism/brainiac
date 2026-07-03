@@ -91,6 +91,22 @@ func UpdateNodeAliases(ctx context.Context, db DBTX, id string, aliases []string
 	return err
 }
 
+// UpdateNodeScope rewrites a node's identity scope (discriminators + scope_key)
+// in place. Edges reference the node by id, so they stay attached — the entity
+// keeps its facts and just changes which scope it lives in (#126).
+func UpdateNodeScope(ctx context.Context, db DBTX, id string, disc map[string]string) error {
+	if disc == nil {
+		disc = map[string]string{}
+	}
+	discJSON, err := json.Marshal(disc)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(ctx, `UPDATE nodes SET discriminators = $2::jsonb, scope_key = $3 WHERE id = $1`,
+		id, discJSON, model.ScopeKey(disc))
+	return err
+}
+
 // FindNodesByNormalizedName returns current nodes in the given identity scope
 // whose name matches after lowercasing and stripping non-alphanumerics
 // ("Order Service" == "OrderService"), excluding the exact-name match (handled

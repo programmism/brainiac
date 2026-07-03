@@ -25,8 +25,9 @@ servers:
 (Everything runs in-container, so no Go and no exposed ports. A network/HTTP MCP
 transport for remote agents is a future addition; today it's stdio.)
 
-Tools exposed: `recall`, `search`, `remember`, `link`, `supersede`, `add_document`
-(store text the agent read elsewhere), and `ingest` (bulk import via a connector).
+Tools exposed: `recall`, `search`, `remember`, `link`, `supersede`, `disambiguate`
+(re-scope an entity when it conflates two things), `add_document` (store text the
+agent read elsewhere), and `ingest` (bulk import via a connector).
 
 ## 2. The memory instruction (paste into the agent's system prompt / rules)
 Use it **globally** (applies to every conversation) or per-project:
@@ -59,6 +60,10 @@ conclusion from our discussion, a decision and its rationale, "X works like Y",
   you read via your own integration), call `add_document` with a stable source_uri
   and the text.
 - If a previous decision changed, call `supersede` — never delete; keep the history.
+- If you realize an entity you saved actually conflates two things (e.g. the prod vs
+  the staging one), call `disambiguate` on it with the axis that separates them
+  (e.g. `env=prod`); the other variant then becomes a distinct entity. Introduce such
+  axes only when you actually see a conflation — don't over-tag up front.
 
 Save decisions, rationale, and non-obvious findings; skip small talk and trivia.
 Keep entity names canonical and consistent so duplicates merge. When unsure whether

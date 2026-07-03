@@ -48,6 +48,10 @@ conclusion from our discussion, a decision and its rationale, "X works like Y",
   you read via your own integration), call `add_document` with a stable source_uri
   and the text.
 - If a previous decision changed, call `supersede` — never delete; keep the history.
+- If you realize an entity you saved actually conflates two things (e.g. the prod vs
+  the staging one), call `disambiguate` on it with the axis that separates them
+  (e.g. `env=prod`); the other variant then becomes a distinct entity. Introduce such
+  axes only when you actually see a conflation — don't over-tag up front.
 
 Save decisions, rationale, and non-obvious findings; skip small talk and trivia.
 Keep entity names canonical and consistent so duplicates merge. When unsure whether
