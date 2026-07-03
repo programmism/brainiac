@@ -13,10 +13,11 @@ import (
 	"github.com/programmism/brainiac/internal/core"
 )
 
-// ImportFunc runs an ingest for a source ("notion"|"markdown") and optional
-// target (a Notion page URL/id or a path). It is supplied by the app wiring so
-// the core/mcp layers stay plugin-agnostic; nil disables the ingest tool.
-type ImportFunc func(ctx context.Context, source, target string) (core.IngestStats, error)
+// ImportFunc runs an ingest for a source ("notion"|"markdown"), optional target
+// (a Notion page URL/id or a path), and optional project (scopes the imported
+// chunks). It is supplied by the app wiring so the core/mcp layers stay
+// plugin-agnostic; nil disables the ingest tool.
+type ImportFunc func(ctx context.Context, source, target, project string) (core.IngestStats, error)
 
 // New builds an MCP server exposing search/remember/link/recall/supersede (and
 // ingest, if importFn is set) over the given core.
@@ -72,8 +73,9 @@ type chunkDTO struct {
 }
 
 type searchIn struct {
-	Query string `json:"query" jsonschema:"the search query"`
-	K     int    `json:"k,omitempty" jsonschema:"maximum number of results (default 10)"`
+	Query   string `json:"query" jsonschema:"the search query"`
+	K       int    `json:"k,omitempty" jsonschema:"maximum number of results (default 10)"`
+	Project string `json:"project,omitempty" jsonschema:"scope results to this project + global; omit to search across all projects"`
 }
 type searchOut struct {
 	Chunks []chunkDTO `json:"chunks"`
@@ -120,7 +122,8 @@ type edgeDTO struct {
 	Status    string `json:"status,omitempty"`
 }
 type recallIn struct {
-	Query string `json:"query" jsonschema:"the question to answer"`
+	Query   string `json:"query" jsonschema:"the question to answer"`
+	Project string `json:"project,omitempty" jsonschema:"scope recall to this project + global; omit to recall across all projects"`
 }
 type recallOut struct {
 	Chunks   []chunkDTO `json:"chunks"`
@@ -132,11 +135,13 @@ type recallOut struct {
 type addDocumentIn struct {
 	SourceURI string `json:"source_uri" jsonschema:"stable identifier for citation, e.g. the page URL"`
 	Text      string `json:"text" jsonschema:"the document's text content to store"`
+	Project   string `json:"project,omitempty" jsonschema:"the project this document belongs to (scopes it for the retrieval lens); omit for universal/global content"`
 }
 
 type ingestIn struct {
-	Source string `json:"source" jsonschema:"where to import from: notion or markdown"`
-	Target string `json:"target,omitempty" jsonschema:"a Notion page URL/id, or a path; empty imports the whole source"`
+	Source  string `json:"source" jsonschema:"where to import from: notion or markdown"`
+	Target  string `json:"target,omitempty" jsonschema:"a Notion page URL/id, or a path; empty imports the whole source"`
+	Project string `json:"project,omitempty" jsonschema:"the project these documents belong to (scopes them for the retrieval lens); omit for universal/global content"`
 }
 type ingestOut struct {
 	Docs    int `json:"docs"`
@@ -163,7 +168,7 @@ type supersedeOut struct {
 
 func searchTool(c *core.Core) mcp.ToolHandlerFor[searchIn, searchOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, searchOut, error) {
-		hits, err := c.Search(ctx, in.Query, in.K)
+		hits, err := c.Search(ctx, in.Query, in.K, in.Project)
 		if err != nil {
 			return nil, searchOut{}, err
 		}
@@ -211,7 +216,7 @@ func linkTool(c *core.Core) mcp.ToolHandlerFor[linkIn, linkOut] {
 
 func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in recallIn) (*mcp.CallToolResult, recallOut, error) {
-		res, err := c.Recall(ctx, in.Query)
+		res, err := c.Recall(ctx, in.Query, in.Project)
 		if err != nil {
 			return nil, recallOut{}, err
 		}
@@ -251,7 +256,7 @@ func supersedeTool(c *core.Core) mcp.ToolHandlerFor[supersedeIn, supersedeOut] {
 
 func addDocumentTool(c *core.Core) mcp.ToolHandlerFor[addDocumentIn, ingestOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in addDocumentIn) (*mcp.CallToolResult, ingestOut, error) {
-		st, err := c.IngestText(ctx, in.SourceURI, in.Text)
+		st, err := c.IngestText(ctx, in.SourceURI, in.Text, in.Project)
 		if err != nil {
 			return nil, ingestOut{}, err
 		}
@@ -265,7 +270,7 @@ func addDocumentTool(c *core.Core) mcp.ToolHandlerFor[addDocumentIn, ingestOut] 
 
 func ingestTool(importFn ImportFunc) mcp.ToolHandlerFor[ingestIn, ingestOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in ingestIn) (*mcp.CallToolResult, ingestOut, error) {
-		st, err := importFn(ctx, in.Source, in.Target)
+		st, err := importFn(ctx, in.Source, in.Target, in.Project)
 		if err != nil {
 			return nil, ingestOut{}, err
 		}

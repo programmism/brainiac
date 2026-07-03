@@ -212,7 +212,7 @@ func TestSearchReturnsNearestChunk(t *testing.T) {
 		}
 	}
 
-	hits, err := c.Search(ctx, "beta", 5)
+	hits, err := c.Search(ctx, "beta", 5, "")
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

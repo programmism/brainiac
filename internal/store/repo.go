@@ -48,12 +48,20 @@ func InsertChunk(ctx context.Context, db DBTX, c *model.Chunk) error {
 	if tier == "" {
 		tier = model.TierHot
 	}
+	disc := c.Discriminators
+	if disc == nil {
+		disc = map[string]string{}
+	}
+	discJSON, err := json.Marshal(disc)
+	if err != nil {
+		return err
+	}
 	return db.QueryRow(ctx, `
-		INSERT INTO chunks (text, embedding, source_uri, source_locator, quality_score, tier, content_hash, source_modified_at)
-		VALUES ($1, $2::halfvec, $3, $4::jsonb, $5::real, $6, $7, $8)
+		INSERT INTO chunks (text, embedding, source_uri, source_locator, quality_score, tier, content_hash, source_modified_at, discriminators, scope_key)
+		VALUES ($1, $2::halfvec, $3, $4::jsonb, $5::real, $6, $7, $8, $9::jsonb, $10)
 		RETURNING id, created_at`,
 		c.Text, encodeVec(c.Embedding), c.SourceURI, locator, c.QualityScore,
-		string(tier), nullStr(c.ContentHash), c.SourceModifiedAt,
+		string(tier), nullStr(c.ContentHash), c.SourceModifiedAt, discJSON, model.ScopeKey(c.Discriminators),
 	).Scan(&c.ID, &c.CreatedAt)
 }
 
@@ -67,7 +75,7 @@ func ChunkExistsByHash(ctx context.Context, db DBTX, hash string) (bool, error) 
 
 // SearchChunks returns the k nearest hot-tier chunks to embedding by cosine
 // distance, with provenance.
-func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int) ([]model.ChunkHit, error) {
+func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scope ScopeFilter) ([]model.ChunkHit, error) {
 	vec := pgvector.NewHalfVector(embedding).String()
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
@@ -75,8 +83,9 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int) ([]m
 		       (embedding <=> $1::halfvec)::float8 AS distance
 		FROM chunks
 		WHERE tier = 'hot' AND embedding IS NOT NULL
+		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
 		ORDER BY embedding <=> $1::halfvec
-		LIMIT $2`, vec, k)
+		LIMIT $2`, vec, k, scope.arg())
 	if err != nil {
 		return nil, err
 	}
