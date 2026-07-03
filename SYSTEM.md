@@ -269,6 +269,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-03** — Reactive disambiguation (#126): new op **`Disambiguate(nodeID, axes)`** (MCP tool +
+  `kb disambiguate` CLI) — the reactive way to configure discriminators. When you notice one entity conflates
+  two things, you add the axis that separates them (`env=prod`) onto the existing node; its scope_key is
+  rewritten in place and its edges/facts move with it (they reference it by id — no routing). A later save of
+  the other variant becomes a distinct entity. Guard: if a current node already occupies the target
+  `(name, scope)`, it errors and points to `merge` (never silently folds). It's the mirror of Consolidate's
+  merge (merge collapses wrong duplicates; disambiguate separates a wrongly-conflated one). Store gained
+  `UpdateNodeScope`. Instruction block + tools list teach the move ("introduce an axis only when you see a
+  conflation, don't over-tag"). Splitting a genuinely *tangled* node (facts belonging to different values)
+  needs per-edge routing + a librarian detector — deferred to #127. DB test: re-scope preserves id+edges,
+  old scope emptied, staging variant distinct, collision errors. (#126)
 - **2026-07-03** — Generic discriminators (#125): capture accepts **arbitrary identity axes**, not just
   `project` — `remember`/`link` take a `discriminators` map (MCP) / repeatable `--disc key=value` (CLI),
   merged with `project` (sugar; the flag wins on conflict) via `core.Discriminators`. `model.ValidateDiscriminators`
@@ -576,7 +587,7 @@ Newest first.
     projects stay distinct without any wall (#117 shipped; the agent passes its `project` per call as the
     discriminator, #116 shipped; Consolidate scoped to identity, #118 shipped). Any axis is expressible
     (`project`/`env`/`client`, #125 shipped); the intended UX is **reactive** — introduce an axis only when a
-    real conflation appears (#126 `disambiguate` op planned; #127 tangled-node split + librarian detector,
+    real conflation appears (#126 `disambiguate` op shipped; #127 tangled-node split + librarian detector,
     future), not a declared-upfront vocabulary. Descriptive **facets** are not identity.
   - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall/search
     lens over chunks + nodes that widens on demand (#119 shipped — pass `project` to scope, omit to span all).
