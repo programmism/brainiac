@@ -87,11 +87,12 @@ type dupDTO struct {
 	Distance      float64 `json:"distance,omitempty"`
 }
 type rememberIn struct {
-	CanonicalName string   `json:"canonical_name" jsonschema:"the entity's canonical name"`
-	Type          string   `json:"type,omitempty" jsonschema:"node type: service, datastore, decision, constraint, team, person, ..."`
-	Aliases       []string `json:"aliases,omitempty" jsonschema:"alternative surface forms"`
-	Summary       string   `json:"summary,omitempty" jsonschema:"short description; embedded for semantic dedup"`
-	Project       string   `json:"project,omitempty" jsonschema:"the project this entity belongs to (scopes identity so same-named entities in different projects stay distinct); omit for universal/global entities like a vendor or standard"`
+	CanonicalName  string            `json:"canonical_name" jsonschema:"the entity's canonical name"`
+	Type           string            `json:"type,omitempty" jsonschema:"node type: service, datastore, decision, constraint, team, person, ..."`
+	Aliases        []string          `json:"aliases,omitempty" jsonschema:"alternative surface forms"`
+	Summary        string            `json:"summary,omitempty" jsonschema:"short description; embedded for semantic dedup"`
+	Project        string            `json:"project,omitempty" jsonschema:"the project this entity belongs to (scopes identity so same-named entities in different projects stay distinct); omit for universal/global entities like a vendor or standard"`
+	Discriminators map[string]string `json:"discriminators,omitempty" jsonschema:"extra identity axes beyond project (e.g. env, client, version) to keep same-named entities distinct; keys/values must not contain ';' or '='"`
 }
 type rememberOut struct {
 	NodeID        string   `json:"node_id"`
@@ -101,13 +102,14 @@ type rememberOut struct {
 }
 
 type linkIn struct {
-	From      string `json:"from" jsonschema:"source entity canonical name"`
-	Type      string `json:"type" jsonschema:"relationship type: writes_to, depends_on, rejected, supersedes, ..."`
-	To        string `json:"to" jsonschema:"target entity canonical name"`
-	Why       string `json:"why" jsonschema:"the rationale — why it is this way"`
-	SourceURI string `json:"source_uri,omitempty" jsonschema:"provenance: file, PR, page, thread"`
-	Author    string `json:"author,omitempty"`
-	Project   string `json:"project,omitempty" jsonschema:"the project both endpoints belong to (scopes their identity); omit for universal/global entities"`
+	From           string            `json:"from" jsonschema:"source entity canonical name"`
+	Type           string            `json:"type" jsonschema:"relationship type: writes_to, depends_on, rejected, supersedes, ..."`
+	To             string            `json:"to" jsonschema:"target entity canonical name"`
+	Why            string            `json:"why" jsonschema:"the rationale — why it is this way"`
+	SourceURI      string            `json:"source_uri,omitempty" jsonschema:"provenance: file, PR, page, thread"`
+	Author         string            `json:"author,omitempty"`
+	Project        string            `json:"project,omitempty" jsonschema:"the project both endpoints belong to (scopes their identity); omit for universal/global entities"`
+	Discriminators map[string]string `json:"discriminators,omitempty" jsonschema:"extra identity axes beyond project (e.g. env, client) applied to both endpoints; keys/values must not contain ';' or '='"`
 }
 type linkOut struct {
 	EdgeID string `json:"edge_id"`
@@ -184,7 +186,7 @@ func rememberTool(c *core.Core) mcp.ToolHandlerFor[rememberIn, rememberOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in rememberIn) (*mcp.CallToolResult, rememberOut, error) {
 		r, err := c.Remember(ctx, core.RememberInput{
 			CanonicalName: in.CanonicalName, Type: in.Type, Aliases: in.Aliases, Summary: in.Summary,
-			Discriminators: projectScope(in.Project),
+			Discriminators: core.Discriminators(in.Project, in.Discriminators),
 		})
 		if err != nil {
 			return nil, rememberOut{}, err
@@ -205,7 +207,7 @@ func linkTool(c *core.Core) mcp.ToolHandlerFor[linkIn, linkOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in linkIn) (*mcp.CallToolResult, linkOut, error) {
 		edge, err := c.Link(ctx, core.LinkInput{
 			From: in.From, Type: in.Type, To: in.To, Why: in.Why, SourceURI: in.SourceURI, Author: in.Author,
-			Discriminators: projectScope(in.Project),
+			Discriminators: core.Discriminators(in.Project, in.Discriminators),
 		})
 		if err != nil {
 			return nil, linkOut{}, err
@@ -287,13 +289,4 @@ func ingestTool(importFn ImportFunc) mcp.ToolHandlerFor[ingestIn, ingestOut] {
 // attaches the typed Out value as structured content.
 func text(s string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
-}
-
-// projectScope turns an agent-supplied project name into the identity
-// discriminator set. Empty project = nil = global/shared identity (#116).
-func projectScope(project string) map[string]string {
-	if project == "" {
-		return nil
-	}
-	return map[string]string{"project": project}
 }

@@ -154,7 +154,7 @@ func recallCmd() *cobra.Command {
 
 func rememberCmd() *cobra.Command {
 	var typ, summary, project string
-	var aliases []string
+	var aliases, discs []string
 	cmd := &cobra.Command{
 		Use:   "remember [canonical-name]",
 		Short: "Upsert an entity (node) with dedup check",
@@ -167,9 +167,13 @@ func rememberCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
+			disc, err := parseDiscs(discs)
+			if err != nil {
+				return err
+			}
 			r, err := buildCore(cfg, pool).Remember(ctx, core.RememberInput{
 				CanonicalName: args[0], Type: typ, Aliases: aliases, Summary: summary,
-				Discriminators: projectScope(project),
+				Discriminators: core.Discriminators(project, disc),
 			})
 			if err != nil {
 				return err
@@ -194,11 +198,13 @@ func rememberCmd() *cobra.Command {
 	cmd.Flags().StringVar(&summary, "summary", "", "short description; embedded for semantic dedup")
 	cmd.Flags().StringArrayVar(&aliases, "alias", nil, "alternative surface form (repeatable)")
 	cmd.Flags().StringVar(&project, "project", "", "project this entity belongs to (scopes identity; omit for global)")
+	cmd.Flags().StringArrayVar(&discs, "disc", nil, "extra identity axis key=value (repeatable, e.g. --disc env=prod)")
 	return cmd
 }
 
 func linkCmd() *cobra.Command {
 	var from, typ, to, why, source, author, project string
+	var discs []string
 	cmd := &cobra.Command{
 		Use:   "link",
 		Short: "Record a relationship (edge) with rationale and provenance",
@@ -210,9 +216,13 @@ func linkCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
+			disc, err := parseDiscs(discs)
+			if err != nil {
+				return err
+			}
 			edge, err := buildCore(cfg, pool).Link(ctx, core.LinkInput{
 				From: from, Type: typ, To: to, Why: why, SourceURI: source, Author: author,
-				Discriminators: projectScope(project),
+				Discriminators: core.Discriminators(project, disc),
 			})
 			if err != nil {
 				return err
@@ -228,6 +238,7 @@ func linkCmd() *cobra.Command {
 	cmd.Flags().StringVar(&source, "source", "", "provenance URI")
 	cmd.Flags().StringVar(&author, "author", "", "who recorded this")
 	cmd.Flags().StringVar(&project, "project", "", "project both endpoints belong to (scopes identity; omit for global)")
+	cmd.Flags().StringArrayVar(&discs, "disc", nil, "extra identity axis key=value (repeatable, e.g. --disc env=prod)")
 	_ = cmd.MarkFlagRequired("from")
 	_ = cmd.MarkFlagRequired("type")
 	_ = cmd.MarkFlagRequired("to")

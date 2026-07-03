@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
@@ -70,13 +71,20 @@ func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
 	return core.New(pool, embedder, density.New())
 }
 
-// projectScope turns a --project value into the identity discriminator set;
-// empty = global/shared identity (#116).
-func projectScope(project string) map[string]string {
-	if project == "" {
-		return nil
+// parseDiscs turns repeatable --disc key=value flags into a discriminator map.
+func parseDiscs(pairs []string) (map[string]string, error) {
+	if len(pairs) == 0 {
+		return nil, nil
 	}
-	return map[string]string{"project": project}
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		k, v, ok := strings.Cut(p, "=")
+		if !ok || k == "" {
+			return nil, fmt.Errorf("invalid --disc %q (want key=value)", p)
+		}
+		m[k] = v
+	}
+	return m, nil
 }
 
 // stubCmd is a placeholder for a command whose implementation lands later.

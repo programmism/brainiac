@@ -17,6 +17,21 @@ func TestVersion(t *testing.T) {
 	}
 }
 
+func TestDiscriminatorsMerge(t *testing.T) {
+	if got := Discriminators("", nil); got != nil {
+		t.Fatalf("empty → nil (global), got %v", got)
+	}
+	got := Discriminators("goroutly", map[string]string{"env": "prod"})
+	if got["project"] != "goroutly" || got["env"] != "prod" {
+		t.Fatalf("merge failed: %v", got)
+	}
+	// An explicit --project wins over a project key in extra.
+	got = Discriminators("goroutly", map[string]string{"project": "other"})
+	if got["project"] != "goroutly" {
+		t.Fatalf("project flag should win, got %v", got)
+	}
+}
+
 // TestEmptyQueryShortCircuits verifies a blank query returns nothing without
 // touching the embedder/DB (covers the MCP path too, #82).
 func TestEmptyQueryShortCircuits(t *testing.T) {
