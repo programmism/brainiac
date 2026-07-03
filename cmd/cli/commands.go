@@ -77,6 +77,7 @@ func healthCmd() *cobra.Command {
 
 func searchCmd() *cobra.Command {
 	var k int
+	var project string
 	cmd := &cobra.Command{
 		Use:   "search [query...]",
 		Short: "Semantic search over the memory",
@@ -89,7 +90,7 @@ func searchCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			hits, err := buildCore(cfg, pool).Search(ctx, strings.Join(args, " "), k)
+			hits, err := buildCore(cfg, pool).Search(ctx, strings.Join(args, " "), k, project)
 			if err != nil {
 				return err
 			}
@@ -105,11 +106,13 @@ func searchCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&k, "k", core.DefaultSearchK, "maximum number of results")
+	cmd.Flags().StringVar(&project, "project", "", "scope results to this project + global (omit to search all)")
 	return cmd
 }
 
 func recallCmd() *cobra.Command {
-	return &cobra.Command{
+	var project string
+	cmd := &cobra.Command{
 		Use:   "recall [query...]",
 		Short: "Recall the why/how behind a topic (chunks + graph, cited)",
 		Args:  cobra.MinimumNArgs(1),
@@ -121,7 +124,7 @@ func recallCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			res, err := buildCore(cfg, pool).Recall(ctx, strings.Join(args, " "))
+			res, err := buildCore(cfg, pool).Recall(ctx, strings.Join(args, " "), project)
 			if err != nil {
 				return err
 			}
@@ -145,6 +148,8 @@ func recallCmd() *cobra.Command {
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&project, "project", "", "scope recall to this project + global (omit to recall all)")
+	return cmd
 }
 
 func rememberCmd() *cobra.Command {
@@ -230,7 +235,7 @@ func linkCmd() *cobra.Command {
 }
 
 func importCmd() *cobra.Command {
-	var source, path string
+	var source, path, project string
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Ingest documents from a configured source (notion | markdown)",
@@ -246,7 +251,7 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, core.IngestOptions{})
+			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, core.IngestOptions{Project: project})
 			if err != nil {
 				return err
 			}
@@ -258,6 +263,7 @@ func importCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | markdown)")
 	cmd.Flags().StringVar(&path, "path", "", "root directory for the markdown source (overrides config)")
+	cmd.Flags().StringVar(&project, "project", "", "project to scope imported documents to (omit for global)")
 	return cmd
 }
 

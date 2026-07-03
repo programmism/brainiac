@@ -32,7 +32,7 @@ func TestRecallComposesVectorAndGraph(t *testing.T) {
 		t.Fatalf("insert chunk: %v", err)
 	}
 
-	res, err := c.Recall(ctx, "orders")
+	res, err := c.Recall(ctx, "orders", "")
 	if err != nil {
 		t.Fatalf("recall: %v", err)
 	}

@@ -60,23 +60,24 @@ func run() error {
 // importFunc dispatches an MCP ingest request to the right connector, keeping
 // the mcp/core layers plugin-agnostic.
 func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
-	return func(ctx context.Context, source, target string) (core.IngestStats, error) {
+	return func(ctx context.Context, source, target, project string) (core.IngestStats, error) {
+		opts := core.IngestOptions{Project: project}
 		switch source {
 		case "markdown":
 			dir := target
 			if dir == "" {
 				dir = "/data/docs"
 			}
-			return c.Ingest(ctx, markdown.New(dir), core.IngestOptions{})
+			return c.Ingest(ctx, markdown.New(dir), opts)
 		case "notion":
 			sc := cfg.Source("notion")
 			if sc == nil || sc.Token == "" {
 				return core.IngestStats{}, fmt.Errorf("notion is not configured (set NOTION_TOKEN)")
 			}
 			if target == "" {
-				return c.Ingest(ctx, notion.New(sc.Token), core.IngestOptions{})
+				return c.Ingest(ctx, notion.New(sc.Token), opts)
 			}
-			return c.Ingest(ctx, notion.NewForPages(sc.Token, []string{target}), core.IngestOptions{})
+			return c.Ingest(ctx, notion.NewForPages(sc.Token, []string{target}), opts)
 		default:
 			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion or markdown)", source)
 		}

@@ -20,7 +20,7 @@ func TestReembedRebuildsFromText(t *testing.T) {
 	}
 
 	// The wrong embedding is beyond the relevance floor, so "alpha" finds nothing.
-	before, err := c.Search(ctx, "alpha", 1)
+	before, err := c.Search(ctx, "alpha", 1, "")
 	if err != nil {
 		t.Fatalf("search before: %v", err)
 	}
@@ -34,7 +34,7 @@ func TestReembedRebuildsFromText(t *testing.T) {
 	}
 
 	// After rebuilding the vector from the stored text, the chunk is found at ~0.
-	after, err := c.Search(ctx, "alpha", 1)
+	after, err := c.Search(ctx, "alpha", 1, "")
 	if err != nil || len(after) == 0 {
 		t.Fatalf("search after: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestSetChunkTierExcludesFromSearch(t *testing.T) {
 		t.Fatalf("set tier: %v", err)
 	}
 	// Cold chunks are excluded from default (hot) search.
-	hits, err := c.Search(ctx, "beta", 5)
+	hits, err := c.Search(ctx, "beta", 5, "")
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

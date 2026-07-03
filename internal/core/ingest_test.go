@@ -106,13 +106,61 @@ func TestIngestReembedsOnlyLocalRegion(t *testing.T) {
 	}
 }
 
+func TestSearchLensScopesByProject(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Same distinctive text ingested under two projects.
+	const body = "PaymentGateway retries charges with idempotency keys during peak load."
+	if _, err := c.IngestText(ctx, "doc://alpha", body, "alpha"); err != nil {
+		t.Fatalf("ingest alpha: %v", err)
+	}
+	if _, err := c.IngestText(ctx, "doc://beta", body, "beta"); err != nil {
+		t.Fatalf("ingest beta: %v", err)
+	}
+	// And a universal (global) doc.
+	if _, err := c.IngestText(ctx, "doc://global", body, ""); err != nil {
+		t.Fatalf("ingest global: %v", err)
+	}
+
+	// Lens for alpha sees alpha + global, not beta.
+	hits, err := c.Search(ctx, body, 10, "alpha")
+	if err != nil {
+		t.Fatalf("search alpha: %v", err)
+	}
+	got := map[string]bool{}
+	for _, h := range hits {
+		got[h.SourceURI] = true
+	}
+	if !got["doc://alpha"] || !got["doc://global"] {
+		t.Fatalf("alpha lens should include alpha + global: %v", got)
+	}
+	if got["doc://beta"] {
+		t.Fatalf("alpha lens must not include beta: %v", got)
+	}
+
+	// No project → spans all scopes.
+	all, err := c.Search(ctx, body, 10, "")
+	if err != nil {
+		t.Fatalf("search all: %v", err)
+	}
+	allGot := map[string]bool{}
+	for _, h := range all {
+		allGot[h.SourceURI] = true
+	}
+	if !allGot["doc://alpha"] || !allGot["doc://beta"] || !allGot["doc://global"] {
+		t.Fatalf("no-project search should span all: %v", allGot)
+	}
+}
+
 func TestIngestText(t *testing.T) {
 	c, pool := newTestCore(t)
 	defer pool.Close()
 	ctx := context.Background()
 
 	const uri = "notion://team-wiki"
-	st, err := c.IngestText(ctx, uri, "OrderService streams events to Kafka for durability and audit.")
+	st, err := c.IngestText(ctx, uri, "OrderService streams events to Kafka for durability and audit.", "")
 	if err != nil {
 		t.Fatalf("ingest text: %v", err)
 	}
@@ -121,7 +169,7 @@ func TestIngestText(t *testing.T) {
 	}
 
 	// Editing the same source reconciles (old replaced, not accumulated).
-	st2, err := c.IngestText(ctx, uri, "OrderService streams events to RabbitMQ now for throughput reasons.")
+	st2, err := c.IngestText(ctx, uri, "OrderService streams events to RabbitMQ now for throughput reasons.", "")
 	if err != nil {
 		t.Fatalf("re-ingest text: %v", err)
 	}
@@ -136,7 +184,7 @@ func TestIngestText(t *testing.T) {
 		t.Fatalf("chunks for %s = %d, want 1", uri, count)
 	}
 
-	if _, err := c.IngestText(ctx, "", "x"); err == nil {
+	if _, err := c.IngestText(ctx, "", "x", ""); err == nil {
 		t.Error("empty source_uri should error")
 	}
 }

@@ -139,8 +139,10 @@ Design constraints for deploy:
 Three tables; vectors and graph in the same Postgres. Full DDL in `migrations/` (mirrors PRD Appendix A).
 
 - **`chunks` (Layer 1)** — `id, text (raw, always stored), embedding halfvec(768), source_uri,
-  source_locator jsonb, quality_score, tier(hot|cold), content_hash, created_at, source_modified_at`.
-  HNSW cosine index on `embedding WHERE tier='hot'`.
+  source_locator jsonb, quality_score, tier(hot|cold), content_hash, discriminators jsonb, scope_key text,
+  created_at, source_modified_at`. HNSW cosine index on `embedding WHERE tier='hot'`. `scope_key` (empty =
+  global) carries the same identity scope as nodes so the retrieval lens can restrict search to a project +
+  global (#119).
   - *Raw text is mandatory:* needed to answer, and to **re-embed on model change without re-reading
     sources** (§7 optimization).
 - **`nodes` (Layer 2)** — `id, canonical_name, aliases[], type, summary_embedding halfvec(768),
@@ -267,6 +269,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-03** — Soft retrieval lens (#119, part of #113): `Search`/`Recall` (MCP + CLI + HTTP) gained an
+  optional **`project`** — when set, retrieval is scoped to that project **+ global** over *both* chunks and
+  nodes; when omitted, it spans all scopes (cross-project search, unchanged default). Chose **default-scoped-
+  when-project-known**: behavior only narrows when the caller opts in by naming a project, so nothing breaks
+  for callers that don't. Chunks gained `discriminators`/`scope_key` (migration 0005) so the lens covers
+  documents, not just the graph; `add_document`/`ingest`/`import` accept `project` to tag chunks.
+  `store.ScopeFilter` (empty = all scopes; `LensFor(project)` = {project, global}; `ExactScope` for dedup)
+  unifies node + chunk scoping. Instruction block tells agents to pass `project` on recall/search. It's a
+  **soft** lens — nothing hidden, widen by omitting the project; hard isolation is still #120. DB-gated test:
+  same text under alpha/beta/global → alpha lens returns alpha+global not beta; no-project spans all. (#119)
 - **2026-07-02** — Consolidate respects identity scope (#118, part of #113): `ProposeNodeMerges` now groups
   duplicate-name candidates by `(scope_key, normalized_name)` instead of name alone, so Consolidate never
   proposes merging same-named entities across projects — closing the loop opened by #117/#116 (otherwise the
@@ -555,6 +567,7 @@ Newest first.
     a declared **discriminator** set (`project`, `env`, …; empty = global), so same-named entities in different
     projects stay distinct without any wall (#117 shipped; the agent passes its `project` per call as the
     discriminator, #116 shipped; Consolidate scoped to identity, #118 shipped). Descriptive **facets** are not identity.
-  - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall lens
-    that widens on demand (#119). **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for
-    privacy/compliance/multi-tenant (#120); until then, hard isolation = a separate stack per team.
+  - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall/search
+    lens over chunks + nodes that widens on demand (#119 shipped — pass `project` to scope, omit to span all).
+    **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for privacy/compliance/multi-tenant
+    (#120); until then, hard isolation = a separate stack per team.
