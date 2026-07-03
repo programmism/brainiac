@@ -26,3 +26,21 @@ type Core struct {
 func New(pool *pgxpool.Pool, embedder plugins.Embedder, selector plugins.Selector) *Core {
 	return &Core{pool: pool, embedder: embedder, selector: selector}
 }
+
+// Discriminators merges a project name (sugar for the `project` axis) with any
+// explicit axes into one identity set, for clients that expose both. An explicit
+// non-empty project wins over an "project" key in extra. Returns nil (global)
+// when the result is empty.
+func Discriminators(project string, extra map[string]string) map[string]string {
+	m := map[string]string{}
+	for k, v := range extra {
+		m[k] = v
+	}
+	if project != "" {
+		m["project"] = project
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}

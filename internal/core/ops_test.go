@@ -142,6 +142,20 @@ func TestRememberScopedIdentity(t *testing.T) {
 	if got.Discriminators["project"] != "brainiac" {
 		t.Fatalf("discriminators not round-tripped: %+v", got.Discriminators)
 	}
+
+	// A second axis (env) distinguishes within the same project (#125).
+	prod, err := c.Remember(ctx, RememberInput{CanonicalName: "Config", Discriminators: map[string]string{"project": "goroutly", "env": "prod"}})
+	if err != nil {
+		t.Fatalf("remember prod: %v", err)
+	}
+	if !prod.Created || prod.Node.ID == a.Node.ID {
+		t.Fatalf("adding env axis must yield a new distinct node: created=%v", prod.Created)
+	}
+
+	// Invalid discriminators are rejected.
+	if _, err := c.Remember(ctx, RememberInput{CanonicalName: "Bad", Discriminators: map[string]string{"env": "a;b"}}); err == nil {
+		t.Fatal("discriminator with ';' should be rejected")
+	}
 }
 
 func TestLinkCreatesNodesAndEdge(t *testing.T) {

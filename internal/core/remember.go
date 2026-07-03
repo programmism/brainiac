@@ -46,6 +46,9 @@ type RememberResult struct {
 // inserted and likely duplicates — by normalized name or summary-embedding
 // proximity — are returned for consolidation to review. Nothing is auto-merged.
 func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult, error) {
+	if err := model.ValidateDiscriminators(in.Discriminators); err != nil {
+		return nil, err
+	}
 	scope := model.ScopeKey(in.Discriminators)
 	existing, err := store.GetNodeByCanonicalNameScoped(ctx, c.pool, in.CanonicalName, scope)
 	if err != nil {
