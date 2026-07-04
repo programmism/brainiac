@@ -8,6 +8,8 @@
 package core
 
 import (
+	"time"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/programmism/brainiac/internal/plugins"
@@ -16,15 +18,16 @@ import (
 // Core holds the shared dependencies and exposes the operation set as methods.
 // It depends only on the plugin interfaces, never on a concrete plugin.
 type Core struct {
-	pool     *pgxpool.Pool
-	embedder plugins.Embedder
-	selector plugins.Selector
+	pool      *pgxpool.Pool
+	embedder  plugins.Embedder
+	selector  plugins.Selector
+	startedAt time.Time // process start, for the uptime metric (§9)
 }
 
 // New constructs a Core over a database pool, an embedder, and a selector.
 // selector may be nil for surfaces that never ingest (it is only used by Ingest).
 func New(pool *pgxpool.Pool, embedder plugins.Embedder, selector plugins.Selector) *Core {
-	return &Core{pool: pool, embedder: embedder, selector: selector}
+	return &Core{pool: pool, embedder: embedder, selector: selector, startedAt: time.Now()}
 }
 
 // Discriminators merges a project name (sugar for the `project` axis) with any

@@ -21,6 +21,30 @@ func IndexSizeBytes(ctx context.Context, db DBTX) (int64, error) {
 	return n, err
 }
 
+// DBStats holds Postgres-level operational signals for the system view:
+// on-disk database size and connection saturation (§9). These are cheap
+// catalog reads, not the corpus counts of HealthCounts.
+type DBStats struct {
+	DatabaseSizeBytes int64 `json:"database_size_bytes"`
+	ActiveConnections int   `json:"active_connections"`
+	MaxConnections    int   `json:"max_connections"`
+}
+
+// DBStatsFor returns the database size and connection usage in one round-trip.
+// ActiveConnections counts backends on the current database; MaxConnections is
+// the server's `max_connections` setting — together they show how close the
+// deployment is to exhausting its connection budget.
+func DBStatsFor(ctx context.Context, db DBTX) (DBStats, error) {
+	var s DBStats
+	err := db.QueryRow(ctx, `
+		SELECT
+			pg_database_size(current_database()),
+			(SELECT count(*) FROM pg_stat_activity WHERE datname = current_database()),
+			current_setting('max_connections')::int`,
+	).Scan(&s.DatabaseSizeBytes, &s.ActiveConnections, &s.MaxConnections)
+	return s, err
+}
+
 // HealthCounts returns corpus and graph counts in a single round-trip.
 func HealthCounts(ctx context.Context, db DBTX) (Counts, error) {
 	var c Counts
