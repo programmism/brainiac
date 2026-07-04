@@ -43,8 +43,8 @@ type Options struct {
 //   - GET /healthz — liveness.
 //   - GET /readyz  — readiness (DB-gated; embedder reported, not fatal — §11).
 //   - GET /api/health, /api/system, /api/search, /api/recall, /api/graph, /api/consolidate — read REST.
-//   - POST /api/merge, /api/edges/{id}/confirm|flag-stale — writes, only when
-//     opts.Writable && opts.AuthToken != "", behind bearer auth.
+//   - POST /api/merge, /api/split, /api/edges/{id}/confirm|flag-stale — writes,
+//     only when opts.Writable && opts.AuthToken != "", behind bearer auth.
 func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	reg := metrics.New()
 
@@ -164,6 +164,23 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+					})
+					r.Post("/split", func(w http.ResponseWriter, req *http.Request) {
+						var body struct {
+							NodeID string            `json:"node_id"`
+							Axis   string            `json:"axis"`
+							Routes map[string]string `json:"routes"`
+						}
+						if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 256<<10)).Decode(&body); err != nil {
+							writeError(w, http.StatusBadRequest, err)
+							return
+						}
+						res, err := c.Split(req.Context(), body.NodeID, body.Axis, body.Routes)
+						if err != nil {
+							writeError(w, http.StatusInternalServerError, err)
+							return
+						}
+						writeJSON(w, http.StatusOK, res)
 					})
 					r.Post("/edges/{id}/confirm", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.Confirm(req.Context(), chi.URLParam(req, "id")); err != nil {

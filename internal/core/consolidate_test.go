@@ -178,6 +178,78 @@ func TestDisambiguate(t *testing.T) {
 	}
 }
 
+func TestSplitTangledNode(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// A conflated Config: same relationship, two different targets (prod vs staging).
+	disc := map[string]string{"project": "goroutly"}
+	if _, err := c.Link(ctx, LinkInput{From: "Config", Type: "writes_to", To: "Kafka", Why: "prod bus", Discriminators: disc}); err != nil {
+		t.Fatalf("link kafka: %v", err)
+	}
+	if _, err := c.Link(ctx, LinkInput{From: "Config", Type: "writes_to", To: "RabbitMQ", Why: "staging bus", Discriminators: disc}); err != nil {
+		t.Fatalf("link rabbit: %v", err)
+	}
+
+	// The detector flags Config as a split candidate with its edges.
+	rep, err := c.Consolidate(ctx)
+	if err != nil {
+		t.Fatalf("consolidate: %v", err)
+	}
+	var cand *SplitCandidate
+	for i := range rep.Splits {
+		if rep.Splits[i].Node.CanonicalName == "Config" {
+			cand = &rep.Splits[i]
+		}
+	}
+	if cand == nil || len(cand.Edges) != 2 {
+		t.Fatalf("expected Config split candidate with 2 edges, got %+v", rep.Splits)
+	}
+
+	// Route each edge by its target: Kafka→prod, RabbitMQ→staging.
+	routes := map[string]string{}
+	for _, e := range cand.Edges {
+		switch e.ToName {
+		case "Kafka":
+			routes[e.Edge.ID] = "prod"
+		case "RabbitMQ":
+			routes[e.Edge.ID] = "staging"
+		}
+	}
+	if len(routes) != 2 {
+		t.Fatalf("could not route both edges: %+v", routes)
+	}
+
+	res, err := c.Split(ctx, cand.Node.ID, "env", routes)
+	if err != nil {
+		t.Fatalf("split: %v", err)
+	}
+	if !res.ParentRetired || len(res.Children) != 2 {
+		t.Fatalf("split result: retired=%v children=%d", res.ParentRetired, len(res.Children))
+	}
+
+	// Each child is a distinct scoped Config carrying one edge.
+	prod, err := store.GetNodeByCanonicalNameScoped(ctx, pool, "Config", "env=prod;project=goroutly")
+	if err != nil || prod == nil {
+		t.Fatalf("prod child missing: %v", err)
+	}
+	staging, err := store.GetNodeByCanonicalNameScoped(ctx, pool, "Config", "env=staging;project=goroutly")
+	if err != nil || staging == nil {
+		t.Fatalf("staging child missing: %v", err)
+	}
+	if pe, _ := store.ListEdgesFrom(ctx, pool, prod.ID); len(pe) != 1 || pe[0].ToID == "" {
+		t.Fatalf("prod child should carry exactly one edge, got %d", len(pe))
+	}
+	if se, _ := store.ListEdgesFrom(ctx, pool, staging.ID); len(se) != 1 {
+		t.Fatalf("staging child should carry exactly one edge, got %d", len(se))
+	}
+	// The conflated parent is gone (retired), leaving no current edges.
+	if pe, _ := store.ListEdgesFrom(ctx, pool, cand.Node.ID); len(pe) != 0 {
+		t.Fatalf("parent should have no current edges after split, got %d", len(pe))
+	}
+}
+
 func mustLink(ctx context.Context, t *testing.T, c *Core, from, typ, to string) {
 	t.Helper()
 	if _, err := c.Link(ctx, LinkInput{From: from, Type: typ, To: to, Why: "x"}); err != nil {

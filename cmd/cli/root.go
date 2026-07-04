@@ -37,6 +37,7 @@ func newRootCmd() *cobra.Command {
 		importCmd(),
 		consolidateCmd(),
 		mergeCmd(),
+		splitCmd(),
 		evalCmd(),
 		reembedCmd(),
 		stubCmd("refresh", "#18 (connector actualization)"),
@@ -84,6 +85,19 @@ func parseDiscs(pairs []string) (map[string]string, error) {
 			return nil, fmt.Errorf("invalid --disc %q (want key=value)", p)
 		}
 		m[k] = v
+	}
+	return m, nil
+}
+
+// parseRoutes turns repeatable --route edgeId=value flags into an edge→value map.
+func parseRoutes(pairs []string) (map[string]string, error) {
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		edgeID, v, ok := strings.Cut(p, "=")
+		if !ok || edgeID == "" || v == "" {
+			return nil, fmt.Errorf("invalid --route %q (want edgeId=value)", p)
+		}
+		m[edgeID] = v
 	}
 	return m, nil
 }

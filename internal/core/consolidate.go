@@ -19,10 +19,19 @@ type Conflict struct {
 	ToB  string `json:"to_b"`
 }
 
+// SplitCandidate is a node whose edges contradict — a possible conflation of two
+// entities that should be split by a discriminator (§8, #127). Its current edges
+// are included so a reviewer can route them.
+type SplitCandidate struct {
+	Node  model.Node `json:"node"`
+	Edges []EdgeView `json:"edges"`
+}
+
 // ConsolidationReport is the librarian pass output — all human-reviewable, none
 // applied automatically (§11).
 type ConsolidationReport struct {
 	MergeGroups [][]model.Node          `json:"merge_groups"`
+	Splits      []SplitCandidate        `json:"splits"`
 	Conflicts   []Conflict              `json:"conflicts"`
 	Stale       []model.Edge            `json:"stale"`
 	Rollups     []store.RollupCandidate `json:"rollups"`
@@ -48,6 +57,10 @@ func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
 	if err != nil {
 		return nil, fmt.Errorf("find rollups: %w", err)
 	}
+	splitIDs, err := store.ProposeNodeSplits(ctx, c.pool)
+	if err != nil {
+		return nil, fmt.Errorf("propose splits: %w", err)
+	}
 
 	names := make(map[string]string)
 	conflicts := make([]Conflict, 0, len(conflictRows))
@@ -60,7 +73,31 @@ func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
 		})
 	}
 
-	return &ConsolidationReport{MergeGroups: merges, Conflicts: conflicts, Stale: stale, Rollups: rollups}, nil
+	splits := make([]SplitCandidate, 0, len(splitIDs))
+	for _, id := range splitIDs {
+		node, err := store.GetNodeByID(ctx, c.pool, id)
+		if err != nil {
+			return nil, fmt.Errorf("load split candidate: %w", err)
+		}
+		if node == nil {
+			continue
+		}
+		edges, err := store.EdgesForNode(ctx, c.pool, id, false, maxEdgesPerNode)
+		if err != nil {
+			return nil, fmt.Errorf("load split edges: %w", err)
+		}
+		evs := make([]EdgeView, 0, len(edges))
+		for _, e := range edges {
+			evs = append(evs, EdgeView{
+				Edge:     e,
+				FromName: c.nodeName(ctx, names, e.FromID),
+				ToName:   c.nodeName(ctx, names, e.ToID),
+			})
+		}
+		splits = append(splits, SplitCandidate{Node: *node, Edges: evs})
+	}
+
+	return &ConsolidationReport{MergeGroups: merges, Splits: splits, Conflicts: conflicts, Stale: stale, Rollups: rollups}, nil
 }
 
 // ApplyMerge merges the drop node into the keep node: its edges are repointed,

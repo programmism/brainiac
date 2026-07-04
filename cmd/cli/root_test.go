@@ -6,7 +6,7 @@ func TestCommandTree(t *testing.T) {
 	root := newRootCmd()
 	want := []string{
 		"migrate", "health", "search", "recall", "remember", "link", "disambiguate", "supersede",
-		"import", "refresh", "consolidate", "reembed",
+		"import", "refresh", "consolidate", "merge", "split", "reembed",
 	}
 	have := make(map[string]bool)
 	for _, c := range root.Commands() {
