@@ -363,6 +363,13 @@ func consolidateCmd() *cobra.Command {
 				}
 				fmt.Fprintf(out, "  - %s\n", strings.Join(names, "  ↔  "))
 			}
+			fmt.Fprintf(out, "split candidates (%d — contradictory facts, maybe two entities):\n", len(rep.Splits))
+			for _, s := range rep.Splits {
+				fmt.Fprintf(out, "  - %s (%s)\n", s.Node.CanonicalName, s.Node.ID)
+				for _, e := range s.Edges {
+					fmt.Fprintf(out, "      edge %s: -%s-> %s\n", e.Edge.ID, e.Edge.Type, e.ToName)
+				}
+			}
 			fmt.Fprintf(out, "conflicts (%d):\n", len(rep.Conflicts))
 			for _, c := range rep.Conflicts {
 				fmt.Fprintf(out, "  - %s -%s-> %s  vs  %s\n", c.From, c.Type, c.ToA, c.ToB)
@@ -401,6 +408,49 @@ func mergeCmd() *cobra.Command {
 	cmd.Flags().StringVar(&drop, "drop", "", "id of the duplicate node to fold in")
 	_ = cmd.MarkFlagRequired("keep")
 	_ = cmd.MarkFlagRequired("drop")
+	return cmd
+}
+
+func splitCmd() *cobra.Command {
+	var node, axis string
+	var routes []string
+	cmd := &cobra.Command{
+		Use:   "split",
+		Short: "Split a conflated node into scoped children, routing its edges (reversible)",
+		Long: "Separate one node that conflates two entities into children along a new axis.\n" +
+			"Route each edge to a value:  kb split --node <id> --axis env --route <edgeId>=prod --route <edgeId>=staging\n" +
+			"Edge ids come from `kb consolidate` split candidates.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			routeMap, err := parseRoutes(routes)
+			if err != nil {
+				return err
+			}
+			res, err := buildCore(cfg, pool).Split(ctx, node, axis, routeMap)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			for _, ch := range res.Children {
+				fmt.Fprintf(out, "%s{%s=%s} ← %d edge(s) [%s]\n", ch.Node.CanonicalName, axis, ch.Value, ch.Edges, ch.Node.ID)
+			}
+			if res.ParentRetired {
+				fmt.Fprintln(out, "parent retired (no edges left)")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&node, "node", "", "id of the node to split")
+	cmd.Flags().StringVar(&axis, "axis", "", "discriminator axis to introduce (e.g. env)")
+	cmd.Flags().StringArrayVar(&routes, "route", nil, "edgeId=value (repeatable) — which axis value each edge belongs to")
+	_ = cmd.MarkFlagRequired("node")
+	_ = cmd.MarkFlagRequired("axis")
 	return cmd
 }
 

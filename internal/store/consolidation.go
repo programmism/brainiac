@@ -2,12 +2,82 @@ package store
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/programmism/brainiac/internal/model"
 )
 
 // normExpr normalizes a name for dedup: lowercase, strip non-alphanumerics.
 const normExpr = `regexp_replace(lower(canonical_name), '[^a-z0-9]', '', 'g')`
+
+// ProposeNodeSplits returns ids of current nodes whose current edges contradict —
+// the same (from, type) points at two or more different targets. That is a signal
+// the node may conflate two entities that should be separated by a discriminator
+// (the mirror of merge; #127). Proposal only — a human/agent reviews and routes.
+func ProposeNodeSplits(ctx context.Context, db DBTX) ([]string, error) {
+	rows, err := db.Query(ctx, `
+		SELECT DISTINCT e1.from_id
+		FROM edges e1
+		WHERE e1.status = 'current' AND EXISTS (
+			SELECT 1 FROM edges e2
+			WHERE e2.status = 'current' AND e2.from_id = e1.from_id
+			  AND e2.type = e1.type AND e2.to_id <> e1.to_id)
+		ORDER BY e1.from_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// RepointEdgeEndpoint moves one edge's endpoint from oldID to newID (whichever
+// side matched), collision-safe: if a current edge with the resulting
+// (from, to, type) already exists, this edge is retired (historical) instead —
+// preserving the uniqueness invariant (migration 0003). Returns true if it was
+// repointed, false if it was retired as a duplicate. Used by Split (#127).
+func RepointEdgeEndpoint(ctx context.Context, db DBTX, edgeID, oldID, newID string) (bool, error) {
+	var from, to, typ, status string
+	err := db.QueryRow(ctx, `SELECT from_id, to_id, type, status FROM edges WHERE id = $1`, edgeID).Scan(&from, &to, &typ, &status)
+	if err != nil {
+		return false, err
+	}
+	if status != string(model.StatusCurrent) {
+		return false, fmt.Errorf("edge %s is not current", edgeID)
+	}
+	newFrom, newTo := from, to
+	if from == oldID {
+		newFrom = newID
+	}
+	if to == oldID {
+		newTo = newID
+	}
+	if newFrom == from && newTo == to {
+		return false, fmt.Errorf("edge %s does not touch node %s", edgeID, oldID)
+	}
+
+	var collides bool
+	if err := db.QueryRow(ctx, `
+		SELECT EXISTS (SELECT 1 FROM edges
+			WHERE from_id = $1 AND to_id = $2 AND type = $3 AND status = 'current' AND id <> $4)`,
+		newFrom, newTo, typ, edgeID).Scan(&collides); err != nil {
+		return false, err
+	}
+	if collides {
+		_, err := db.Exec(ctx, `UPDATE edges SET status = 'historical' WHERE id = $1`, edgeID)
+		return false, err
+	}
+	_, err = db.Exec(ctx, `UPDATE edges SET from_id = $1, to_id = $2 WHERE id = $3`, newFrom, newTo, edgeID)
+	return true, err
+}
 
 // FlagStale marks an edge as possibly stale (for human review).
 func FlagStale(ctx context.Context, db DBTX, edgeID string) error {
