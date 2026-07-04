@@ -80,6 +80,33 @@ func TestAPISearchHealthAndErrors(t *testing.T) {
 	if health["chunks_hot"].(float64) < 1 {
 		t.Fatalf("health chunks_hot = %v, want >= 1", health["chunks_hot"])
 	}
+
+	// /api/system — operational snapshot wired through to core.
+	var sys struct {
+		Status string `json:"status"`
+		DB     struct {
+			DatabaseSizeBytes float64 `json:"database_size_bytes"`
+			MaxConnections    float64 `json:"max_connections"`
+			Pool              struct {
+				Max float64 `json:"max"`
+			} `json:"pool"`
+		} `json:"db"`
+		Process struct {
+			NumCPU float64 `json:"num_cpu"`
+		} `json:"process"`
+	}
+	if code := getJSON(t, srv.URL+"/api/system", &sys); code != http.StatusOK {
+		t.Fatalf("system status %d", code)
+	}
+	if sys.DB.DatabaseSizeBytes < 1 || sys.DB.MaxConnections < 1 || sys.DB.Pool.Max < 1 {
+		t.Fatalf("system db stats look empty: %+v", sys.DB)
+	}
+	if sys.Process.NumCPU < 1 {
+		t.Fatalf("system num_cpu = %v, want >= 1", sys.Process.NumCPU)
+	}
+	if sys.Status == "" {
+		t.Fatal("system status is empty")
+	}
 }
 
 func TestAPIConsolidateAndMerge(t *testing.T) {

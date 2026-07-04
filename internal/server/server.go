@@ -42,7 +42,7 @@ type Options struct {
 // New builds the HTTP handler:
 //   - GET /healthz — liveness.
 //   - GET /readyz  — readiness (DB-gated; embedder reported, not fatal — §11).
-//   - GET /api/health, /api/search, /api/recall, /api/graph, /api/consolidate — read REST.
+//   - GET /api/health, /api/system, /api/search, /api/recall, /api/graph, /api/consolidate — read REST.
 //   - POST /api/merge, /api/edges/{id}/confirm|flag-stale — writes, only when
 //     opts.Writable && opts.AuthToken != "", behind bearer auth.
 func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
@@ -115,6 +115,18 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 					return
 				}
 				writeJSON(w, http.StatusOK, res)
+			})
+
+			// Operational snapshot: process footprint, container memory ceiling,
+			// DB size + connection saturation (§9). Read-only, same posture as
+			// the other read endpoints.
+			r.Get("/system", func(w http.ResponseWriter, req *http.Request) {
+				sm, err := c.SystemMetrics(req.Context())
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, sm)
 			})
 
 			r.Get("/graph", func(w http.ResponseWriter, req *http.Request) {

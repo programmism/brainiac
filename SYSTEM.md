@@ -9,7 +9,7 @@
 
 **M0–M4 complete — the full roadmap is done.** capture→recall core (MCP + CLI), ingestion +
 density selection, Notion **and** Markdown connectors (plugin seams frozen), read-only + interactive
-WebUI (search / recall / consolidation queue / graph / health), the librarian pass (CLI + WebUI + cron),
+WebUI (search / recall / consolidation queue / graph / health / system), the librarian pass (CLI + WebUI + cron),
 reverse proxy + auth (Caddy), daily backups, recall@k eval, and storage optimizations (reembed, tiering).
 Beyond the backlog, work is now maintenance + evolution.
 **Source of truth for requirements:** the Memory Platform PRD (v2). This file records how *we* realize it.
@@ -259,6 +259,21 @@ open conflicts, capture rate (saves/week — adoption; friction kills the system
 prototype OK; ~1M = first wall (move off 4 GB); ~10M = 32–64 GB node; ~100M = quantize + shard or a
 dedicated vector DB.
 
+**Operational (system) metrics — the WebUI "System" tab + `GET /api/system` (#132).** A point-in-time
+snapshot so an operator sees when the deployment is approaching its allocated-resource ceiling — distinct
+from the corpus "Health" tab above. Three sections, roll up to a `status` (`ok`/`warn`/`critical`) with
+human-readable warnings; thresholds live in `core` (`SystemMetrics`) so every client agrees:
+- **Container memory** — the cgroup limit vs current usage (`internal/sysstat`, best-effort: reads
+  cgroup v2 then v1; reports `available:false` off-Linux, e.g. local dev, rather than a wrong number).
+  This is the "am I hitting my `mem_limit`?" signal (the app runs under `mem_limit: 256m` in compose).
+  Warn ≥ 85%, critical ≥ 95%.
+- **Database** — `pg_database_size`, the ★ hot vector-index bytes, active connections vs `max_connections`
+  (warn ≥ 80%), and pgx pool saturation (acquired vs size, warn ≥ 80%).
+- **Process** — the Go runtime's own footprint: heap in-use/reserved, goroutines, GC cycles, CPU cores,
+  uptime.
+These are cheap catalog/runtime reads, not history; long-run time-series is a separate concern (Prometheus
+scrapes `/metrics`). A DB read failure is non-fatal to the snapshot but downgrades `status` to `critical`.
+
 **Evaluation:** a golden query set (~20–50 questions with expected sources) run at every notable growth
 step and after model/threshold changes; citation discipline (uncited answer = quality bug); capture rate
 as the adoption signal.
@@ -269,6 +284,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-04** — System metrics panel (#132): new read-only **`GET /api/system`** + a **System** tab in
+  the WebUI surfacing *operational* health, separate from the corpus "Health" tab — so an operator sees when
+  the deployment nears its allocated-resource ceiling. Logic in `core.SystemMetrics` (thin server + webui
+  adapters, per the core rule): container cgroup memory (new dep-free `internal/sysstat`, cgroup v2→v1,
+  best-effort — `available:false` off-Linux so dev on macOS degrades cleanly), DB size + connection/pool
+  saturation (`store.DBStatsFor` + `pgxpool.Stat`), and the Go process footprint. A `status`
+  (`ok`/`warn`/`critical`) with warnings rolls up from thresholds kept in core (mem 85/95%, conn & pool 80%),
+  so every client shows the same verdict. `Core` gained a `startedAt` for uptime. Point-in-time only — history
+  stays with the Prometheus `/metrics` scrape. Tests: DB-free `deriveStatus` table + `sysstat` graceful-off-
+  Linux, DB-gated `SystemMetrics` and `/api/system` end-to-end. (#132)
 - **2026-07-03** — Reactive disambiguation (#126): new op **`Disambiguate(nodeID, axes)`** (MCP tool +
   `kb disambiguate` CLI) — the reactive way to configure discriminators. When you notice one entity conflates
   two things, you add the axis that separates them (`env=prod`) onto the existing node; its scope_key is
