@@ -26,6 +26,25 @@ Easy deployment is a hard requirement: one command yields a healthy stack, on a 
 The app **verifies its own state** — `GET /healthz` (liveness) and `GET /readyz` (readiness: DB-gated,
 embedder reported), and a CI smoke test boots the stack and asserts readiness end-to-end.
 
+### Updating
+
+The `app` service is **built from this checkout**, so updating is: get the new code, then rebuild.
+
+```bash
+cd brainiac
+git pull                       # latest main — or `git fetch --tags && git checkout v1.16.0` to pin a release
+docker compose up -d --build   # rebuilds & recreates `app`; only what changed is touched
+```
+
+- **Migrations apply automatically** on `app` boot (idempotent) — no manual step.
+- **Your data is safe:** the corpus and models live in the `pgdata` / `ollama` named volumes, which a
+  rebuild never touches. (`docker compose down` alone also keeps them; only `down -v` deletes volumes.)
+- **Verify:** `curl -s localhost:8080/readyz` → `{"db":"ok",...}`, then open the WebUI **System** tab (or
+  `curl -s localhost:8080/api/system`) to confirm the new version is live and healthy.
+- **Roll back** the same way: `git checkout <previous tag> && docker compose up -d --build`.
+- Note: the MCP server runs *inside* `app` (`./brainiac mcp-config`), so recreating `app` briefly drops
+  the MCP connection — your agent reconnects on its next call.
+
 **👉 Using it on your laptop** — `./brainiac up`, drop Markdown into `./data/docs` (auto-imported),
 `./brainiac search "…"`, and `./brainiac mcp-config` to connect Claude. No Go, no exposed ports.
 See [docs/laptop.md](docs/laptop.md).
@@ -38,7 +57,7 @@ saves findings/decisions on its own — globally or per-project. See [docs/agent
 
 **M0–M4 complete — the full roadmap is done; usable as a knowledge base today.** capture→recall core
 (MCP + CLI), ingestion + density selection, Notion **and** Markdown connectors (plugin seams frozen),
-read-only + interactive WebUI (search / recall / consolidation queue / graph / health), the librarian
+read-only + interactive WebUI (search / recall / consolidation queue / graph / health / system), the librarian
 consolidation pass (CLI + WebUI + cron), reverse proxy + auth (Caddy), daily backups, recall@k eval, and
 per-project identity scoping. Currently **hardening for real production use (M5)** — see
 [docs/production-readiness.md](docs/production-readiness.md).

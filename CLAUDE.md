@@ -31,6 +31,39 @@ Find the latest tag, then increment (patch = fix, minor = feature, major = break
 git tag --sort=-v:refname | grep '^v[0-9]*\.[0-9]' | head -1
 ```
 
+## Running Tests
+
+Tests are **DB-gated**: anything touching the store/core/server skips unless `DATABASE_URL` is set, and
+needs a **Postgres with pgvector**. The tests apply migrations themselves (`store.Migrate`) and `TRUNCATE`
+between cases — you only provide an empty database.
+
+**Never point tests at — or otherwise disturb — the live stack.** The running `docker compose` project
+(named `brainiac`) is not just the app: **the MCP memory server runs *inside* the `app` container**
+(`docker compose exec app /brainiac-mcp`, see `make mcp-config`). So `docker compose down` / `make down`,
+or a `docker compose up --build` that recreates `app`, **kills the deployment *and* the MCP server** —
+and pointing tests at its DB on `:5432` pollutes real data. Don't do either for testing.
+
+**Correct pattern — a throwaway, isolated Postgres on a spare port** (mirrors CI: `pgvector/pgvector:pg16`,
+db `brainiac_test`, user/pass `postgres`):
+
+```bash
+docker run -d --rm --name brainiac-test-db \
+  -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=brainiac_test \
+  -p 55432:5432 pgvector/pgvector:pg16
+until docker exec brainiac-test-db pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
+
+DATABASE_URL='postgres://postgres:postgres@localhost:55432/brainiac_test?sslmode=disable' go test ./...
+
+docker stop brainiac-test-db   # --rm auto-removes it
+```
+
+Notes:
+- Use a **non-default host port** (e.g. `55432`) so you never collide with the live stack's `:5432`.
+- Run the **whole suite against one fresh DB**; a DB reused across many runs can cause spurious failures
+  (e.g. cross-package recall tests seeing leftover chunks). CI is authoritative — it always uses a fresh DB.
+- For **deploy validation**, likewise isolate: use a separate compose project
+  (`docker compose -p brainiac-validate up -d …`) and tear *that* down — never the default `brainiac` project.
+
 ## Git Workflow
 
 - Never push directly to `main`. Always branch + PR.
