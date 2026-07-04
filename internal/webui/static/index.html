@@ -29,6 +29,17 @@
     .hidden { display:none; }
     .empty { color:var(--muted); padding:8px 0; }
     a { color:var(--accent); }
+    h3 { margin:16px 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+    .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.03em; }
+    .pill.ok { background:#12351f; color:#5fd08a; }
+    .pill.warn { background:#3a2f10; color:#e6b64c; }
+    .pill.critical { background:#3a1518; color:#ff6b6b; }
+    .warns { margin:10px 0 0; padding:0; list-style:none; }
+    .warns li { padding:4px 0; color:#e6b64c; }
+    .bar { height:6px; background:var(--line); border-radius:3px; overflow:hidden; margin-top:4px; }
+    .bar > span { display:block; height:100%; background:var(--accent); }
+    .bar.warn > span { background:#e6b64c; } .bar.crit > span { background:#ff6b6b; }
+    td:last-child { text-align:right; font-variant-numeric:tabular-nums; }
   </style>
 </head>
 <body>
@@ -40,6 +51,7 @@
       <div class="tab" data-tab="consolidate">Consolidate</div>
       <div class="tab" data-tab="graph">Graph</div>
       <div class="tab" data-tab="health">Health</div>
+      <div class="tab" data-tab="system">System</div>
     </div>
   </header>
 
@@ -74,6 +86,11 @@
       <div class="row"><button onclick="doHealth()">Refresh</button></div>
       <div id="health-results"></div>
     </section>
+
+    <section id="system" class="hidden">
+      <div class="row"><button onclick="doSystem()">Refresh</button></div>
+      <div id="system-results"></div>
+    </section>
   </main>
 
   <script>
@@ -83,10 +100,11 @@
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
-      for (const s of ['search','recall','consolidate','graph','health']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
+      for (const s of ['search','recall','consolidate','graph','health','system']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
       if (t.dataset.tab === 'health') doHealth();
       if (t.dataset.tab === 'consolidate') doConsolidate();
       if (t.dataset.tab === 'graph') doGraph();
+      if (t.dataset.tab === 'system') doSystem();
     });
 
     async function getJSON(url) {
@@ -138,6 +156,63 @@
         ];
         box.innerHTML = '<div class="card"><table>' +
           rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + '</table></div>';
+      } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+
+    // Human-readable bytes and duration for the System tab.
+    const fmtBytes = (n) => {
+      if (n == null) return '—'; if (n === 0) return '0 B';
+      const u = ['B','KB','MB','GB','TB']; const i = Math.floor(Math.log(n) / Math.log(1024));
+      return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + ' ' + u[i];
+    };
+    const fmtDur = (s) => {
+      s = Math.floor(s || 0); const d = Math.floor(s/86400), h = Math.floor(s%86400/3600), m = Math.floor(s%3600/60);
+      if (d) return `${d}d ${h}h`; if (h) return `${h}h ${m}m`; if (m) return `${m}m ${s%60}s`; return `${s}s`;
+    };
+    const usageBar = (pct) => {
+      const p = Math.max(0, Math.min(100, pct || 0)); const cls = p >= 95 ? ' crit' : p >= 85 ? ' warn' : '';
+      return `<div class="bar${cls}"><span style="width:${p.toFixed(1)}%"></span></div>`;
+    };
+    const tableCard = (rows) => '<div class="card"><table>' +
+      rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('') + '</table></div>';
+
+    async function doSystem() {
+      const box = $('system-results'); box.innerHTML = '<div class="empty">loading…</div>';
+      try {
+        const m = await getJSON('/api/system');
+        const warns = (m.warnings || []).length
+          ? `<ul class="warns">${m.warnings.map(w => `<li>⚠ ${esc(w)}</li>`).join('')}</ul>` : '';
+        const head = `<div class="card"><span class="pill ${esc(m.status)}">${esc(m.status)}</span>` +
+          ` <span class="meta" style="margin-left:8px">uptime ${fmtDur(m.uptime_seconds)}</span>${warns}</div>`;
+
+        const c = m.container || {};
+        const mem = c.available
+          ? tableCard([
+              ['memory used', `${fmtBytes(c.mem_used_bytes)} / ${fmtBytes(c.mem_limit_bytes)} (${(c.used_percent||0).toFixed(0)}%)${usageBar(c.used_percent)}`],
+            ])
+          : '<div class="card"><span class="meta">No cgroup memory limit visible (unlimited, or a non-Linux host — e.g. local dev). Allocated-memory tracking is available inside the Docker deployment.</span></div>';
+
+        const p = m.process || {};
+        const proc = tableCard([
+          ['heap in use', fmtBytes(p.heap_alloc_bytes)],
+          ['heap reserved', fmtBytes(p.heap_sys_bytes)],
+          ['goroutines', p.goroutines], ['GC cycles', p.num_gc], ['CPU cores', p.num_cpu],
+        ]);
+
+        const db = m.db || {}, pool = db.pool || {};
+        const connPct = db.max_connections ? 100 * db.active_connections / db.max_connections : 0;
+        const poolPct = pool.max ? 100 * pool.acquired / pool.max : 0;
+        const dbCard = tableCard([
+          ['database size', fmtBytes(db.database_size_bytes)],
+          ['vector index (hot)', fmtBytes(db.vector_index_bytes)],
+          ['connections', `${db.active_connections} / ${db.max_connections}${usageBar(connPct)}`],
+          ['pool (acquired / size)', `${pool.acquired} / ${pool.max} · ${pool.idle} idle${usageBar(poolPct)}`],
+        ]);
+
+        box.innerHTML = head +
+          `<h3>Container memory</h3>${mem}` +
+          `<h3>Database</h3>${dbCard}` +
+          `<h3>Process</h3>${proc}`;
       } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
     }
 
