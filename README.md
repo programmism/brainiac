@@ -13,7 +13,7 @@ this way** — decisions, trade-offs, rejected alternatives, who and when.
 > 📖 **[SYSTEM.md](SYSTEM.md)** is the living spec — architecture, technology decisions and their
 > rationale, data model, and the decision log. Read it before contributing.
 
-## Quickstart (target)
+## Quickstart
 
 ```bash
 git clone https://github.com/programmism/brainiac
@@ -36,10 +36,15 @@ saves findings/decisions on its own — globally or per-project. See [docs/agent
 
 ## Status
 
-**M0 complete** — Go skeleton, CI (+ deploy smoke test), DB schema/migrations, config, and one-command
-Docker Compose deploy. Next: M1 (core operation set). Tracked as GitHub issues across five milestones
-(M0–M4); see the [open issues](https://github.com/programmism/brainiac/issues) and
-[milestones](https://github.com/programmism/brainiac/milestones).
+**M0–M4 complete — the full roadmap is done; usable as a knowledge base today.** capture→recall core
+(MCP + CLI), ingestion + density selection, Notion **and** Markdown connectors (plugin seams frozen),
+read-only + interactive WebUI (search / recall / consolidation queue / graph / health), the librarian
+consolidation pass (CLI + WebUI + cron), reverse proxy + auth (Caddy), daily backups, recall@k eval, and
+per-project identity scoping. Currently **hardening for real production use (M5)** — see
+[docs/production-readiness.md](docs/production-readiness.md).
+
+Runs on a 4 GB prototype box today; size up before real production load. See
+[SYSTEM.md §10](SYSTEM.md#10-decision-log) for the full decision log.
 
 ## Stack
 
