@@ -229,6 +229,12 @@ Ollama LLM; reviewable in the WebUI consolidation queue.
    proximity, **within a single identity scope** (proposals never cross `scope_key`, so same-named entities
    in different projects are never merged, #118); **human confirms** (auto-merge collapses real entities —
    always reversible, alias history kept). Without this the graph fragments into disconnected islands.
+1a. **Split candidates (the mirror of dedup)** — propose **splits** for a node whose current edges contradict
+   (same `from`+`type`, different targets): a signal it conflates two entities. The report lists the node with
+   its edges; a human routes them with `Split(nodeID, axis, routes)` (CLI `kb split`, `POST /api/split`),
+   which carves the node into scoped children (`{axis:value}`) and retires the emptied parent. Reversible.
+   Reactive counterpart to `disambiguate` (which moves a whole node); together they cover both conflation
+   shapes (#126/#127).
 2. **Replacement, not deletion** — `supersedes` edge + `status=historical`.
 3. **Staleness** — if `source_modified_at > edge.created_at`, flag "possibly stale, verify."
 4. **Conflict detection** — surface contradictions for human resolution.
@@ -284,6 +290,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-04** — Tangled-node split + detector (#127): the mirror of merge, completing reactive
+  disambiguation. **Detector** (`store.ProposeNodeSplits`, surfaced in the Consolidate report as `Splits`):
+  flags nodes whose current edges contradict (same `from`+`type`, ≥2 targets) — a likely conflation.
+  **Op** `Split(nodeID, axis, routes)` (CLI `kb split`, `POST /api/split`; not MCP — edge-id routing is
+  review UX like `merge`): carves the node into scoped children `{axis:value}`, repoints each routed edge to
+  its child (collision-safe via `store.RepointEdgeEndpoint` — a colliding edge is retired, not duplicated),
+  and retires the parent if no current edges remain. Handles the case `disambiguate` (#126) can't: facts
+  belonging to *different* values, not the whole node. Decisions: children get **no** summary_embedding
+  (the parent's was the conflated one — misleading; re-summarize later); detector uses the contradictory-edge
+  signal only (the "two source clusters" signal is deferred, fuzzier). DB test: contradictory Config →
+  candidate → split into env=prod/env=staging children (one edge each), parent retired. (#127)
 - **2026-07-04** — System metrics panel (#132): new read-only **`GET /api/system`** + a **System** tab in
   the WebUI surfacing *operational* health, separate from the corpus "Health" tab — so an operator sees when
   the deployment nears its allocated-resource ceiling. Logic in `core.SystemMetrics` (thin server + webui
@@ -613,7 +630,7 @@ Newest first.
     discriminator, #116 shipped; Consolidate scoped to identity, #118 shipped). Any axis is expressible
     (`project`/`env`/`client`, #125 shipped); the intended UX is **reactive** — introduce an axis only when a
     real conflation appears (#126 `disambiguate` op shipped; #127 tangled-node split + librarian detector,
-    future), not a declared-upfront vocabulary. Descriptive **facets** are not identity.
+    shipped), not a declared-upfront vocabulary. Descriptive **facets** are not identity.
   - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall/search
     lens over chunks + nodes that widens on demand (#119 shipped — pass `project` to scope, omit to span all).
     **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for privacy/compliance/multi-tenant
