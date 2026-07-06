@@ -203,6 +203,8 @@ pipeline LLM; the "extraction" is the chat itself.
 heuristic (unique nouns/terms, entities/numbers) → chunk then select **per-chunk** → LLM gatekeeper on
 the borderline queue only (Ollama small model *or* deferred Claude batch) → embed + store raw text +
 provenance + `quality_score`. Thresholds are **reversible** because raw text + score are stored.
+Ingest decides skip/drop/keep in one pass, then **embeds the survivors in a batch** (`plugins.BatchEmbedder`,
+`embedding.batch_size`, default 32) so a large import costs dozens of round-trips, not one per chunk (#140).
 
 > **Day-one:** the ingest script is *not* required. Prototype ingest goes **through Claude** (paste a
 > link/export; Claude reads → selects → calls `remember`/`link`). Write connector automation only when
@@ -290,6 +292,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-06** — Batch embedding on ingest (#140): ingest embedded **one chunk per HTTP round-trip,
+  serially** — the dominant cost of a bulk import (a ~1,100-chunk book pegged Ollama for minutes while the
+  app sat blocked on each call). Added an optional `plugins.BatchEmbedder` seam (`EmbedBatch([]string)`);
+  `Ingest` now runs **two passes** — decide skip/drop/keep, then embed all survivors via the batch path when
+  the embedder exposes it (falls back to per-chunk `Embed` otherwise, so the core stays transparent). The
+  Ollama embedder implements it against **`/api/embed`** (array `input`), sending `embedding.batch_size`
+  (default 32) chunks per request — chosen over client-side concurrency to avoid swamping a 4 GB prototype
+  box; batch size is tunable for boxes with more headroom. `ingestDoc` still reconciles per document in one
+  short transaction (invariant unchanged; embeddings computed before the tx). Tests: Ollama `EmbedBatch`
+  (batching/alignment/error via httptest), core `embedTexts` (batch-vs-fallback, alignment), and the DB-gated
+  ingest suite now runs through the batch path (`hashEmbedder` implements `BatchEmbedder`). (#140)
 - **2026-07-06** — Recall/search scope provenance (#143): the soft lens (#119) returns project **+ global**,
   so a query scoped to an empty project silently gets **global** results that read as if they belong to the
   project. Made scope legible without changing the lens semantics: every search/recall hit now carries a
