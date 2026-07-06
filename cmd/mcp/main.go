@@ -47,7 +47,7 @@ func run() error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims)
+	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
 	c := core.New(pool, embedder, density.New())
 	srv := mcpserver.New(c, importFunc(c, cfg))
 
