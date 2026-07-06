@@ -226,3 +226,58 @@ func TestIngestActualizesEditedDoc(t *testing.T) {
 		t.Fatalf("remaining chunk should be the edited (Kafka) text, got %q", text)
 	}
 }
+
+func TestRecallScopeProvenance(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	const body = "PaymentGateway retries charges with idempotency keys during peak load."
+	if _, err := c.IngestText(ctx, "doc://alpha", body, "alpha"); err != nil {
+		t.Fatalf("ingest alpha: %v", err)
+	}
+	if _, err := c.IngestText(ctx, "doc://global", body, ""); err != nil {
+		t.Fatalf("ingest global: %v", err)
+	}
+
+	// Search under alpha: hits carry a scope label — alpha's own vs the global doc.
+	hits, err := c.Search(ctx, body, 10, "alpha")
+	if err != nil {
+		t.Fatalf("search alpha: %v", err)
+	}
+	scopes := map[string]string{}
+	for _, h := range hits {
+		scopes[h.SourceURI] = h.Scope
+	}
+	if scopes["doc://alpha"] != "project:alpha" {
+		t.Errorf("alpha hit scope = %q, want project:alpha", scopes["doc://alpha"])
+	}
+	if scopes["doc://global"] != "global" {
+		t.Errorf("global hit scope = %q, want global", scopes["doc://global"])
+	}
+
+	// Recall against a project with no content: everything returned is global, so
+	// it must be flagged as a fallback (#143).
+	empty, err := c.Recall(ctx, body, "neznaika")
+	if err != nil {
+		t.Fatalf("recall neznaika: %v", err)
+	}
+	if empty.Scope != "project:neznaika" {
+		t.Errorf("recall scope = %q, want project:neznaika", empty.Scope)
+	}
+	if len(empty.Chunks) == 0 {
+		t.Fatal("expected global fallback chunks, got none")
+	}
+	if !empty.ScopeFallback {
+		t.Error("recall against empty project returning only global should set ScopeFallback")
+	}
+
+	// Recall against a project that has content: not a fallback.
+	got, err := c.Recall(ctx, body, "alpha")
+	if err != nil {
+		t.Fatalf("recall alpha: %v", err)
+	}
+	if got.ScopeFallback {
+		t.Error("recall with in-project results must not flag fallback")
+	}
+}

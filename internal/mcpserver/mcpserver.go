@@ -76,6 +76,7 @@ type chunkDTO struct {
 	Text      string  `json:"text"`
 	SourceURI string  `json:"source_uri"`
 	Distance  float64 `json:"distance,omitempty"`
+	Scope     string  `json:"scope,omitempty"` // "global" or "project:NAME" (#143)
 }
 
 type searchIn struct {
@@ -138,6 +139,10 @@ type recallOut struct {
 	Nodes    []string   `json:"nodes"`
 	Edges    []edgeDTO  `json:"edges"`
 	Evidence []chunkDTO `json:"evidence"`
+	// Scope is the requested retrieval scope; ScopeFallback is true when a scoped
+	// query found nothing in its project and every result is global (#143).
+	Scope         string `json:"scope"`
+	ScopeFallback bool   `json:"scope_fallback,omitempty"`
 }
 
 type addDocumentIn struct {
@@ -192,7 +197,7 @@ func searchTool(c *core.Core) mcp.ToolHandlerFor[searchIn, searchOut] {
 		}
 		out := searchOut{Chunks: make([]chunkDTO, 0, len(hits))}
 		for _, h := range hits {
-			out.Chunks = append(out.Chunks, chunkDTO{Text: h.Text, SourceURI: h.SourceURI, Distance: h.Distance})
+			out.Chunks = append(out.Chunks, chunkDTO{Text: h.Text, SourceURI: h.SourceURI, Distance: h.Distance, Scope: h.Scope})
 		}
 		return text(fmt.Sprintf("found %d chunk(s)", len(out.Chunks))), out, nil
 	}
@@ -239,13 +244,15 @@ func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 			return nil, recallOut{}, err
 		}
 		out := recallOut{
-			Chunks:   make([]chunkDTO, 0, len(res.Chunks)),
-			Nodes:    make([]string, 0, len(res.Nodes)),
-			Edges:    make([]edgeDTO, 0, len(res.Edges)),
-			Evidence: make([]chunkDTO, 0, len(res.EvidenceChunks)),
+			Chunks:        make([]chunkDTO, 0, len(res.Chunks)),
+			Nodes:         make([]string, 0, len(res.Nodes)),
+			Edges:         make([]edgeDTO, 0, len(res.Edges)),
+			Evidence:      make([]chunkDTO, 0, len(res.EvidenceChunks)),
+			Scope:         res.Scope,
+			ScopeFallback: res.ScopeFallback,
 		}
 		for _, h := range res.Chunks {
-			out.Chunks = append(out.Chunks, chunkDTO{Text: h.Text, SourceURI: h.SourceURI, Distance: h.Distance})
+			out.Chunks = append(out.Chunks, chunkDTO{Text: h.Text, SourceURI: h.SourceURI, Distance: h.Distance, Scope: h.Scope})
 		}
 		for _, n := range res.Nodes {
 			out.Nodes = append(out.Nodes, n.CanonicalName)
@@ -259,7 +266,11 @@ func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 		for _, ch := range res.EvidenceChunks {
 			out.Evidence = append(out.Evidence, chunkDTO{Text: ch.Text, SourceURI: ch.SourceURI})
 		}
-		return text(fmt.Sprintf("recall: %d chunk(s), %d node(s), %d edge(s)", len(out.Chunks), len(out.Nodes), len(out.Edges))), out, nil
+		summary := fmt.Sprintf("recall: %d chunk(s), %d node(s), %d edge(s)", len(out.Chunks), len(out.Nodes), len(out.Edges))
+		if out.ScopeFallback {
+			summary += fmt.Sprintf(" — no results in %s; showing global memory", out.Scope)
+		}
+		return text(summary), out, nil
 	}
 }
 

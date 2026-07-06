@@ -110,6 +110,22 @@ func ScopeKey(disc map[string]string) string {
 	return b.String()
 }
 
+// ScopeLabel renders a discriminator set as a short, human-readable provenance
+// tag for result badges (#143): "global" when empty, "project:NAME" for the
+// common single-project case, otherwise the canonical scope_key. It is
+// display-only — identity comparisons must use ScopeKey.
+func ScopeLabel(disc map[string]string) string {
+	if len(disc) == 0 {
+		return "global"
+	}
+	if len(disc) == 1 {
+		if v, ok := disc["project"]; ok {
+			return "project:" + v
+		}
+	}
+	return ScopeKey(disc)
+}
+
 // Edge is a relationship in the curated graph. Why + provenance + author are
 // what make this a memory of decisions, not a fact dump.
 type Edge struct {
@@ -131,4 +147,7 @@ type Edge struct {
 type ChunkHit struct {
 	Chunk
 	Distance float64 `json:"distance"`
+	// Scope is the human-readable provenance of this hit ("global" or
+	// "project:NAME"), so clients can mark project vs global results (#143).
+	Scope string `json:"scope"`
 }

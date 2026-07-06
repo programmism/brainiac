@@ -41,3 +41,21 @@ func TestValidateDiscriminators(t *testing.T) {
 		}
 	}
 }
+
+func TestScopeLabel(t *testing.T) {
+	cases := []struct {
+		disc map[string]string
+		want string
+	}{
+		{nil, "global"},
+		{map[string]string{}, "global"},
+		{map[string]string{"project": "neznaika"}, "project:neznaika"},
+		{map[string]string{"env": "prod"}, "env=prod"},                           // non-project single axis → scope_key
+		{map[string]string{"project": "x", "env": "prod"}, "env=prod;project=x"}, // multi-axis → scope_key
+	}
+	for _, c := range cases {
+		if got := ScopeLabel(c.disc); got != c.want {
+			t.Errorf("ScopeLabel(%v) = %q, want %q", c.disc, got, c.want)
+		}
+	}
+}
