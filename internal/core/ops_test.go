@@ -26,6 +26,20 @@ func (hashEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
 	return v, nil
 }
 
+// EmbedBatch makes hashEmbedder a plugins.BatchEmbedder so ingest exercises the
+// batch path (#140); it maps Embed over the inputs, preserving order.
+func (e hashEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		v, err := e.Embed(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
 func newTestCore(t *testing.T) (*Core, *pgxpool.Pool) {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")

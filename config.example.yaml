@@ -17,6 +17,7 @@ embedding:
   base_url: "http://localhost:11434"
   model: nomic-embed-text
   dims: 768
+  batch_size: 32              # chunks per embed request on bulk ingest (#140); 0 = default
 
 extraction:
   default: chat-driven        # graph grows in dialogue with Claude

@@ -111,3 +111,13 @@ type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	Dims() int
 }
+
+// BatchEmbedder is an optional Embedder extension: embed many texts in one shot.
+// Bulk ingest embeds one chunk per HTTP round-trip otherwise, which dominates the
+// cost of a large import (#140). Ingest uses this path when the embedder exposes
+// it and falls back to Embed otherwise, so it stays transparent to the core. The
+// returned slice must be aligned 1:1 with texts (same length and order).
+type BatchEmbedder interface {
+	Embedder
+	EmbedBatch(ctx context.Context, texts []string) ([][]float32, error)
+}

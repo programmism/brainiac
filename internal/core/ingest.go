@@ -101,8 +101,16 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[strin
 		return err
 	}
 
-	// Prepare inserts for new/changed chunks (embedding done before the tx).
-	var inserts []*model.Chunk
+	// Pass 1: decide skip/drop/keep per chunk and collect the ones that need
+	// embedding, so they can be embedded in one batch instead of one round-trip
+	// each (embedding dominates bulk-ingest cost — #140).
+	type pending struct {
+		text    string
+		hash    string
+		tier    model.Tier
+		quality float64
+	}
+	var toEmbed []pending
 	skipped, dropped, kept, queued := 0, 0, 0, 0
 	for i, ck := range chunks {
 		if existing[hashes[i]] {
@@ -114,13 +122,6 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[strin
 			dropped++
 			continue
 		}
-		emb, err := c.embedder.Embed(ctx, ck)
-		if err != nil {
-			return fmt.Errorf("embed chunk: %w", err)
-		}
-		if len(emb) != model.SchemaEmbeddingDims {
-			return fmt.Errorf("embedding has %d dims, schema expects %d (wrong embedding model?)", len(emb), model.SchemaEmbeddingDims)
-		}
 		tier := model.TierHot
 		if score.Decision == plugins.Queue {
 			tier = model.TierCold
@@ -128,9 +129,28 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[strin
 		} else {
 			kept++
 		}
+		toEmbed = append(toEmbed, pending{text: ck, hash: hashes[i], tier: tier, quality: score.Quality})
+	}
+
+	// Pass 2: embed all pending chunks (batched when the embedder supports it),
+	// before the tx so no network is held open across the reconcile.
+	texts := make([]string, len(toEmbed))
+	for i, p := range toEmbed {
+		texts[i] = p.text
+	}
+	embs, err := c.embedTexts(ctx, texts)
+	if err != nil {
+		return fmt.Errorf("embed chunks: %w", err)
+	}
+	inserts := make([]*model.Chunk, 0, len(toEmbed))
+	for i, p := range toEmbed {
+		emb := embs[i]
+		if len(emb) != model.SchemaEmbeddingDims {
+			return fmt.Errorf("embedding has %d dims, schema expects %d (wrong embedding model?)", len(emb), model.SchemaEmbeddingDims)
+		}
 		inserts = append(inserts, &model.Chunk{
-			Text: ck, Embedding: emb, SourceURI: doc.SourceURI, SourceLocator: doc.SourceLocator,
-			QualityScore: score.Quality, Tier: tier, ContentHash: hashes[i], SourceModifiedAt: doc.ModifiedAt,
+			Text: p.text, Embedding: emb, SourceURI: doc.SourceURI, SourceLocator: doc.SourceLocator,
+			QualityScore: p.quality, Tier: p.tier, ContentHash: p.hash, SourceModifiedAt: doc.ModifiedAt,
 			Discriminators: disc,
 		})
 	}
@@ -160,6 +180,34 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[strin
 	stats.Queued += queued
 	stats.Deleted += int(deleted)
 	return nil
+}
+
+// embedTexts embeds chunk texts, using the embedder's batch path when it exposes
+// one (far fewer round-trips on bulk ingest — #140) and falling back to one call
+// per text otherwise. The result is aligned 1:1 with texts.
+func (c *Core) embedTexts(ctx context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	if be, ok := c.embedder.(plugins.BatchEmbedder); ok {
+		embs, err := be.EmbedBatch(ctx, texts)
+		if err != nil {
+			return nil, err
+		}
+		if len(embs) != len(texts) {
+			return nil, fmt.Errorf("batch embed returned %d vectors for %d texts", len(embs), len(texts))
+		}
+		return embs, nil
+	}
+	embs := make([][]float32, len(texts))
+	for i, t := range texts {
+		v, err := c.embedder.Embed(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		embs[i] = v
+	}
+	return embs, nil
 }
 
 func hashText(s string) string {

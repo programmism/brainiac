@@ -63,6 +63,9 @@ type EmbeddingConfig struct {
 	BaseURL  string `yaml:"base_url"`
 	Model    string `yaml:"model"`
 	Dims     int    `yaml:"dims"`
+	// BatchSize is how many chunks bulk ingest sends per embed request (#140).
+	// 0 = the embedder's default. Tune against the Ollama box's memory.
+	BatchSize int `yaml:"batch_size"`
 }
 
 // ExtractionConfig selects how text becomes nodes/edges.

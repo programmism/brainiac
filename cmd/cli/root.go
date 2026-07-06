@@ -69,7 +69,7 @@ func connect(ctx context.Context) (*config.Config, *pgxpool.Pool, error) {
 // buildCore wires a Core over the pool, the configured embedder, and the
 // density selector.
 func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
-	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims)
+	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
 	return core.New(pool, embedder, density.New())
 }
 
