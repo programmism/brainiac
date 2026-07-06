@@ -79,7 +79,7 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 	vec := pgvector.NewHalfVector(embedding).String()
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
-		       content_hash, created_at, source_modified_at,
+		       content_hash, created_at, source_modified_at, discriminators,
 		       (embedding <=> $1::halfvec)::float8 AS distance
 		FROM chunks
 		WHERE tier = 'hot' AND embedding IS NOT NULL
@@ -98,12 +98,14 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 			locator     []byte
 			tier        string
 			contentHash *string
+			disc        []byte
 		)
 		if err := rows.Scan(&h.ID, &h.Text, &h.SourceURI, &locator, &h.QualityScore, &tier,
-			&contentHash, &h.CreatedAt, &h.SourceModifiedAt, &h.Distance); err != nil {
+			&contentHash, &h.CreatedAt, &h.SourceModifiedAt, &disc, &h.Distance); err != nil {
 			return nil, err
 		}
 		h.Tier = model.Tier(tier)
+		h.Scope = model.ScopeLabel(decodeDiscriminators(disc))
 		if contentHash != nil {
 			h.ContentHash = *contentHash
 		}

@@ -101,7 +101,7 @@ func searchCmd() *cobra.Command {
 				return nil
 			}
 			for _, h := range hits {
-				fmt.Fprintf(out, "[%.3f] %s\n        %s\n", h.Distance, h.SourceURI, oneline(h.Text))
+				fmt.Fprintf(out, "[%.3f]%s %s\n        %s\n", h.Distance, scopeTag(h.Scope), h.SourceURI, oneline(h.Text))
 			}
 			return nil
 		},
@@ -130,6 +130,9 @@ func recallCmd() *cobra.Command {
 				return err
 			}
 			out := cmd.OutOrStdout()
+			if res.ScopeFallback {
+				fmt.Fprintf(out, "(no results in %s — showing global memory)\n", res.Scope)
+			}
 			fmt.Fprintf(out, "nodes: %s\n", strings.Join(nodeNames(res), ", "))
 			fmt.Fprintln(out, "edges:")
 			for _, e := range res.Edges {
@@ -144,7 +147,7 @@ func recallCmd() *cobra.Command {
 			}
 			fmt.Fprintln(out, "chunks:")
 			for _, h := range res.Chunks {
-				fmt.Fprintf(out, "  [%.3f] %s — %s\n", h.Distance, h.SourceURI, oneline(h.Text))
+				fmt.Fprintf(out, "  [%.3f]%s %s — %s\n", h.Distance, scopeTag(h.Scope), h.SourceURI, oneline(h.Text))
 			}
 			return nil
 		},
@@ -557,6 +560,16 @@ func nodeNames(res *core.RecallResult) []string {
 		names = append(names, n.CanonicalName)
 	}
 	return names
+}
+
+// scopeTag renders a result's scope as a space-prefixed tag for CLI output,
+// shown only when the result is project-scoped (global is the unmarked default)
+// so provenance is visible without cluttering the common case (#143).
+func scopeTag(scope string) string {
+	if scope == "" || scope == "global" {
+		return ""
+	}
+	return " [" + scope + "]"
 }
 
 func oneline(s string) string {
