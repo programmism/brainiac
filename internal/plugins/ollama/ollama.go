@@ -113,11 +113,11 @@ func (e *Embedder) withRetries(ctx context.Context, fn func() error) error {
 			case <-time.After(backoff):
 			}
 		}
-		if err := fn(); err == nil {
-			return nil
-		} else {
+		if err := fn(); err != nil {
 			lastErr = err
+			continue
 		}
+		return nil
 	}
 	return lastErr
 }
