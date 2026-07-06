@@ -290,6 +290,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-06** — Recall/search scope provenance (#143): the soft lens (#119) returns project **+ global**,
+  so a query scoped to an empty project silently gets **global** results that read as if they belong to the
+  project. Made scope legible without changing the lens semantics: every search/recall hit now carries a
+  `scope` label (`model.ScopeLabel` → `"global"` | `"project:NAME"` | raw scope_key), derived from each
+  chunk/node's discriminators — `SearchChunks` now selects `discriminators` so chunk hits carry it like nodes
+  already did. `RecallResult` gained `Scope` (the requested scope) + `ScopeFallback`, set true when a scoped
+  query found nothing in-project and **every** returned result is global (the "0 in this project; showing
+  global" signal). Surfaced everywhere: WebUI scope badges + a fallback banner, CLI scope tags (project-only,
+  global stays unmarked) + a fallback line, MCP `scope` per chunk + `scope_fallback` in the recall summary.
+  Unit test (`ScopeLabel`) + DB-gated test (alpha hit=`project:alpha`, global=`global`; recall vs empty
+  project flags fallback, recall vs populated project does not). (#143)
 - **2026-07-04** — Tangled-node split + detector (#127): the mirror of merge, completing reactive
   disambiguation. **Detector** (`store.ProposeNodeSplits`, surfaced in the Consolidate report as `Splits`):
   flags nodes whose current edges contradict (same `from`+`type`, ≥2 targets) — a likely conflation.

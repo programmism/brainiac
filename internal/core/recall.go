@@ -35,6 +35,12 @@ type RecallResult struct {
 	Nodes          []model.Node     // relevant entities
 	Edges          []EdgeView       // rationale + associations (incl. supersedes history)
 	EvidenceChunks []model.Chunk    // raw chunks behind the edges, by source_uri
+	// Scope is the requested retrieval scope ("global" or "project:NAME"), and
+	// ScopeFallback is true when a scoped query found nothing in its project and
+	// every returned result is global — i.e. the results don't belong to the
+	// requested project (#143).
+	Scope         string `json:"scope"`
+	ScopeFallback bool   `json:"scope_fallback"`
 }
 
 // Recall runs the retrieval flow: vector search + graph traversal + join of the
@@ -44,7 +50,7 @@ type RecallResult struct {
 // spans all scopes (#119).
 func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult, error) {
 	query = strings.TrimSpace(query)
-	res := &RecallResult{Query: query}
+	res := &RecallResult{Query: query, Scope: model.ScopeLabel(discFromProject(project))}
 	if query == "" {
 		return res, nil
 	}
@@ -110,7 +116,31 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 			}
 		}
 	}
+
+	// A scoped query that surfaced only global results is a silent fallback: the
+	// project had no matching content, so what came back isn't the project's (#143).
+	if project != "" {
+		res.ScopeFallback = onlyGlobal(res)
+	}
 	return res, nil
+}
+
+// onlyGlobal reports whether a non-empty result set is entirely global-scoped.
+func onlyGlobal(res *RecallResult) bool {
+	if len(res.Chunks)+len(res.Nodes) == 0 {
+		return false // nothing came back — not a fallback, just empty
+	}
+	for _, h := range res.Chunks {
+		if h.Scope != "global" {
+			return false
+		}
+	}
+	for _, n := range res.Nodes {
+		if model.ScopeLabel(n.Discriminators) != "global" {
+			return false
+		}
+	}
+	return true
 }
 
 // nodeName resolves a node id to its canonical name, caching lookups.

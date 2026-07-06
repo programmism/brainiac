@@ -20,6 +20,9 @@
     .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:10px; }
     .meta { color:var(--muted); font-size:12px; margin-bottom:4px; }
     .dist { color:var(--accent); font-variant-numeric:tabular-nums; }
+    .scope { border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:11px; }
+    .scope.project { color:var(--accent); border-color:var(--accent); }
+    .fallback { color:#e0b341; background:var(--panel); border:1px solid #e0b341; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:13px; }
     .edge { padding:4px 0; border-bottom:1px solid var(--line); }
     .edge:last-child { border-bottom:0; }
     .name { color:var(--accent); }
@@ -96,6 +99,10 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const esc = (s) => (s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+    // scopeBadge marks a result's provenance: project-scoped hits are highlighted,
+    // global ones muted, so project vs global is legible at a glance (#143).
+    const scopeBadge = (scope) => scope
+      ? `<span class="scope${scope === 'global' ? '' : ' project'}">${esc(scope)}</span>` : '';
 
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -119,7 +126,7 @@
       try {
         const hits = await getJSON('/api/search?q=' + encodeURIComponent(q) + '&k=10');
         box.innerHTML = (hits && hits.length) ? hits.map(h =>
-          `<div class="card"><div class="meta"><span class="dist">${h.distance.toFixed(3)}</span> · ${esc(h.source_uri)}</div>${esc(h.text)}</div>`
+          `<div class="card"><div class="meta"><span class="dist">${h.distance.toFixed(3)}</span> ${scopeBadge(h.scope)} · ${esc(h.source_uri)}</div>${esc(h.text)}</div>`
         ).join('') : '<div class="empty">no results</div>';
       } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
     }
@@ -136,9 +143,12 @@
           (e.Edge.source_uri ? ` <span class="meta">[${esc(e.Edge.source_uri)}]</span>` : '') + `</div>`
         ).join('') || '<div class="empty">no edges</div>';
         const chunks = (r.Chunks || []).map(h =>
-          `<div class="card"><div class="meta"><span class="dist">${h.distance.toFixed(3)}</span> · ${esc(h.source_uri)}</div>${esc(h.text)}</div>`
+          `<div class="card"><div class="meta"><span class="dist">${h.distance.toFixed(3)}</span> ${scopeBadge(h.scope)} · ${esc(h.source_uri)}</div>${esc(h.text)}</div>`
         ).join('');
-        box.innerHTML = `<div class="card"><div class="meta">entities</div>${nodes}</div>` +
+        const fallback = r.scope_fallback
+          ? `<div class="fallback">No results in ${esc(r.scope)} — showing global memory.</div>` : '';
+        box.innerHTML = fallback +
+          `<div class="card"><div class="meta">entities</div>${nodes}</div>` +
           `<div class="card"><div class="meta">relationships</div>${edges}</div>` + chunks;
       } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
     }
