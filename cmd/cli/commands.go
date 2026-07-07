@@ -299,7 +299,17 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, core.IngestOptions{Project: project, DryRun: dryRun})
+			opts := core.IngestOptions{Project: project, DryRun: dryRun}
+			if !dryRun {
+				errOut := cmd.ErrOrStderr()
+				opts.OnProgress = func(p core.IngestProgress) {
+					fmt.Fprintf(errOut, "\rembedding %s: %d/%d chunks", p.Doc, p.Embedded, p.ToEmbed)
+				}
+			}
+			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, opts)
+			if opts.OnProgress != nil {
+				fmt.Fprintln(cmd.ErrOrStderr()) // end the in-place progress line
+			}
 			if err != nil {
 				return err
 			}

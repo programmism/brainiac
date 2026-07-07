@@ -210,7 +210,10 @@ collapsed, trimmed — `core.normalizeText`, #146): a pure idempotent function, 
 content-defined; it fixes formatting only and never drops content words.
 `IngestOptions.DryRun` (CLI `kb import --dry-run`) runs chunk + select only — no embed, no write — and
 reports what *would* happen (chunk count, kept/queued/dropped/skipped, would-delete), to preview a large or
-wrongly-scoped import before committing (#142).
+wrongly-scoped import before committing (#142). `IngestOptions.OnProgress` emits a running
+`IngestProgress{Doc, Embedded, ToEmbed, Stats}` between embed batches so a long import isn't a black box
+(#139): the CLI renders `embedding <doc>: X/Y chunks` to stderr, auto-import logs large-doc completion. It's
+opt-in — without a callback the single-shot batch path is unchanged.
 
 > **Day-one:** the ingest script is *not* required. Prototype ingest goes **through Claude** (paste a
 > link/export; Claude reads → selects → calls `remember`/`link`). Write connector automation only when
@@ -309,6 +312,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Ingest progress reporting (#139): a long import was a black box — only a final summary
+  line, nothing until the doc finished. Added `IngestOptions.OnProgress func(IngestProgress)`, emitted from
+  core between embed batches (`IngestProgress{Doc, Embedded, ToEmbed, Stats}`). Kept **opt-in and behind the
+  existing seam**: with no callback, embedding stays one shot (the #140 batch path unchanged); with one,
+  `embedWithProgress` steps through the chunks in `ingestProgressStep` (64) batches and reports between. CLI
+  renders `embedding <doc>: X/Y chunks` to stderr (and a final newline); auto-import logs only large-doc
+  (≥64 chunks) completion so small markdown files stay quiet. Denominator is real because chunking + density
+  selection happen before embedding, so `ToEmbed` is known up front. DB-gated test: a many-chunk doc yields
+  ≥2 callbacks, non-decreasing `Embedded`, final `Embedded == ToEmbed`. (#139)
 - **2026-07-07** — Dry-run import (#142): `kb import --dry-run` (`IngestOptions.DryRun`) runs chunk +
   density selection but embeds nothing and writes nothing, returning `IngestStats` for what *would* happen —
   chunk count, kept/queued/dropped/skipped, and a would-delete count (stored chunks whose hash is no longer
