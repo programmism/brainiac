@@ -23,7 +23,24 @@ type IngestOptions struct {
 	// dropped/skipped, and how many stale chunks would be deleted), so a large or
 	// wrongly-scoped import can be previewed before committing (#142).
 	DryRun bool
+	// OnProgress, if set, is called periodically during a document's embedding
+	// with a running snapshot, so clients can show progress on a long import
+	// instead of a black box (#139). It fires from the ingest goroutine — keep it
+	// cheap and non-blocking. Setting it makes embedding step through the chunks
+	// in batches (to report between them) rather than one shot.
+	OnProgress func(IngestProgress)
 }
+
+// IngestProgress is a running snapshot emitted during ingest (#139).
+type IngestProgress struct {
+	Doc      string      // SourceURI of the document being embedded
+	Embedded int         // chunks embedded so far in this document
+	ToEmbed  int         // chunks that need embedding in this document (denominator)
+	Stats    IngestStats // running totals across the run so far (prior documents)
+}
+
+// ingestProgressStep is how many chunks embed between progress callbacks.
+const ingestProgressStep = 64
 
 // discFromProject builds the identity discriminator set for a project name;
 // empty project = nil = global.
@@ -165,7 +182,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 	for i, p := range toEmbed {
 		texts[i] = p.text
 	}
-	embs, err := c.embedTexts(ctx, texts)
+	embs, err := c.embedWithProgress(ctx, doc.SourceURI, texts, opts, stats)
 	if err != nil {
 		return fmt.Errorf("embed chunks: %w", err)
 	}
@@ -207,6 +224,28 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 	stats.Queued += queued
 	stats.Deleted += int(deleted)
 	return nil
+}
+
+// embedWithProgress embeds texts, emitting a running snapshot between batches
+// when opts.OnProgress is set (#139). Without a callback it defers to embedTexts
+// (the single fast path — the batch embedder still batches internally), so the
+// common case is unchanged.
+func (c *Core) embedWithProgress(ctx context.Context, sourceURI string, texts []string, opts IngestOptions, stats *IngestStats) ([][]float32, error) {
+	if opts.OnProgress == nil || len(texts) == 0 {
+		return c.embedTexts(ctx, texts)
+	}
+	opts.OnProgress(IngestProgress{Doc: sourceURI, ToEmbed: len(texts), Stats: *stats})
+	embs := make([][]float32, 0, len(texts))
+	for start := 0; start < len(texts); start += ingestProgressStep {
+		end := min(start+ingestProgressStep, len(texts))
+		part, err := c.embedTexts(ctx, texts[start:end])
+		if err != nil {
+			return nil, err
+		}
+		embs = append(embs, part...)
+		opts.OnProgress(IngestProgress{Doc: sourceURI, Embedded: len(embs), ToEmbed: len(texts), Stats: *stats})
+	}
+	return embs, nil
 }
 
 // embedTexts embeds chunk texts, using the embedder's batch path when it exposes
