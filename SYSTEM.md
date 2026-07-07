@@ -318,6 +318,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Repo hygiene (#162): dropped a stray ~18 MB `mcp` binary committed by accident
+  (1df475c) — it was the whole repo size, unused (Docker builds from source), no secrets (only Go build
+  paths). Hardened `.gitignore` to exclude bare root-level build artifacts (`/mcp`, `/http`, `/cli`, `/kb`,
+  …) so `go build ./cmd/...` in the root can't sneak one in again (official builds go to `/bin` or `/out`).
+  History purge (for size) is a separate optional step. Prep for making the repo public. (#162)
 - **2026-07-07** — One-command health-gated update (#160): updating was manual (`git pull && docker compose
   up -d --build`). Added `./brainiac update` (POSIX-sh wrapper case): refuse on a dirty tree → `git fetch
   --tags` → pick the latest semver **release tag** (not `main` — never auto-deploy untested code) → checkout
