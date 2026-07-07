@@ -49,6 +49,23 @@ behind it. Layer 2 is where a fact can go stale, be superseded, or conflict; Lay
 them) and **CLI**. `consolidate`/`merge`/`split`/`retire-edge`/`confirm` are **operator** verbs — the
 review-and-repair surface (CLI + WebUI), not things Claude does mid-conversation.
 
+### Type conventions
+
+Node and edge `type` are free text, but **consistency matters**: conflict detection keys on
+*same from + same type → different targets*, so a contradiction written with a different type name
+(`writes_to` vs `publishes_to`) goes undetected, and the graph fragments. Reuse an existing type over
+inventing a synonym.
+
+A non-binding **seed vocabulary** to reach for first:
+
+- **Entity types:** `service`, `datastore`, `decision`, `constraint`, `team`, `person`, `document`, `tool`.
+- **Relationship types:** `writes_to`, `reads_from`, `depends_on`, `owns`, `rejected`, `supersedes`,
+  `part_of`, `caused_by`.
+
+Case and separators are **normalized on write** (#156): `writes-to`, `writesTo`, `Writes To` all fold into
+`writes_to`. That fold is intentionally shallow — it never merges *synonyms*, so `publishes_to` stays
+distinct from `writes_to`. When in doubt, `recall`/`search` first and match the type already in use.
+
 ---
 
 ## The consolidation queue, decoded

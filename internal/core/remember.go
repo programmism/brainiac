@@ -80,7 +80,7 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 
 	node := &model.Node{
 		CanonicalName:    in.CanonicalName,
-		Type:             in.Type,
+		Type:             normalizeType(in.Type), // canonicalize separator/case variants (#156)
 		Aliases:          in.Aliases,
 		Discriminators:   in.Discriminators,
 		SummaryEmbedding: emb,

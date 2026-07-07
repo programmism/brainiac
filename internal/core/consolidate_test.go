@@ -352,6 +352,34 @@ func TestRetireEdgeResolvesConflict(t *testing.T) {
 	}
 }
 
+func TestTypeNormalizationEnablesConflictDetection(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Same relationship intent written two different ways (#156): without
+	// normalization these would be distinct types and the contradiction would
+	// slip past conflict detection.
+	e1, err := c.Link(ctx, LinkInput{From: "Billing", Type: "writes-to", To: "Kafka", Why: "x"})
+	if err != nil {
+		t.Fatalf("link 1: %v", err)
+	}
+	if _, err := c.Link(ctx, LinkInput{From: "Billing", Type: "writesTo", To: "RabbitMQ", Why: "x"}); err != nil {
+		t.Fatalf("link 2: %v", err)
+	}
+	if e1.Type != "writes_to" {
+		t.Fatalf("edge type = %q, want normalized writes_to", e1.Type)
+	}
+
+	rep, err := c.Consolidate(ctx)
+	if err != nil {
+		t.Fatalf("consolidate: %v", err)
+	}
+	if !hasConflict(rep.Conflicts, "Billing", "writes_to") {
+		t.Fatalf("normalized types should surface the conflict: %+v", rep.Conflicts)
+	}
+}
+
 func hasStaleEdge(es []model.Edge, id string) bool {
 	for _, e := range es {
 		if e.ID == id {
