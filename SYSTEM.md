@@ -303,6 +303,12 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Concepts & Workflows guide (#152): reference docs (MCP tool descriptions, CLI help,
+  README) were good but there was no *task-oriented* guide — the curation verbs
+  (`consolidate/merge/split/retire-edge/confirm/disambiguate/supersede`) were scattered, worst for the
+  CLI/WebUI operator hitting the consolidation queue cold. Added `docs/concepts-and-workflows.md`: the
+  two-layer mental model, a verb cheat-sheet (what/when), the consolidation queue decoded, and a
+  scenario→action table. Linked from README. Docs-only; the WebUI inline-help counterpart is #153. (#152)
 - **2026-07-07** — Actionable graph conflicts (#148): `FindConflicts` already detected contradictions
   (same `from`+`type`, different targets) but they were a **dead end** — read-only in the WebUI, and the
   only resolution path (`supersede`) operates on *nodes*, which is wrong for an edge conflict (it would mark
