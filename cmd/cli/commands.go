@@ -283,6 +283,7 @@ func disambiguateCmd() *cobra.Command {
 
 func importCmd() *cobra.Command {
 	var source, path, project string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "import",
 		Short: "Ingest documents from a configured source (notion | markdown)",
@@ -298,19 +299,25 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, core.IngestOptions{Project: project})
+			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, core.IngestOptions{Project: project, DryRun: dryRun})
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(),
-				"ingested: %d docs, %d chunks (%d kept, %d queued, %d dropped, %d skipped)\n",
-				stats.Docs, stats.Chunks, stats.Kept, stats.Queued, stats.Dropped, stats.Skipped)
+			out := cmd.OutOrStdout()
+			verb, delLabel := "ingested", "deleted"
+			if dryRun {
+				verb, delLabel = "dry run (nothing written)", "would-delete"
+			}
+			fmt.Fprintf(out,
+				"%s: %d docs, %d chunks (%d kept, %d queued, %d dropped, %d skipped, %d %s)\n",
+				verb, stats.Docs, stats.Chunks, stats.Kept, stats.Queued, stats.Dropped, stats.Skipped, stats.Deleted, delLabel)
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | markdown)")
 	cmd.Flags().StringVar(&path, "path", "", "root directory for the markdown source (overrides config)")
 	cmd.Flags().StringVar(&project, "project", "", "project to scope imported documents to (omit for global)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview chunk/keep/drop counts without embedding or writing")
 	return cmd
 }
 

@@ -281,3 +281,44 @@ func TestRecallScopeProvenance(t *testing.T) {
 		t.Error("recall with in-project results must not flag fallback")
 	}
 }
+
+func TestIngestDryRun(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	conn := sliceConn{docs: []plugins.RawDoc{
+		{Text: "OrderService writes 1200 orders to Postgres and Kafka every minute for durability during peak load.", SourceURI: "doc://dry"},
+	}}
+
+	dry, err := c.Ingest(ctx, conn, IngestOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if dry.Kept < 1 {
+		t.Fatalf("dry run should report kept>=1: %+v", dry)
+	}
+
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM chunks WHERE source_uri='doc://dry'").Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("dry run must not write, but %d chunks were stored", count)
+	}
+
+	// A real ingest of the same input matches what the dry run predicted.
+	live, err := c.Ingest(ctx, conn, IngestOptions{})
+	if err != nil {
+		t.Fatalf("live ingest: %v", err)
+	}
+	if live.Kept != dry.Kept || live.Queued != dry.Queued || live.Dropped != dry.Dropped {
+		t.Fatalf("dry-run prediction != real: dry=%+v live=%+v", dry, live)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM chunks WHERE source_uri='doc://dry'").Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != live.Kept+live.Queued {
+		t.Fatalf("stored=%d, want %d", count, live.Kept+live.Queued)
+	}
+}

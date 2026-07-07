@@ -18,6 +18,11 @@ type IngestOptions struct {
 	// Project scopes every chunk from this run to the retrieval lens (#119).
 	// Empty = global.
 	Project string
+	// DryRun runs chunking + density selection but writes nothing and embeds
+	// nothing: IngestStats reports what *would* happen (chunk count, kept/queued/
+	// dropped/skipped, and how many stale chunks would be deleted), so a large or
+	// wrongly-scoped import can be previewed before committing (#142).
+	DryRun bool
 }
 
 // discFromProject builds the identity discriminator set for a project name;
@@ -52,14 +57,13 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts In
 		return IngestStats{}, fmt.Errorf("ingest requires a selector")
 	}
 
-	disc := discFromProject(opts.Project)
 	var stats IngestStats
 	for doc, err := range conn.Fetch(ctx) {
 		if err != nil {
 			return stats, fmt.Errorf("fetch: %w", err)
 		}
 		stats.Docs++
-		if err := c.ingestDoc(ctx, doc, disc, &stats); err != nil {
+		if err := c.ingestDoc(ctx, doc, opts, &stats); err != nil {
 			stats.Failed++ // skip this doc, keep going
 			continue
 		}
@@ -79,7 +83,7 @@ func (c *Core) IngestText(ctx context.Context, sourceURI, text, project string) 
 		return IngestStats{}, fmt.Errorf("source_uri is required")
 	}
 	stats := IngestStats{Docs: 1}
-	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, discFromProject(project), &stats); err != nil {
+	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, IngestOptions{Project: project}, &stats); err != nil {
 		stats.Failed++
 		return stats, err
 	}
@@ -89,7 +93,8 @@ func (c *Core) IngestText(ctx context.Context, sourceURI, text, project string) 
 // ingestDoc actualizes a single document. Embeddings are computed outside the
 // transaction (no network held open); the reconcile (delete stale + insert new)
 // runs in one short transaction.
-func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[string]string, stats *IngestStats) error {
+func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOptions, stats *IngestStats) error {
+	disc := discFromProject(opts.Project)
 	chunks := chunk.Split(normalizeText(doc.Text))
 	hashes := make([]string, len(chunks))
 	for i, ck := range chunks {
@@ -130,6 +135,28 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[strin
 			kept++
 		}
 		toEmbed = append(toEmbed, pending{text: ck, hash: hashes[i], tier: tier, quality: score.Quality})
+	}
+
+	// Dry run: report what would happen — including how many stale chunks would be
+	// deleted (stored hashes no longer present) — without embedding or writing (#142).
+	if opts.DryRun {
+		have := make(map[string]bool, len(hashes))
+		for _, h := range hashes {
+			have[h] = true
+		}
+		wouldDelete := 0
+		for h := range existing {
+			if !have[h] {
+				wouldDelete++
+			}
+		}
+		stats.Chunks += len(chunks)
+		stats.Skipped += skipped
+		stats.Dropped += dropped
+		stats.Kept += kept
+		stats.Queued += queued
+		stats.Deleted += wouldDelete
+		return nil
 	}
 
 	// Pass 2: embed all pending chunks (batched when the embedder supports it),
