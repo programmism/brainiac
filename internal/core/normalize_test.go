@@ -24,6 +24,29 @@ func TestNormalizeText(t *testing.T) {
 	}
 }
 
+func TestNormalizeType(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"writes_to", "writes_to"},
+		{"writes-to", "writes_to"},
+		{"writesTo", "writes_to"},
+		{"Writes To", "writes_to"},
+		{"  writes__to  ", "writes_to"},
+		{"depends on", "depends_on"},
+		{"DependsOn", "depends_on"},
+		{"microservice", "microservice"}, // must NOT collapse into "service"
+		{"", ""},
+		{"-", ""}, // all-separator → empty (rejected upstream)
+	}
+	for _, c := range cases {
+		if got := normalizeType(c.in); got != c.want {
+			t.Errorf("normalizeType(%q) = %q, want %q", c.in, got, c.want)
+		}
+		if twice := normalizeType(normalizeType(c.in)); twice != normalizeType(c.in) {
+			t.Errorf("normalizeType not idempotent for %q", c.in)
+		}
+	}
+}
+
 func TestNormalizeTextIdempotent(t *testing.T) {
 	inputs := []string{
 		"a\r\n\r\n\r\nb   \n\n",

@@ -95,7 +95,7 @@ type dupDTO struct {
 }
 type rememberIn struct {
 	CanonicalName  string            `json:"canonical_name" jsonschema:"the entity's canonical name"`
-	Type           string            `json:"type,omitempty" jsonschema:"node type: service, datastore, decision, constraint, team, person, ..."`
+	Type           string            `json:"type,omitempty" jsonschema:"node type (snake_case; reuse an existing one over a synonym): service, datastore, decision, constraint, team, person, ..."`
 	Aliases        []string          `json:"aliases,omitempty" jsonschema:"alternative surface forms"`
 	Summary        string            `json:"summary,omitempty" jsonschema:"short description; embedded for semantic dedup"`
 	Project        string            `json:"project,omitempty" jsonschema:"the project this entity belongs to (scopes identity so same-named entities in different projects stay distinct); omit for universal/global entities like a vendor or standard"`
@@ -110,7 +110,7 @@ type rememberOut struct {
 
 type linkIn struct {
 	From           string            `json:"from" jsonschema:"source entity canonical name"`
-	Type           string            `json:"type" jsonschema:"relationship type: writes_to, depends_on, rejected, supersedes, ..."`
+	Type           string            `json:"type" jsonschema:"relationship type (snake_case; reuse an existing one over a synonym — case/separators are normalized): writes_to, depends_on, rejected, supersedes, ..."`
 	To             string            `json:"to" jsonschema:"target entity canonical name"`
 	Why            string            `json:"why" jsonschema:"the rationale — why it is this way"`
 	SourceURI      string            `json:"source_uri,omitempty" jsonschema:"provenance: file, PR, page, thread"`
