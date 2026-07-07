@@ -43,7 +43,7 @@ type Options struct {
 //   - GET /healthz — liveness.
 //   - GET /readyz  — readiness (DB-gated; embedder reported, not fatal — §11).
 //   - GET /api/health, /api/system, /api/search, /api/recall, /api/graph, /api/consolidate — read REST.
-//   - POST /api/merge, /api/split, /api/edges/{id}/confirm|flag-stale — writes,
+//   - POST /api/merge, /api/split, /api/edges/{id}/confirm|flag-stale|retire — writes,
 //     only when opts.Writable && opts.AuthToken != "", behind bearer auth.
 func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	reg := metrics.New()
@@ -191,6 +191,13 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 					})
 					r.Post("/edges/{id}/flag-stale", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.FlagStale(req.Context(), chi.URLParam(req, "id")); err != nil {
+							writeError(w, http.StatusInternalServerError, err)
+							return
+						}
+						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+					})
+					r.Post("/edges/{id}/retire", func(w http.ResponseWriter, req *http.Request) {
+						if err := c.RetireEdge(req.Context(), chi.URLParam(req, "id")); err != nil {
 							writeError(w, http.StatusInternalServerError, err)
 							return
 						}

@@ -246,8 +246,15 @@
         }).join('') || '<div class="empty">no merge candidates</div>';
 
         const conflicts = (r.conflicts || []).map(c =>
-          `<div class="edge"><span class="name">${esc(c.from)}</span> —${esc(c.type)}→ ${esc(c.to_a)} <span class="meta">vs</span> ${esc(c.to_b)}</div>`
+          `<div class="edge"><span class="name">${esc(c.from)}</span> —${esc(c.type)}→ ${esc(c.to_a)} <span class="meta">vs</span> ${esc(c.to_b)}` +
+          ` <button onclick="retireEdge('${c.edge_b}')">keep « ${esc(c.to_a)} »</button>` +
+          ` <button onclick="retireEdge('${c.edge_a}')">keep « ${esc(c.to_b)} »</button></div>`
         ).join('') || '<div class="empty">no conflicts</div>';
+
+        const splits = (r.splits || []).map(s =>
+          `<div class="edge"><span class="name">${esc(s.node.canonical_name)}</span> — contradictory edges` +
+          ` <span class="meta">(route with CLI: kb split)</span></div>`
+        ).join('') || '<div class="empty">no split candidates</div>';
 
         const stale = (r.stale || []).map(e =>
           `<div class="edge">${esc(e.type)} <span class="meta">[${esc(e.source_uri || e.id)}]</span> <button onclick="confirmEdge('${e.id}')">Confirm</button></div>`
@@ -258,6 +265,7 @@
         box.innerHTML =
           `<h3>Merge candidates</h3>${groups}` +
           `<h3>Conflicts</h3><div class="card">${conflicts}</div>` +
+          `<h3>Split candidates</h3><div class="card">${splits}</div>` +
           `<h3>Stale edges</h3><div class="card">${stale}</div>` +
           `<h3>Rollup candidates</h3><div class="card">${rollups}</div>`;
       } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
@@ -270,6 +278,10 @@
     async function confirmEdge(id) {
       try { await post('/api/edges/' + encodeURIComponent(id) + '/confirm'); doConsolidate(); }
       catch (e) { alert('confirm failed: ' + e.message); }
+    }
+    async function retireEdge(id) {
+      try { await post('/api/edges/' + encodeURIComponent(id) + '/retire'); doConsolidate(); }
+      catch (e) { alert('retire failed: ' + e.message); }
     }
 
     // Compact built-in force-directed layout (no external lib; see SYSTEM.md).
