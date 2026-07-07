@@ -210,13 +210,16 @@ proposes separating a node whose facts contradict. Need enforced isolation
 
 ## Interfaces
 
+New to the verbs? **[Concepts & Workflows](docs/concepts-and-workflows.md)** explains the mental model
+and what each does / when to use it.
+
 - **MCP tools:** `search` · `recall` · `remember` · `link` · `disambiguate` ·
   `supersede` · `add_document` · `ingest`
 - **CLI (`kb` / `./brainiac`):** `search` · `recall` · `remember` · `link` ·
   `disambiguate` · `supersede` · `import` · `consolidate` · `merge` · `split` ·
-  `reembed` · `health`
+  `retire-edge` · `reembed` · `health`
 - **HTTP API:** `GET /api/{health,system,search,recall,graph,consolidate}`,
-  `POST /api/{merge,split}` and edge confirm/flag (writes are auth-gated & off by default).
+  `POST /api/{merge,split}` and edge confirm/flag-stale/retire (writes are auth-gated & off by default).
 
 ---
 
@@ -236,8 +239,8 @@ sources ──connectors──▶ core (chunk · select · embed · store · gra
 > decision *and its rationale*, the data model, and a dated decision log. Read it before
 > contributing; update it in the same PR as any change.
 
-**More docs:** [laptop](docs/laptop.md) · [agent memory](docs/agent-memory.md) ·
-[operations](docs/operations.md) · [deployment](docs/deployment.md) ·
+**More docs:** [concepts & workflows](docs/concepts-and-workflows.md) · [laptop](docs/laptop.md) ·
+[agent memory](docs/agent-memory.md) · [operations](docs/operations.md) · [deployment](docs/deployment.md) ·
 [production readiness](docs/production-readiness.md) · [decision records](docs/decisions/).
 
 ## Stack
