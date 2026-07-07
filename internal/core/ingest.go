@@ -90,7 +90,7 @@ func (c *Core) IngestText(ctx context.Context, sourceURI, text, project string) 
 // transaction (no network held open); the reconcile (delete stale + insert new)
 // runs in one short transaction.
 func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, disc map[string]string, stats *IngestStats) error {
-	chunks := chunk.Split(doc.Text)
+	chunks := chunk.Split(normalizeText(doc.Text))
 	hashes := make([]string, len(chunks))
 	for i, ck := range chunks {
 		hashes[i] = hashText(ck)
