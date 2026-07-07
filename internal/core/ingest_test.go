@@ -322,3 +322,37 @@ func TestIngestDryRun(t *testing.T) {
 		t.Fatalf("stored=%d, want %d", count, live.Kept+live.Queued)
 	}
 }
+
+func TestIngestProgressReported(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	var sb strings.Builder
+	for i := 0; i < 1500; i++ {
+		fmt.Fprintf(&sb, "Sentence %d: the quick brown fox jumps over the lazy dog by the river. ", i)
+	}
+
+	var calls, lastEmbedded, toEmbed int
+	monotonic, prev := true, -1
+	opts := IngestOptions{OnProgress: func(p IngestProgress) {
+		calls++
+		if p.Embedded < prev {
+			monotonic = false
+		}
+		prev = p.Embedded
+		lastEmbedded, toEmbed = p.Embedded, p.ToEmbed
+	}}
+	if _, err := c.Ingest(ctx, sliceConn{docs: []plugins.RawDoc{{Text: sb.String(), SourceURI: "doc://prog"}}}, opts); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if calls < 2 {
+		t.Fatalf("expected multiple progress callbacks, got %d", calls)
+	}
+	if toEmbed == 0 || lastEmbedded != toEmbed {
+		t.Fatalf("final progress should reach ToEmbed: embedded=%d toEmbed=%d", lastEmbedded, toEmbed)
+	}
+	if !monotonic {
+		t.Fatal("Embedded should be non-decreasing across callbacks")
+	}
+}

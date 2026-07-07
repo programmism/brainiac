@@ -114,9 +114,16 @@ func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every tim
 			dirs[s.Path] = true
 		}
 	}
+	// Log completion of a large document's embedding (#139) — small docs stay
+	// quiet (they finish under one progress step).
+	onProgress := func(p core.IngestProgress) {
+		if p.ToEmbed >= 64 && p.Embedded == p.ToEmbed {
+			log.Printf("auto-import: embedded %d chunks of %s", p.Embedded, p.Doc)
+		}
+	}
 	run := func() {
 		for dir := range dirs {
-			stats, err := c.Ingest(ctx, markdown.New(dir), core.IngestOptions{})
+			stats, err := c.Ingest(ctx, markdown.New(dir), core.IngestOptions{OnProgress: onProgress})
 			if err != nil {
 				log.Printf("auto-import %s: %v", dir, err)
 				continue
