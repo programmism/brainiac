@@ -247,7 +247,10 @@ Ollama LLM; reviewable in the WebUI consolidation queue.
    edge isn't re-flagged until the source changes *again* (no loop). Flags for review only — `Confirm` clears
    it; nothing is superseded automatically. Manual `flag_stale` still works alongside.
 4. **Conflict detection** — surface contradictions (same `from`+`type`, different targets) for human
-   resolution, carrying both edge ids. Resolve by **retiring the losing edge** (`RetireEdge` → `status =
+   resolution, carrying both edge ids. Node/edge `type` is **normalized on write** (`core.normalizeType`:
+   case + separators folded, `writes-to`/`writesTo` → `writes_to`; synonyms untouched — #156) so a
+   contradiction written with a different spelling still matches. Resolve by **retiring the losing edge**
+   (`RetireEdge` → `status =
    historical`, the edge-level mirror of supersession): WebUI "keep « X »" buttons, `POST
    /api/edges/{id}/retire`, or CLI `kb retire-edge <id>`. Replacement, not deletion — recall still reaches
    the retired edge via history. Detection is automatic; resolution stays an explicit human action (#148).
@@ -303,6 +306,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Type normalization + seed vocabulary (#156, phase 1): node/edge `type` was free text, so
+  separator/case variants of one intent (`writes_to` / `writes-to` / `writesTo`) became **distinct types** —
+  fragmenting the graph and, worse, letting conflict detection (same `from`+`type` → different targets)
+  silently miss contradictions written differently. Added `core.normalizeType` (camelCase→snake, any run of
+  space/`.`/`-`/`_` → single `_`, lowered, trimmed; pure + idempotent), applied on `link`/`remember`. It
+  folds **case + separators only** — never synonyms, so it can't merge two genuinely-distinct types
+  (`publishes_to` stays distinct). Chose soft normalization + a **non-binding seed vocabulary** (in the agent
+  instruction block, MCP tool schemas, and `concepts-and-workflows.md`) over a hard vocabulary, which would
+  fight Brainiac's domain-neutrality. New-writes-only (no retro migration of existing rows). Tests: unit
+  (`normalizeType` cases + idempotency) + DB-gated (two edges typed `writes-to` and `writesTo` now surface as
+  one conflict). Alias maps (`publishes_to`→`writes_to`) remain a possible later step; see #156. (#156)
 - **2026-07-07** — Consolidate tab inline help (#153): the WebUI consolidation queue rendered five
   sections (merge / conflicts / splits / stale / rollups) with no explanation, so a new operator had to
   guess what a "keep « X »" or "Confirm" button meant. Added a one-line muted explainer under each section

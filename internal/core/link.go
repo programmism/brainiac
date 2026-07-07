@@ -27,6 +27,7 @@ type LinkInput struct {
 // Link creates an edge, creating either endpoint node if it does not yet exist.
 // Endpoints and edge land in one transaction (the capture flow, §9).
 func (c *Core) Link(ctx context.Context, in LinkInput) (*model.Edge, error) {
+	in.Type = normalizeType(in.Type) // canonicalize separator/case variants (#156)
 	if in.From == "" || in.To == "" || in.Type == "" {
 		return nil, fmt.Errorf("link requires from, to, and type")
 	}
