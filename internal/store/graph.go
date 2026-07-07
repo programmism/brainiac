@@ -55,6 +55,17 @@ func UpdateNodeStatus(ctx context.Context, db DBTX, id string, status model.Stat
 	return err
 }
 
+// UpdateEdgeStatus sets an edge's status (e.g. to historical when retiring the
+// losing side of a conflict — the edge-level mirror of node supersession, #148).
+// Returns how many rows changed so callers can detect a missing edge id.
+func UpdateEdgeStatus(ctx context.Context, db DBTX, id string, status model.Status) (int64, error) {
+	tag, err := db.Exec(ctx, `UPDATE edges SET status = $2 WHERE id = $1`, id, string(status))
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // EdgesForNode returns up to limit edges touching nodeID in either direction,
 // most recent first. With includeHistorical, superseded edges are included (for
 // the "why we changed our minds" history, §10, §11.2). The limit bounds recall

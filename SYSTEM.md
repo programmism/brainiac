@@ -246,7 +246,11 @@ Ollama LLM; reviewable in the WebUI consolidation queue.
    created_at)` (`store.FlagStaleBySource`, #147). Comparing against `last_confirmed_at` means a **confirmed**
    edge isn't re-flagged until the source changes *again* (no loop). Flags for review only — `Confirm` clears
    it; nothing is superseded automatically. Manual `flag_stale` still works alongside.
-4. **Conflict detection** — surface contradictions for human resolution.
+4. **Conflict detection** — surface contradictions (same `from`+`type`, different targets) for human
+   resolution, carrying both edge ids. Resolve by **retiring the losing edge** (`RetireEdge` → `status =
+   historical`, the edge-level mirror of supersession): WebUI "keep « X »" buttons, `POST
+   /api/edges/{id}/retire`, or CLI `kb retire-edge <id>`. Replacement, not deletion — recall still reaches
+   the retired edge via history. Detection is automatic; resolution stays an explicit human action (#148).
 5. **Rollups** — a node with many edges gets a "current state of X" summary linking to detailed history;
    creates the two reading levels (*what is now* over *how we got here*).
 
@@ -299,6 +303,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Actionable graph conflicts (#148): `FindConflicts` already detected contradictions
+  (same `from`+`type`, different targets) but they were a **dead end** — read-only in the WebUI, and the
+  only resolution path (`supersede`) operates on *nodes*, which is wrong for an edge conflict (it would mark
+  a target node historical, corrupting its use elsewhere). Added edge-level resolution: `store.UpdateEdgeStatus`
+  + `Core.RetireEdge(edgeID)` mark the losing edge `historical` (mirror of node supersession; recall still
+  reaches it via history — replacement, not deletion). Conflicts now carry both edge ids (`FindConflicts`
+  selects `e1.id, e2.id`; `Conflict` gains `EdgeA`/`EdgeB`). Surfaced: WebUI "keep « X »" buttons per side +
+  a rendered **Split candidates** section (was never shown), `POST /api/edges/{id}/retire`, CLI
+  `kb retire-edge <id>` and edge ids in the `conflicts` output. Still propose-not-apply: detection automatic,
+  retire an explicit human action. DB-gated test: two conflicting edges → retire one → conflict gone, loser
+  historical + reachable via history, missing id errors. (#148)
 - **2026-07-07** — Recency-based staleness detection (#147): SYSTEM.md §8.3 specified the only *automatic*
   "this might be outdated" signal — flag an edge when `source_modified_at > edge.created_at` — but it was
   never implemented; `flagged_stale` was set purely by hand. Added `store.FlagStaleBySource`: Consolidate

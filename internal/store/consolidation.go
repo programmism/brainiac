@@ -175,13 +175,15 @@ type ConflictRow struct {
 	Type   string
 	ToA    string
 	ToB    string
+	EdgeA  string // edge id from FromID → ToA
+	EdgeB  string // edge id from FromID → ToB
 }
 
 // FindConflicts surfaces current edges from the same node with the same type but
 // different targets (e.g. writes_to Kafka vs writes_to RabbitMQ).
 func FindConflicts(ctx context.Context, db DBTX) ([]ConflictRow, error) {
 	rows, err := db.Query(ctx, `
-		SELECT e1.from_id, e1.type, e1.to_id, e2.to_id
+		SELECT e1.from_id, e1.type, e1.to_id, e2.to_id, e1.id, e2.id
 		FROM edges e1 JOIN edges e2
 			ON e1.from_id = e2.from_id AND e1.type = e2.type AND e1.to_id < e2.to_id
 		WHERE e1.status = 'current' AND e2.status = 'current'`)
@@ -193,7 +195,7 @@ func FindConflicts(ctx context.Context, db DBTX) ([]ConflictRow, error) {
 	var out []ConflictRow
 	for rows.Next() {
 		var c ConflictRow
-		if err := rows.Scan(&c.FromID, &c.Type, &c.ToA, &c.ToB); err != nil {
+		if err := rows.Scan(&c.FromID, &c.Type, &c.ToA, &c.ToB, &c.EdgeA, &c.EdgeB); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
