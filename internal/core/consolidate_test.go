@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -273,6 +275,72 @@ func hasRollup(rs []store.RollupCandidate, name string) bool {
 		}
 	}
 	return false
+}
+
+func hasStaleEdge(es []model.Edge, id string) bool {
+	for _, e := range es {
+		if e.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestConsolidateFlagsStaleBySource(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	const src = "src://design-doc"
+	edge, err := c.Link(ctx, LinkInput{From: "OrderService", Type: "writes_to", To: "Kafka", Why: "durability", SourceURI: src})
+	if err != nil {
+		t.Fatalf("link: %v", err)
+	}
+	// Age the edge so a later source counts as "changed since we recorded it".
+	if _, err := pool.Exec(ctx, `UPDATE edges SET created_at = now() - interval '1 hour' WHERE id=$1`, edge.ID); err != nil {
+		t.Fatalf("age edge: %v", err)
+	}
+
+	// A chunk from the same source, modified after the edge was recorded.
+	emb, _ := hashEmbedder{}.Embed(ctx, "orderservice now writes to rabbitmq")
+	modAt := time.Now().Add(-time.Minute)
+	ch := &model.Chunk{Text: "OrderService now writes to RabbitMQ", Embedding: emb, SourceURI: src, Tier: model.TierHot, ContentHash: "h1", SourceModifiedAt: &modAt}
+	if err := store.InsertChunk(ctx, pool, ch); err != nil {
+		t.Fatalf("insert chunk: %v", err)
+	}
+
+	// Consolidate auto-flags the edge as possibly stale (§8.3).
+	report, err := c.Consolidate(ctx)
+	if err != nil {
+		t.Fatalf("consolidate: %v", err)
+	}
+	if !hasStaleEdge(report.Stale, edge.ID) {
+		t.Fatalf("edge should be recency-flagged stale: %+v", report.Stale)
+	}
+
+	// Confirm it → a later consolidation must NOT re-flag (source unchanged since).
+	if err := c.Confirm(ctx, edge.ID); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	report, err = c.Consolidate(ctx)
+	if err != nil {
+		t.Fatalf("re-consolidate: %v", err)
+	}
+	if hasStaleEdge(report.Stale, edge.ID) {
+		t.Fatalf("confirmed edge re-flagged though source unchanged: %+v", report.Stale)
+	}
+
+	// But if the source changes AGAIN (after the confirmation), it re-flags.
+	if _, err := pool.Exec(ctx, `UPDATE chunks SET source_modified_at = now() + interval '1 minute' WHERE source_uri=$1`, src); err != nil {
+		t.Fatalf("bump source: %v", err)
+	}
+	report, err = c.Consolidate(ctx)
+	if err != nil {
+		t.Fatalf("consolidate after re-edit: %v", err)
+	}
+	if !hasStaleEdge(report.Stale, edge.ID) {
+		t.Fatalf("edge should re-flag after source changed post-confirmation: %+v", report.Stale)
+	}
 }
 
 func containsStr(ss []string, s string) bool {

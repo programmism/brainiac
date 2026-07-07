@@ -91,6 +91,30 @@ func ConfirmEdge(ctx context.Context, db DBTX, edgeID string) error {
 	return err
 }
 
+// FlagStaleBySource marks current edges "possibly stale, verify" when their
+// backing source has changed more recently than we last recorded/confirmed the
+// edge: a chunk for the edge's source_uri has source_modified_at newer than the
+// edge's last_confirmed_at (or created_at if never confirmed). This is the
+// automatic staleness signal specified in SYSTEM.md §8.3 (#147) — it only flags
+// for human review (reversible via ConfirmEdge), it never changes the edge's
+// meaning. Comparing against last_confirmed_at means a confirmed edge is not
+// re-flagged until the source changes again, so it does not loop. Returns how
+// many edges were newly flagged.
+func FlagStaleBySource(ctx context.Context, db DBTX) (int64, error) {
+	tag, err := db.Exec(ctx, `
+		UPDATE edges e SET flagged_stale = true
+		WHERE e.status = 'current' AND e.flagged_stale = false AND e.source_uri <> ''
+		  AND EXISTS (
+		    SELECT 1 FROM chunks c
+		    WHERE c.source_uri = e.source_uri
+		      AND c.source_modified_at IS NOT NULL
+		      AND c.source_modified_at > COALESCE(e.last_confirmed_at, e.created_at))`)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ProposeNodeMerges returns groups of current nodes that share a normalized
 // name AND identity scope (likely duplicates), each group ordered oldest-first.
 // Scoping by scope_key means same-named entities in different projects are never
