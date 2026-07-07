@@ -277,6 +277,81 @@ func hasRollup(rs []store.RollupCandidate, name string) bool {
 	return false
 }
 
+func TestRetireEdgeResolvesConflict(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// Two current edges, same from+type, different targets → a conflict.
+	mustLink(ctx, t, c, "PaymentService", "charges_via", "Stripe")
+	mustLink(ctx, t, c, "PaymentService", "charges_via", "Adyen")
+
+	rep, err := c.Consolidate(ctx)
+	if err != nil {
+		t.Fatalf("consolidate: %v", err)
+	}
+	var conf *Conflict
+	for i := range rep.Conflicts {
+		if rep.Conflicts[i].From == "PaymentService" && rep.Conflicts[i].Type == "charges_via" {
+			conf = &rep.Conflicts[i]
+		}
+	}
+	if conf == nil {
+		t.Fatalf("expected a charges_via conflict: %+v", rep.Conflicts)
+	}
+	if conf.EdgeA == "" || conf.EdgeB == "" {
+		t.Fatalf("conflict must carry both edge ids: %+v", conf)
+	}
+
+	// Retire the losing edge → conflict resolved (one current edge remains).
+	if err := c.RetireEdge(ctx, conf.EdgeB); err != nil {
+		t.Fatalf("retire: %v", err)
+	}
+	rep2, err := c.Consolidate(ctx)
+	if err != nil {
+		t.Fatalf("re-consolidate: %v", err)
+	}
+	if hasConflict(rep2.Conflicts, "PaymentService", "charges_via") {
+		t.Fatalf("conflict should be gone after retire: %+v", rep2.Conflicts)
+	}
+
+	// Replacement, not deletion: retired edge is historical but reachable via history.
+	from, err := store.GetNodeByCanonicalName(ctx, pool, "PaymentService")
+	if err != nil || from == nil {
+		t.Fatalf("get node: %v", err)
+	}
+	currentEdges, err := store.EdgesForNode(ctx, pool, from.ID, false, 50)
+	if err != nil {
+		t.Fatalf("current edges: %v", err)
+	}
+	for _, e := range currentEdges {
+		if e.ID == conf.EdgeB {
+			t.Fatalf("retired edge %s still current", conf.EdgeB)
+		}
+	}
+	histEdges, err := store.EdgesForNode(ctx, pool, from.ID, true, 50)
+	if err != nil {
+		t.Fatalf("edges incl history: %v", err)
+	}
+	var retired *model.Edge
+	for i := range histEdges {
+		if histEdges[i].ID == conf.EdgeB {
+			retired = &histEdges[i]
+		}
+	}
+	if retired == nil {
+		t.Fatalf("retired edge not reachable via history")
+	}
+	if retired.Status != model.StatusHistorical {
+		t.Fatalf("retired edge status = %s, want historical", retired.Status)
+	}
+
+	// A missing edge id is an error, not a silent no-op.
+	if err := c.RetireEdge(ctx, "00000000-0000-0000-0000-000000000000"); err == nil {
+		t.Error("retiring a missing edge should error")
+	}
+}
+
 func hasStaleEdge(es []model.Edge, id string) bool {
 	for _, e := range es {
 		if e.ID == id {

@@ -11,12 +11,16 @@ import (
 // RollupMinEdges is the edge count at which a node becomes a rollup candidate.
 const RollupMinEdges = 5
 
-// Conflict is a contradiction with endpoint names resolved for review.
+// Conflict is a contradiction with endpoint names resolved for review. EdgeA/
+// EdgeB are the two edge ids (to ToA / ToB) so a client can retire the losing
+// side (#148).
 type Conflict struct {
-	From string `json:"from"`
-	Type string `json:"type"`
-	ToA  string `json:"to_a"`
-	ToB  string `json:"to_b"`
+	From  string `json:"from"`
+	Type  string `json:"type"`
+	ToA   string `json:"to_a"`
+	ToB   string `json:"to_b"`
+	EdgeA string `json:"edge_a"`
+	EdgeB string `json:"edge_b"`
 }
 
 // SplitCandidate is a node whose edges contradict — a possible conflation of two
@@ -74,10 +78,12 @@ func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
 	conflicts := make([]Conflict, 0, len(conflictRows))
 	for _, r := range conflictRows {
 		conflicts = append(conflicts, Conflict{
-			From: c.nodeName(ctx, names, r.FromID),
-			Type: r.Type,
-			ToA:  c.nodeName(ctx, names, r.ToA),
-			ToB:  c.nodeName(ctx, names, r.ToB),
+			From:  c.nodeName(ctx, names, r.FromID),
+			Type:  r.Type,
+			ToA:   c.nodeName(ctx, names, r.ToA),
+			ToB:   c.nodeName(ctx, names, r.ToB),
+			EdgeA: r.EdgeA,
+			EdgeB: r.EdgeB,
 		})
 	}
 

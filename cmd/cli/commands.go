@@ -373,9 +373,9 @@ func consolidateCmd() *cobra.Command {
 					fmt.Fprintf(out, "      edge %s: -%s-> %s\n", e.Edge.ID, e.Edge.Type, e.ToName)
 				}
 			}
-			fmt.Fprintf(out, "conflicts (%d):\n", len(rep.Conflicts))
+			fmt.Fprintf(out, "conflicts (%d — retire the losing edge with `kb retire-edge <id>`):\n", len(rep.Conflicts))
 			for _, c := range rep.Conflicts {
-				fmt.Fprintf(out, "  - %s -%s-> %s  vs  %s\n", c.From, c.Type, c.ToA, c.ToB)
+				fmt.Fprintf(out, "  - %s -%s-> %s (%s)  vs  %s (%s)\n", c.From, c.Type, c.ToA, c.EdgeA, c.ToB, c.EdgeB)
 			}
 			fmt.Fprintf(out, "stale edges: %d\n", len(rep.Stale))
 			fmt.Fprintf(out, "rollup candidates (%d):\n", len(rep.Rollups))
@@ -412,6 +412,28 @@ func mergeCmd() *cobra.Command {
 	_ = cmd.MarkFlagRequired("keep")
 	_ = cmd.MarkFlagRequired("drop")
 	return cmd
+}
+
+func retireEdgeCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "retire-edge [edge-id]",
+		Short: "Retire an edge (mark historical) to resolve a conflict — reversible via recall history",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			if err := buildCore(cfg, pool).RetireEdge(ctx, args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "retired edge %s\n", args[0])
+			return nil
+		},
+	}
 }
 
 func splitCmd() *cobra.Command {
