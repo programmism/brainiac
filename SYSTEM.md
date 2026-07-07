@@ -205,6 +205,9 @@ the borderline queue only (Ollama small model *or* deferred Claude batch) → em
 provenance + `quality_score`. Thresholds are **reversible** because raw text + score are stored.
 Ingest decides skip/drop/keep in one pass, then **embeds the survivors in a batch** (`plugins.BatchEmbedder`,
 `embedding.batch_size`, default 32) so a large import costs dozens of round-trips, not one per chunk (#140).
+Source text is **normalized once before chunking** (CRLF→LF, trailing spaces stripped, blank-line runs
+collapsed, trimmed — `core.normalizeText`, #146): a pure idempotent function, so boundaries stay
+content-defined; it fixes formatting only and never drops content words.
 
 > **Day-one:** the ingest script is *not* required. Prototype ingest goes **through Claude** (paste a
 > link/export; Claude reads → selects → calls `remember`/`link`). Write connector automation only when
@@ -292,6 +295,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Whitespace normalization before chunking (#146): ingest had **no text preprocessing** —
+  `chunk.Split` trims only chunk edges, so interior formatting (e.g. a conversion that put a blank line
+  between every line) was embedded and stored verbatim (ugly evidence, byte-size inflation, and "sticky":
+  cleaning the source later re-hashes every chunk → full re-embed). Added `core.normalizeText`, applied once
+  in `ingestDoc` **before** `Split`: CRLF→LF, per-line trailing spaces/tabs stripped, blank-line runs
+  collapsed to one, whole text trimmed. Pure + idempotent, so chunk boundaries stay content-defined and
+  self-healing is preserved; touches formatting only, never drops content words (density scoring unaffected).
+  One-time effect: the first ingest after this ships re-hashes existing docs. Unit tests (normalization cases
+  + idempotency). (#146)
 - **2026-07-06** — Batch embedding on ingest (#140): ingest embedded **one chunk per HTTP round-trip,
   serially** — the dominant cost of a bulk import (a ~1,100-chunk book pegged Ollama for minutes while the
   app sat blocked on each call). Added an optional `plugins.BatchEmbedder` seam (`EmbedBatch([]string)`);
