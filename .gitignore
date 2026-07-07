@@ -3,6 +3,15 @@
 *.test
 *.out
 coverage.txt
+# Stray root-level build artifacts: `go build ./cmd/mcp` (etc.) drops a bare
+# binary named after the package in the repo root. Official builds go to /bin
+# (Makefile) or /out (Docker); these root binaries must never be committed.
+/mcp
+/http
+/cli
+/kb
+/brainiac-mcp
+/brainiac-http
 
 # Python (n/a — kept for tooling that may drop caches)
 __pycache__/
