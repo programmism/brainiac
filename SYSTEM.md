@@ -208,6 +208,9 @@ Ingest decides skip/drop/keep in one pass, then **embeds the survivors in a batc
 Source text is **normalized once before chunking** (CRLF→LF, trailing spaces stripped, blank-line runs
 collapsed, trimmed — `core.normalizeText`, #146): a pure idempotent function, so boundaries stay
 content-defined; it fixes formatting only and never drops content words.
+`IngestOptions.DryRun` (CLI `kb import --dry-run`) runs chunk + select only — no embed, no write — and
+reports what *would* happen (chunk count, kept/queued/dropped/skipped, would-delete), to preview a large or
+wrongly-scoped import before committing (#142).
 
 > **Day-one:** the ingest script is *not* required. Prototype ingest goes **through Claude** (paste a
 > link/export; Claude reads → selects → calls `remember`/`link`). Write connector automation only when
@@ -306,6 +309,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Dry-run import (#142): `kb import --dry-run` (`IngestOptions.DryRun`) runs chunk +
+  density selection but embeds nothing and writes nothing, returning `IngestStats` for what *would* happen —
+  chunk count, kept/queued/dropped/skipped, and a would-delete count (stored chunks whose hash is no longer
+  present, computed in-memory from the existing-hash set, no destructive call). Lets you preview the size of
+  a big import and see what the density filter keeps vs drops before committing, and catch a wrongly-scoped
+  import for free. CLI labels the output "dry run (nothing written)". `ingestDoc` now takes `IngestOptions`
+  (so dry-run and future per-run knobs thread through). DB-gated test: dry run writes 0 chunks and its
+  kept/queued/dropped exactly match a subsequent real ingest. (#142)
 - **2026-07-07** — Type normalization + seed vocabulary (#156, phase 1): node/edge `type` was free text, so
   separator/case variants of one intent (`writes_to` / `writes-to` / `writesTo`) became **distinct types** —
   fragmenting the graph and, worse, letting conflict detection (same `from`+`type` → different targets)
