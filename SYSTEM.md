@@ -241,7 +241,11 @@ Ollama LLM; reviewable in the WebUI consolidation queue.
    Reactive counterpart to `disambiguate` (which moves a whole node); together they cover both conflation
    shapes (#126/#127).
 2. **Replacement, not deletion** — `supersedes` edge + `status=historical`.
-3. **Staleness** — if `source_modified_at > edge.created_at`, flag "possibly stale, verify."
+3. **Staleness** — Consolidate auto-flags an edge "possibly stale, verify" when its source changed since we
+   recorded it: a chunk for the edge's `source_uri` has `source_modified_at > COALESCE(last_confirmed_at,
+   created_at)` (`store.FlagStaleBySource`, #147). Comparing against `last_confirmed_at` means a **confirmed**
+   edge isn't re-flagged until the source changes *again* (no loop). Flags for review only — `Confirm` clears
+   it; nothing is superseded automatically. Manual `flag_stale` still works alongside.
 4. **Conflict detection** — surface contradictions for human resolution.
 5. **Rollups** — a node with many edges gets a "current state of X" summary linking to detailed history;
    creates the two reading levels (*what is now* over *how we got here*).
@@ -295,6 +299,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Recency-based staleness detection (#147): SYSTEM.md §8.3 specified the only *automatic*
+  "this might be outdated" signal — flag an edge when `source_modified_at > edge.created_at` — but it was
+  never implemented; `flagged_stale` was set purely by hand. Added `store.FlagStaleBySource`: Consolidate
+  now flags current edges whose source has a chunk with `source_modified_at > COALESCE(last_confirmed_at,
+  created_at)`. Comparing against `last_confirmed_at` (not just `created_at`) means a confirmed edge isn't
+  re-flagged until the source changes again — no re-flag loop. It reuses the existing Stale list + Confirm
+  action, so no new UI. This is the **one write** the librarian pass makes, and it's review-only (reversible
+  via Confirm, never alters meaning or supersedes) — consistent with "propose, not apply". Closes the
+  spec/code drift. DB-gated test: aged edge + newer source → flagged; Confirm → not re-flagged; source
+  changes again → re-flagged. (#147)
 - **2026-07-07** — Whitespace normalization before chunking (#146): ingest had **no text preprocessing** —
   `chunk.Split` trims only chunk edges, so interior formatting (e.g. a conversion that put a blank line
   between every line) was embedded and stored verbatim (ugly evidence, byte-size inflation, and "sticky":
