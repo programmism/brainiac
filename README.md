@@ -121,17 +121,54 @@ Full guide: **[docs/agent-memory.md](docs/agent-memory.md)**.
 ### Updating
 
 The `app` service is **built from this checkout**, so updating is: get the new code, then rebuild.
+The easy way — one health-gated command that updates to the **latest release tag** and **rolls back if the
+new version doesn't come up healthy**:
 
 ```bash
-git pull                       # latest main — or `git fetch --tags && git checkout v1.17.0` to pin a release
-docker compose up -d --build   # rebuilds & recreates app; only what changed is touched
+./brainiac update
 ```
+
+It refuses to run on a dirty working tree, checks out the newest `vX.Y.Z`, rebuilds, waits for `/readyz`,
+and reverts to the previous version on failure. Already on the latest tag → it's a no-op.
+
+Prefer to do it by hand? Same effect:
+
+```bash
+git fetch --tags && git checkout v1.27.0   # pin a release (or `git pull` for latest main)
+docker compose up -d --build               # rebuilds & recreates app; only what changed is touched
+```
+
+**Schedule it (optional).** Brainiac doesn't run its own updater daemon — use host cron/systemd:
+
+```cron
+# weekly, Sunday 04:00 — update to the latest release, log the result
+0 4 * * 0  cd /path/to/brainiac && ./brainiac update >> update.log 2>&1
+```
+
+<details><summary>systemd timer equivalent</summary>
+
+```ini
+# /etc/systemd/system/brainiac-update.service
+[Service]
+Type=oneshot
+WorkingDirectory=/path/to/brainiac
+ExecStart=/path/to/brainiac/brainiac update
+
+# /etc/systemd/system/brainiac-update.timer
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+`systemctl enable --now brainiac-update.timer`
+</details>
 
 - **Migrations apply automatically** on boot (idempotent) — no manual step.
 - **Your data is safe:** the corpus and models live in the `pgdata` / `ollama` named volumes;
   a rebuild never touches them (only `docker compose down -v` deletes volumes).
 - **Verify:** `curl -s localhost:8080/readyz`, then check the WebUI **System** tab (or `GET /api/system`).
-- **Roll back** the same way: `git checkout <previous tag> && docker compose up -d --build`.
+- **Roll back manually** if needed: `git checkout <previous tag> && docker compose up -d --build`.
 - The MCP server runs *inside* `app`, so recreating it briefly drops the MCP connection — your agent
   reconnects on its next call.
 

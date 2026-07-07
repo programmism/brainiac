@@ -6,6 +6,7 @@
 #   ./brainiac search "why kafka"
 #   ./brainiac recall "why is X like this"
 #   ./brainiac health
+#   ./brainiac update                 # health-gated update to the latest release (rolls back on failure)
 #   ./brainiac down | logs
 #   ./brainiac mcp-config             # print the Claude Desktop MCP config
 #   ./brainiac instructions           # print the agent memory instruction block
@@ -18,6 +19,58 @@ case "${1:-}" in
 	up)    shift; exec docker compose up -d "$@" ;;
 	down)  shift; exec docker compose down "$@" ;;
 	logs)  shift; exec docker compose logs -f "$@" ;;
+	update)
+		# One-command, health-gated update to the latest release tag, with
+		# rollback (#160). Updates to release tags only — never auto-deploys main.
+		# Data is safe: named volumes are untouched; migrations auto-apply on boot.
+		url="${BRAINIAC_URL:-http://127.0.0.1:${HTTP_PORT:-8080}}"
+		if [ -n "$(git status --porcelain)" ]; then
+			echo "update: working tree has local changes — commit or stash them first." >&2
+			exit 1
+		fi
+		echo "update: fetching tags…"
+		git fetch --tags --quiet
+		latest="$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)"
+		if [ -z "$latest" ]; then
+			echo "update: no release tags found." >&2
+			exit 1
+		fi
+		before="$(git rev-parse HEAD)"
+		current="$(git describe --tags --exact-match 2>/dev/null || true)"
+		if [ "$current" = "$latest" ]; then
+			echo "update: already up to date ($latest)."
+			exit 0
+		fi
+		echo "update: ${current:-$before} → $latest — rebuilding…"
+		git checkout --quiet "$latest"
+		if ! docker compose up -d --build; then
+			echo "update: build failed — rolling back to ${current:-$before}…" >&2
+			git checkout --quiet "$before"
+			docker compose up -d --build || true
+			exit 1
+		fi
+		if command -v curl >/dev/null 2>&1; then
+			echo "update: waiting for $url/readyz …"
+			ok=0
+			i=0
+			while [ "$i" -lt 60 ]; do
+				if curl -fsS "$url/readyz" >/dev/null 2>&1; then ok=1; break; fi
+				i=$((i + 1))
+				sleep 2
+			done
+			if [ "$ok" -ne 1 ]; then
+				echo "update: $latest did not become healthy in time — rolling back to ${current:-$before}…" >&2
+				git checkout --quiet "$before"
+				docker compose up -d --build || true
+				echo "update: rolled back. Check 'brainiac logs app'." >&2
+				exit 1
+			fi
+		else
+			echo "update: curl not found — skipping health check." >&2
+		fi
+		echo "update: now on $latest ✓"
+		exit 0
+		;;
 	mcp-config)
 		printf '{\n  "mcpServers": {\n    "brainiac": {\n      "command": "docker",\n      "args": ["compose","-f","%s/docker-compose.yml","exec","-T","app","/brainiac-mcp"]\n    }\n  }\n}\n' "$(pwd)"
 		;;
