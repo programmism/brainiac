@@ -303,6 +303,11 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — Consolidate tab inline help (#153): the WebUI consolidation queue rendered five
+  sections (merge / conflicts / splits / stale / rollups) with no explanation, so a new operator had to
+  guess what a "keep « X »" or "Confirm" button meant. Added a one-line muted explainer under each section
+  header (what it is + what the action does). Static helper text, no deps, single-file WebUI style
+  preserved. Pairs with the concepts guide (#152). (#153)
 - **2026-07-07** — Concepts & Workflows guide (#152): reference docs (MCP tool descriptions, CLI help,
   README) were good but there was no *task-oriented* guide — the curation verbs
   (`consolidate/merge/split/retire-edge/confirm/disambiguate/supersede`) were scattered, worst for the

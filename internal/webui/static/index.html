@@ -23,6 +23,7 @@
     .scope { border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:11px; }
     .scope.project { color:var(--accent); border-color:var(--accent); }
     .fallback { color:#e0b341; background:var(--panel); border:1px solid #e0b341; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:13px; }
+    .help { color:var(--muted); font-size:12px; margin:-4px 0 8px; }
     .edge { padding:4px 0; border-bottom:1px solid var(--line); }
     .edge:last-child { border-bottom:0; }
     .name { color:var(--accent); }
@@ -262,12 +263,20 @@
 
         const rollups = (r.rollups || []).map(x => `${esc(x.name)} (${x.edge_count})`).join(', ') || '—';
 
+        const help = {
+          merge: 'Nodes that look like the same entity (same normalized name + scope). Merge duplicates; nothing is auto-applied.',
+          conflicts: 'Two current edges disagree — same source and relationship, different target. Keep the correct one; the other is retired to history (still reachable via recall).',
+          splits: 'One entity whose edges contradict — it may conflate two things (e.g. prod vs staging). Route them apart with the CLI: kb split.',
+          stale: 'The source changed since this edge was last confirmed. Confirm if it still holds, or retire it.',
+          rollups: 'Hub nodes with many edges — candidates for a "current state of X" summary over the detailed history.',
+        };
+        const h = (title, key) => `<h3>${title}</h3><div class="help">${help[key]}</div>`;
         box.innerHTML =
-          `<h3>Merge candidates</h3>${groups}` +
-          `<h3>Conflicts</h3><div class="card">${conflicts}</div>` +
-          `<h3>Split candidates</h3><div class="card">${splits}</div>` +
-          `<h3>Stale edges</h3><div class="card">${stale}</div>` +
-          `<h3>Rollup candidates</h3><div class="card">${rollups}</div>`;
+          h('Merge candidates', 'merge') + groups +
+          h('Conflicts', 'conflicts') + `<div class="card">${conflicts}</div>` +
+          h('Split candidates', 'splits') + `<div class="card">${splits}</div>` +
+          h('Stale edges', 'stale') + `<div class="card">${stale}</div>` +
+          h('Rollup candidates', 'rollups') + `<div class="card">${rollups}</div>`;
       } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
     }
 
