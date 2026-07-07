@@ -39,7 +39,9 @@ type ConsolidationReport struct {
 
 // Consolidate runs the librarian pass over the graph (small, not the corpus):
 // merge candidates, conflicts, staleness flags, and rollup candidates. It only
-// proposes; ApplyMerge/Supersede/Confirm apply the human decisions (§11).
+// proposes; ApplyMerge/Supersede/Confirm apply the human decisions (§11). The
+// one write it makes is review-only: it auto-flags source-changed edges as
+// possibly stale (§8.3, #147) — reversible via Confirm, never altering meaning.
 func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
 	merges, err := store.ProposeNodeMerges(ctx, c.pool)
 	if err != nil {
@@ -48,6 +50,12 @@ func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
 	conflictRows, err := store.FindConflicts(ctx, c.pool)
 	if err != nil {
 		return nil, fmt.Errorf("find conflicts: %w", err)
+	}
+	// Auto-flag edges whose source changed since we last recorded/confirmed them
+	// (§8.3, #147) so they surface in the Stale list below alongside manual flags.
+	// Flags for review only — never mutates the edge's meaning.
+	if _, err := store.FlagStaleBySource(ctx, c.pool); err != nil {
+		return nil, fmt.Errorf("flag stale by source: %w", err)
 	}
 	stale, err := store.FindStaleEdges(ctx, c.pool)
 	if err != nil {
