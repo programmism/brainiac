@@ -125,6 +125,12 @@ Compose (`docker-compose.yml`) brings up:
   verifies end-to-end that the image builds, the app starts, and migrations apply. This is how we
   validate deploy without local Docker.
 
+**Updating.** `app` is built from the checkout, so an update is get-new-code + rebuild. `./brainiac update`
+(#160) does it safely in one command: refuse on a dirty tree → fetch tags → checkout the **latest release
+tag** (never `main`) → `docker compose up -d --build` → poll `/readyz` → **roll back to the prior ref on
+failure**. Already-latest is a no-op. Scheduling is left to host cron/systemd (a documented recipe), not an
+in-app daemon — the update path is a shell operation, kept out of the binary.
+
 Design constraints for deploy:
 - **No manual steps** beyond editing `.env`. Model pull + schema migration are automatic and idempotent.
 - **Healthchecks + `depends_on: condition: service_healthy`** so the app never races an unready DB.
@@ -312,6 +318,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-07** — One-command health-gated update (#160): updating was manual (`git pull && docker compose
+  up -d --build`). Added `./brainiac update` (POSIX-sh wrapper case): refuse on a dirty tree → `git fetch
+  --tags` → pick the latest semver **release tag** (not `main` — never auto-deploy untested code) → checkout
+  + `docker compose up -d --build` → poll `/readyz` (default `127.0.0.1:${HTTP_PORT:-8080}`, 60×2s) → **roll
+  back to the prior ref + rebuild on build failure or unhealthy**. Already-on-latest is a no-op; missing
+  `curl` skips the health gate with a warning. Scheduling is a **documented host cron/systemd recipe**, not
+  an in-app daemon — the runtime data (volumes) is untouched and migrations auto-apply, so the whole thing
+  stays a shell operation. README "Updating" rewritten. Not exercised by Go CI (shell); `sh -n`/`bash -n`
+  syntax-checked and logic-reviewed; the runtime path needs Docker (absent in the dev sandbox). (#160)
 - **2026-07-07** — Ingest progress reporting (#139): a long import was a black box — only a final summary
   line, nothing until the doc finished. Added `IngestOptions.OnProgress func(IngestProgress)`, emitted from
   core between embed batches (`IngestProgress{Doc, Embedded, ToEmbed, Stats}`). Kept **opt-in and behind the
