@@ -200,8 +200,12 @@ pipeline LLM; the "extraction" is the chat itself.
 
 **Four seams** (interfaces from the start, one impl each for v1):
 - `SourceConnector.fetch()/watch()` — "give me documents, tell me when they change." v1: Notion.
-- `Extractor.extract(chunk)` — text → nodes/edges. v1 default: **chat-driven** (bypassed; Claude
-  supplies the structure). Optional `local-llm` (Ollama + structured output) for bulk.
+- `Extractor.extract(chunk)` — text → nodes/edges. Default: **chat-driven** (bypassed; Claude supplies
+  the structure). Optional **`local-llm`** (Ollama chat model + structured output) is now implemented for
+  bulk: enable with `extraction.default: local-llm` (or `EXTRACTOR=local-llm`) on a box beefy enough to
+  run a chat model; a weak box keeps the free chat path. Extracted nodes/edges default to the **review
+  queue** (`extraction.review`, see §8) since a local model is weaker than Claude. Runs on kept (hot)
+  chunks during ingest, best-effort — a failed chunk is counted and skipped, never failing the document.
 - `Selector.score(chunk)` — the water filter; keep/queue/drop. v1: `density-filter`.
 - `Embedder.embed()/dims()` — v1: Ollama nomic-embed-text.
 
@@ -241,6 +245,18 @@ sees; it never prunes vanished ones (#107, decided to keep). To drop content: `d
 
 Scheduled or on-demand; walks the graph (small), not the corpus. Drivable by Claude-in-chat or a local
 Ollama LLM; reviewable in the WebUI consolidation queue.
+
+**Extraction review queue (the `local-llm` extractor's gate, §7).** When the optional local extractor is
+on, its output is written with a third node/edge status — **`proposed`** — alongside `current` and
+`historical`. Every read (search, recall, graph, dedup) already filters `status = 'current'`, so proposed
+rows are **invisible to the memory until approved**: a weaker local model can suggest structure without
+polluting recall. Review is exposed on all three surfaces — WebUI **Proposals** tab, MCP `proposals` /
+`review_proposal` tools, and `GET /api/proposals` + `POST /api/proposals/{nodes|edges}/{id}/{approve|reject}`.
+**Approve** flips a row to `current` (approving an edge also promotes its endpoints, so a live edge never
+dangles off an invisible node; if a current edge already covers that `(from,to,type)` the proposal is
+retired instead); **reject** flips it to `historical` (kept as a record, never deleted). Provenance is
+stamped `author=local-llm`. The gate is a config toggle — `extraction.review` (default `true`);
+`review: false` writes extracted rows straight to `current` for an operator who trusts their model.
 
 1. **Node dedup / canonicalization** — propose merges by name similarity or `summary_embedding`
    proximity, **within a single identity scope** (proposals never cross `scope_key`, so same-named entities
@@ -318,6 +334,20 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-08** — Pluggable local-LLM extractor (#164): made the `Extractor` seam real. An optional
+  Ollama chat model (`extraction.default: local-llm` / `EXTRACTOR=local-llm`, model required) turns
+  ingested hot chunks into nodes/edges via structured outputs (`/api/chat` + JSON schema), so a beefy
+  self-hosted box can auto-extract while a weak box keeps the free chat-driven path (default, unchanged).
+  Runs best-effort per chunk after the chunk reconcile (chunks are provenance and must persist even if
+  extraction fails). Chose a **review-by-default gate** over direct writes — a local model is weaker than
+  Claude — implemented as a third status **`proposed`**: extracted rows are invisible to every read (all
+  reads already filter `status='current'`) until a human approves them (WebUI Proposals tab, MCP
+  `proposals`/`review_proposal`, `GET/POST /api/proposals/...`). `extraction.review: false` writes live
+  `current` for a trusted model. Provenance `author=local-llm`. Nodes carry no unique constraint so
+  approval never collides; an approved edge promotes its endpoints and retires itself if a current edge
+  already covers the triple. Unit tests for the extractor (httptest); DB-gated core tests for the
+  propose→approve/dedup/review-off flows. Partially answers the §"open questions" item on a local
+  consolidation LLM — the *extraction* half is now local-optional; consolidation stays as-is. (#164)
 - **2026-07-07** — Repo hygiene (#162): dropped a stray ~18 MB `mcp` binary committed by accident
   (1df475c) — it was the whole repo size, unused (Docker builds from source), no secrets (only Go build
   paths). Hardened `.gitignore` to exclude bare root-level build artifacts (`/mcp`, `/http`, `/cli`, `/kb`,
@@ -755,7 +785,9 @@ Newest first.
 - ~~Core↔WebUI transport~~ — **resolved**: REST (net/http+chi), MCP separate, see [ADR 0001](docs/decisions/0001-core-webui-transport.md) (#33).
 - ~~Cold-tier tech if the archive outgrows pgvector~~ — **resolved**: escalation ladder (selection →
   quantization → Matryoshka → tiering → external cold store), see [ADR 0003](docs/decisions/0003-cold-tier-at-scale.md) (#34).
-- Whether to ever introduce a local consolidation LLM, or keep all LLM work in Claude-in-chat.
+- Whether to ever introduce a local consolidation LLM, or keep all LLM work in Claude-in-chat. **Partly
+  resolved (#164):** the *extraction* half is now a local-optional Ollama chat model (opt-in, review-gated,
+  §7/§8); consolidation itself still runs in Claude-in-chat.
 - **Multi-project / multi-team memory** (#113) — reframed as two independent axes:
   - **Identity** (should same-named entities merge) — **resolved & partly shipped**: identity = `canonical_name` +
     a declared **discriminator** set (`project`, `env`, …; empty = global), so same-named entities in different

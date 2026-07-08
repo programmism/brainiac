@@ -62,7 +62,7 @@ func run() error {
 	}
 
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
-	c := core.New(pool, embedder, density.New())
+	c := core.New(pool, embedder, density.New(), extractorOptions(cfg)...)
 
 	writable := cfg.Clients.WebUI == "interactive"
 	if writable && cfg.HTTP.AuthToken == "" {
@@ -149,6 +149,16 @@ func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every tim
 
 // ollamaChecker returns a readiness probe for the embedder backend. It hits the
 // Ollama tags endpoint; a failure is reported but never fatal (§11).
+// extractorOptions builds the optional local-LLM extractor wiring from config.
+// Off by default (chat-driven): returns no options so ingest is unchanged.
+func extractorOptions(cfg *config.Config) []core.Option {
+	if !cfg.LocalExtractionEnabled() {
+		return nil
+	}
+	ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
+	return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
+}
+
 func ollamaChecker(baseURL string) server.Checker {
 	if baseURL == "" {
 		return nil

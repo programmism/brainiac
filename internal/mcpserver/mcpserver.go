@@ -67,6 +67,16 @@ func New(c *core.Core, importFn ImportFunc) *mcp.Server {
 		}, ingestTool(importFn))
 	}
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "proposals",
+		Description: "List pending extraction proposals (nodes/edges the local-LLM extractor suggested during ingest) awaiting review. Empty unless the local extractor is enabled. Review these, then approve/reject with review_proposal.",
+	}, proposalsTool(c))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "review_proposal",
+		Description: "Approve or reject a pending extraction proposal. kind is 'node' or 'edge'; approve promotes it into the live memory, reject retires it. Approving an edge also promotes its endpoints.",
+	}, reviewProposalTool(c))
+
 	return s
 }
 
@@ -165,6 +175,40 @@ type ingestOut struct {
 	Skipped int `json:"skipped"`
 	Deleted int `json:"deleted"`
 	Failed  int `json:"failed"`
+	// Extraction totals, present only when the local-LLM extractor is enabled.
+	ExtractedNodes int `json:"extracted_nodes,omitempty"`
+	ExtractedEdges int `json:"extracted_edges,omitempty"`
+	ExtractFailed  int `json:"extract_failed,omitempty"`
+}
+
+type proposalsIn struct {
+	Limit int `json:"limit,omitempty" jsonschema:"maximum proposals of each kind to return (default 100)"`
+}
+type proposalNodeDTO struct {
+	ID            string `json:"id"`
+	CanonicalName string `json:"canonical_name"`
+	Type          string `json:"type,omitempty"`
+	Scope         string `json:"scope,omitempty"`
+}
+type proposalEdgeDTO struct {
+	ID   string `json:"id"`
+	From string `json:"from"`
+	Type string `json:"type"`
+	To   string `json:"to"`
+	Why  string `json:"why,omitempty"`
+}
+type proposalsOut struct {
+	Nodes []proposalNodeDTO `json:"nodes"`
+	Edges []proposalEdgeDTO `json:"edges"`
+}
+
+type reviewProposalIn struct {
+	Kind    string `json:"kind" jsonschema:"'node' or 'edge'"`
+	ID      string `json:"id" jsonschema:"the proposal's id"`
+	Approve bool   `json:"approve" jsonschema:"true to approve (promote to live), false to reject (retire)"`
+}
+type reviewProposalOut struct {
+	OK bool `json:"ok"`
 }
 
 type supersedeIn struct {
@@ -303,6 +347,7 @@ func addDocumentTool(c *core.Core) mcp.ToolHandlerFor[addDocumentIn, ingestOut] 
 		out := ingestOut{
 			Docs: st.Docs, Chunks: st.Chunks, Kept: st.Kept, Queued: st.Queued,
 			Dropped: st.Dropped, Skipped: st.Skipped, Deleted: st.Deleted, Failed: st.Failed,
+			ExtractedNodes: st.ExtractedNodes, ExtractedEdges: st.ExtractedEdges, ExtractFailed: st.ExtractFailed,
 		}
 		return text(fmt.Sprintf("stored %q: %d new chunk(s), %d skipped, %d dropped", in.SourceURI, st.Kept+st.Queued, st.Skipped, st.Dropped)), out, nil
 	}
@@ -317,9 +362,60 @@ func ingestTool(importFn ImportFunc) mcp.ToolHandlerFor[ingestIn, ingestOut] {
 		out := ingestOut{
 			Docs: st.Docs, Chunks: st.Chunks, Kept: st.Kept, Queued: st.Queued,
 			Dropped: st.Dropped, Skipped: st.Skipped, Deleted: st.Deleted, Failed: st.Failed,
+			ExtractedNodes: st.ExtractedNodes, ExtractedEdges: st.ExtractedEdges, ExtractFailed: st.ExtractFailed,
 		}
 		return text(fmt.Sprintf("ingested %d doc(s): %d new, %d skipped, %d dropped, %d deleted",
 			st.Docs, st.Kept+st.Queued, st.Skipped, st.Dropped, st.Deleted)), out, nil
+	}
+}
+
+func proposalsTool(c *core.Core) mcp.ToolHandlerFor[proposalsIn, proposalsOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in proposalsIn) (*mcp.CallToolResult, proposalsOut, error) {
+		q, err := c.Proposals(ctx, in.Limit)
+		if err != nil {
+			return nil, proposalsOut{}, err
+		}
+		out := proposalsOut{
+			Nodes: make([]proposalNodeDTO, 0, len(q.Nodes)),
+			Edges: make([]proposalEdgeDTO, 0, len(q.Edges)),
+		}
+		for _, n := range q.Nodes {
+			out.Nodes = append(out.Nodes, proposalNodeDTO{
+				ID: n.ID, CanonicalName: n.CanonicalName, Type: n.Type, Scope: model.ScopeLabel(n.Discriminators),
+			})
+		}
+		for _, e := range q.Edges {
+			out.Edges = append(out.Edges, proposalEdgeDTO{
+				ID: e.ID, From: e.FromName, Type: e.Type, To: e.ToName, Why: e.Why,
+			})
+		}
+		return text(fmt.Sprintf("%d proposed node(s), %d proposed edge(s)", len(out.Nodes), len(out.Edges))), out, nil
+	}
+}
+
+func reviewProposalTool(c *core.Core) mcp.ToolHandlerFor[reviewProposalIn, reviewProposalOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in reviewProposalIn) (*mcp.CallToolResult, reviewProposalOut, error) {
+		var err error
+		switch {
+		case in.Kind == "node" && in.Approve:
+			err = c.ApproveNode(ctx, in.ID)
+		case in.Kind == "node":
+			err = c.RejectNode(ctx, in.ID)
+		case in.Kind == "edge" && in.Approve:
+			err = c.ApproveEdge(ctx, in.ID)
+		case in.Kind == "edge":
+			err = c.RejectEdge(ctx, in.ID)
+		default:
+			return nil, reviewProposalOut{}, fmt.Errorf("kind must be 'node' or 'edge', got %q", in.Kind)
+		}
+		if err != nil {
+			return nil, reviewProposalOut{}, err
+		}
+		verb := "approved"
+		if !in.Approve {
+			verb = "rejected"
+		}
+		return text(fmt.Sprintf("%s %s %s", verb, in.Kind, in.ID)), reviewProposalOut{OK: true}, nil
 	}
 }
 
