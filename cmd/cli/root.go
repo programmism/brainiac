@@ -68,10 +68,15 @@ func connect(ctx context.Context) (*config.Config, *pgxpool.Pool, error) {
 }
 
 // buildCore wires a Core over the pool, the configured embedder, and the
-// density selector.
+// density selector, plus the optional local-LLM extractor when enabled.
 func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
-	return core.New(pool, embedder, density.New())
+	var opts []core.Option
+	if cfg.LocalExtractionEnabled() {
+		ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
+		opts = append(opts, core.WithExtractor(ext, cfg.Extraction.Review))
+	}
+	return core.New(pool, embedder, density.New(), opts...)
 }
 
 // parseDiscs turns repeatable --disc key=value flags into a discriminator map.

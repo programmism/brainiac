@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/programmism/brainiac/internal/model"
@@ -68,10 +69,42 @@ type EmbeddingConfig struct {
 	BatchSize int `yaml:"batch_size"`
 }
 
-// ExtractionConfig selects how text becomes nodes/edges.
+// ExtractionConfig selects how text becomes nodes/edges. The default
+// "chat-driven" bypasses any server-side extractor (Claude supplies structure
+// via remember/link). Setting Default to "local-llm" turns on the optional
+// Ollama extractor during ingest — for a box beefy enough to run a chat model —
+// while a weak box keeps the free chat-driven path (SYSTEM.md §7).
 type ExtractionConfig struct {
 	Default  string `yaml:"default"`
 	Fallback string `yaml:"fallback"`
+	// BaseURL is the Ollama endpoint for the extraction model; empty falls back
+	// to the embedding base_url (they usually share one Ollama).
+	BaseURL string `yaml:"base_url"`
+	// Model is the chat model used for local extraction (e.g. "llama3.1").
+	// Required when Default == "local-llm".
+	Model string `yaml:"model"`
+	// Retries bounds transient-failure attempts per chunk (<=0 uses the default).
+	Retries int `yaml:"retries"`
+	// Review routes extracted nodes/edges to the review queue (status 'proposed')
+	// instead of writing them live. Default true — a local model is weaker than
+	// Claude, so its output is gated by human approval unless explicitly trusted.
+	Review bool `yaml:"review"`
+}
+
+// LocalExtractionEnabled reports whether the optional local-LLM extractor is
+// turned on.
+func (c *Config) LocalExtractionEnabled() bool {
+	return c.Extraction.Default == "local-llm"
+}
+
+// ExtractorBaseURL is the Ollama endpoint for extraction: the explicit
+// extraction base_url, or the embedding one when unset (they usually share one
+// Ollama).
+func (c *Config) ExtractorBaseURL() string {
+	if c.Extraction.BaseURL != "" {
+		return c.Extraction.BaseURL
+	}
+	return c.Embedding.BaseURL
 }
 
 // ConsolidationConfig configures the librarian pass.
@@ -116,6 +149,7 @@ func Default() *Config {
 	c.Embedding.Model = "nomic-embed-text"
 	c.Embedding.Dims = 768
 	c.Extraction.Default = "chat-driven"
+	c.Extraction.Review = true // gate local-LLM output on human approval by default
 	c.Consolidation.Schedule = "weekly"
 	c.Consolidation.Merge = "human-approved"
 	c.Clients.MCP = true
@@ -168,6 +202,22 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("INGEST_INTERVAL"); v != "" {
 		c.Ingest.Interval = v
 	}
+	// Local-LLM extractor (opt-in). EXTRACTOR=local-llm turns it on; the model is
+	// required in that case, the URL defaults to the embedding Ollama.
+	if v := os.Getenv("EXTRACTOR"); v != "" {
+		c.Extraction.Default = v
+	}
+	if v := os.Getenv("EXTRACTION_MODEL"); v != "" {
+		c.Extraction.Model = v
+	}
+	if v := os.Getenv("EXTRACTION_URL"); v != "" {
+		c.Extraction.BaseURL = v
+	}
+	if v := os.Getenv("EXTRACTION_REVIEW"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Extraction.Review = b
+		}
+	}
 	if v := os.Getenv("NOTION_TOKEN"); v != "" {
 		found := false
 		for i := range c.Sources {
@@ -196,6 +246,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Embedding.Provider == "" || c.Embedding.Model == "" || c.Embedding.BaseURL == "" {
 		return errors.New("embedding.provider, embedding.model and embedding.base_url must all be set")
+	}
+	if c.LocalExtractionEnabled() && c.Extraction.Model == "" {
+		return errors.New("extraction.model must be set when extraction.default is 'local-llm' (set it or EXTRACTION_MODEL)")
 	}
 	return nil
 }

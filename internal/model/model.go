@@ -30,6 +30,13 @@ type Status string
 const (
 	StatusCurrent    Status = "current"
 	StatusHistorical Status = "historical"
+	// StatusProposed marks a node/edge extracted by the optional local-LLM
+	// Extractor that awaits human review (SYSTEM.md §7, §8). Proposed rows are
+	// invisible to recall/search/graph — every read filters status='current' — so
+	// a weaker local model can suggest structure without polluting the memory
+	// until someone approves it (flip to current) or rejects it (flip to
+	// historical).
+	StatusProposed Status = "proposed"
 )
 
 // Chunk is a unit of the semantic-search layer (Layer 1). Raw Text is always

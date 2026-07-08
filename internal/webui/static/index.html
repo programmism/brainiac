@@ -53,6 +53,7 @@
       <div class="tab active" data-tab="search">Search</div>
       <div class="tab" data-tab="recall">Recall</div>
       <div class="tab" data-tab="consolidate">Consolidate</div>
+      <div class="tab" data-tab="proposals">Proposals</div>
       <div class="tab" data-tab="graph">Graph</div>
       <div class="tab" data-tab="health">Health</div>
       <div class="tab" data-tab="system">System</div>
@@ -79,6 +80,11 @@
     <section id="consolidate" class="hidden">
       <div class="row"><button onclick="doConsolidate()">Refresh</button></div>
       <div id="consolidate-results"></div>
+    </section>
+
+    <section id="proposals" class="hidden">
+      <div class="row"><button onclick="doProposals()">Refresh</button></div>
+      <div id="proposals-results"></div>
     </section>
 
     <section id="graph" class="hidden">
@@ -108,9 +114,10 @@
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
-      for (const s of ['search','recall','consolidate','graph','health','system']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
+      for (const s of ['search','recall','consolidate','proposals','graph','health','system']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
       if (t.dataset.tab === 'health') doHealth();
       if (t.dataset.tab === 'consolidate') doConsolidate();
+      if (t.dataset.tab === 'proposals') doProposals();
       if (t.dataset.tab === 'graph') doGraph();
       if (t.dataset.tab === 'system') doSystem();
     });
@@ -291,6 +298,46 @@
     async function retireEdge(id) {
       try { await post('/api/edges/' + encodeURIComponent(id) + '/retire'); doConsolidate(); }
       catch (e) { alert('retire failed: ' + e.message); }
+    }
+
+    // Extraction proposals: nodes/edges the local-LLM extractor suggested,
+    // awaiting approval before they become part of the memory.
+    async function doProposals() {
+      const box = $('proposals-results'); box.innerHTML = '<div class="empty">loading…</div>';
+      try {
+        const r = await getJSON('/api/proposals');
+        const nodes = (r.nodes || []).map(n =>
+          `<div class="edge"><span class="name">${esc(n.canonical_name)}</span>` +
+          `${n.type ? ' <span class="meta">('+esc(n.type)+')</span>' : ''} ${scopeBadge(model_scope(n))}` +
+          ` <button onclick="reviewProposal('nodes','${n.id}','approve')">Approve</button>` +
+          ` <button onclick="reviewProposal('nodes','${n.id}','reject')">Reject</button></div>`
+        ).join('') || '<div class="empty">no proposed nodes</div>';
+
+        const edges = (r.edges || []).map(e =>
+          `<div class="edge"><span class="name">${esc(e.from_name)}</span> —${esc(e.type)}→ ${esc(e.to_name)}` +
+          `${e.why ? ' <span class="meta">'+esc(e.why)+'</span>' : ''}` +
+          ` <button onclick="reviewProposal('edges','${e.id}','approve')">Approve</button>` +
+          ` <button onclick="reviewProposal('edges','${e.id}','reject')">Reject</button></div>`
+        ).join('') || '<div class="empty">no proposed edges</div>';
+
+        const help = 'Nodes and edges the optional local-LLM extractor derived from ingested text. ' +
+          'They are invisible to search/recall until approved. Approve to make them live, reject to retire them. ' +
+          'Approving an edge also promotes its endpoints.';
+        box.innerHTML = `<div class="help">${help}</div>` +
+          `<h3>Proposed nodes</h3><div class="card">${nodes}</div>` +
+          `<h3>Proposed edges</h3><div class="card">${edges}</div>`;
+      } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+    // model_scope renders a proposed node's scope badge when discriminators are present.
+    function model_scope(n) {
+      const d = n.discriminators;
+      if (!d || !Object.keys(d).length) return 'global';
+      if (Object.keys(d).length === 1 && d.project) return 'project:' + d.project;
+      return Object.keys(d).sort().map(k => k + '=' + d[k]).join(';');
+    }
+    async function reviewProposal(kind, id, action) {
+      try { await post('/api/proposals/' + kind + '/' + encodeURIComponent(id) + '/' + action); doProposals(); }
+      catch (e) { alert(action + ' failed: ' + e.message); }
     }
 
     // Compact built-in force-directed layout (no external lib; see SYSTEM.md).

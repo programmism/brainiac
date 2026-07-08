@@ -73,6 +73,12 @@ services:
       AUTH_TOKEN: ${AUTH_TOKEN:-}
       NOTION_TOKEN: ${NOTION_TOKEN:-}
       INGEST_INTERVAL: ${INGEST_INTERVAL:-}
+      # Optional local-LLM extractor (off unless EXTRACTOR=local-llm). URL defaults
+      # to the embedding Ollama above when unset.
+      EXTRACTOR: ${EXTRACTOR:-}
+      EXTRACTION_MODEL: ${EXTRACTION_MODEL:-}
+      EXTRACTION_URL: ${EXTRACTION_URL:-}
+      EXTRACTION_REVIEW: ${EXTRACTION_REVIEW:-}
     volumes:
       # Drop docs here for `docker compose exec app /kb import --source markdown --path /data/docs`.
       - ./data:/data:ro
