@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/logbuf"
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
@@ -43,6 +45,12 @@ func main() {
 }
 
 func run() error {
+	// Tee all logging into an in-memory ring so the WebUI Logs tab can show it
+	// (#166); stderr still gets everything for container logs. Set up first so
+	// even startup lines are captured.
+	logs := logbuf.New(0)
+	log.SetOutput(io.MultiWriter(os.Stderr, logs))
+
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		return err
@@ -71,6 +79,7 @@ func run() error {
 	handler := server.New(pool, ollamaChecker(cfg.Embedding.BaseURL), c, server.Options{
 		Writable:  writable,
 		AuthToken: cfg.HTTP.AuthToken,
+		Logs:      logs,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,

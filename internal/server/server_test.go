@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/logbuf"
 )
 
 type fakePinger struct{ err error }
@@ -72,6 +75,43 @@ func TestReadyzDBOK_EmbedderNotConfigured(t *testing.T) {
 	}
 	if body["db"] != "ok" || body["embedder"] != "not-configured" {
 		t.Fatalf("readyz body = %v", body)
+	}
+}
+
+func TestLogsEndpoint(t *testing.T) {
+	buf := logbuf.New(10)
+	_, _ = buf.Write([]byte("hello log\n"))
+	_, _ = buf.Write([]byte("auth attempt token=SUPERSECRETVALUE123\n"))
+	// A non-nil core mounts the /api group; the logs handler never touches the DB.
+	h := New(fakePinger{}, nil, core.New(nil, nil, nil), Options{Logs: buf})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/logs", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/logs = %d, want 200", rec.Code)
+	}
+	var body struct {
+		Lines []string `json:"lines"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Lines) != 2 || body.Lines[0] != "hello log" {
+		t.Fatalf("lines = %v, want [hello log, …redacted…]", body.Lines)
+	}
+	if strings.Contains(rec.Body.String(), "SUPERSECRETVALUE123") {
+		t.Fatalf("secret leaked through /api/logs: %s", rec.Body.String())
+	}
+}
+
+func TestLogsEndpointAbsentWithoutSink(t *testing.T) {
+	h := New(fakePinger{}, nil, core.New(nil, nil, nil), Options{}) // no Logs sink
+	req := httptest.NewRequest(http.MethodGet, "/api/logs", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("/api/logs should not be mounted without a log sink, got %d", rec.Code)
 	}
 }
 

@@ -8,8 +8,10 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/logbuf"
 	"github.com/programmism/brainiac/internal/metrics"
 	"github.com/programmism/brainiac/internal/webui"
 )
@@ -37,6 +40,10 @@ type Checker func(ctx context.Context) error
 type Options struct {
 	Writable  bool
 	AuthToken string
+	// Logs, when set, is the in-memory log sink the access logger tees into and
+	// GET /api/logs reads from (the WebUI Logs tab, #166). Nil keeps the default
+	// access logger and mounts no logs endpoint.
+	Logs *logbuf.Buffer
 }
 
 // New builds the HTTP handler:
@@ -50,7 +57,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
-	r.Use(middleware.Logger)
+	r.Use(accessLogger(opts.Logs))
 	r.Use(middleware.Recoverer)
 	r.Use(reg.Middleware)
 	r.Use(middleware.Timeout(30 * time.Second))
@@ -128,6 +135,16 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				}
 				writeJSON(w, http.StatusOK, sm)
 			})
+
+			// Recent application + access logs (WebUI Logs tab, #166). Mounted only
+			// when a log sink is configured; secrets are redacted at capture time.
+			// Same open-read posture as /system — protect the surface via the proxy.
+			if opts.Logs != nil {
+				r.Get("/logs", func(w http.ResponseWriter, req *http.Request) {
+					limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+					writeJSON(w, http.StatusOK, map[string]any{"lines": opts.Logs.Lines(limit)})
+				})
+			}
 
 			r.Get("/graph", func(w http.ResponseWriter, req *http.Request) {
 				limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
@@ -231,6 +248,20 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	r.Handle("/*", webui.Handler())
 
 	return r
+}
+
+// accessLogger returns the request-logging middleware. When a log sink is set,
+// each request line is teed into it (alongside stderr) so the WebUI Logs tab
+// sees access logs — including 4xx like an auth-rejected write — not just the
+// 5xx internal errors the app logs via the standard logger. Without a sink it
+// falls back to chi's default logger.
+func accessLogger(logs *logbuf.Buffer) func(http.Handler) http.Handler {
+	if logs == nil {
+		return middleware.Logger
+	}
+	out := io.MultiWriter(os.Stderr, logs)
+	fmtr := &middleware.DefaultLogFormatter{Logger: log.New(out, "", log.LstdFlags), NoColor: true}
+	return middleware.RequestLogger(fmtr)
 }
 
 // proposalHandler adapts a core review action (approve/reject a node/edge by id)
