@@ -61,6 +61,13 @@ type IngestStats struct {
 	Skipped int // unchanged (content hash already present for this source)
 	Deleted int // stale chunks removed (source content edited away/removed)
 	Failed  int // documents that failed (e.g. embedder down) — skipped, run continues
+	// Extraction totals — non-zero only when the optional local-LLM extractor is
+	// configured (SYSTEM.md §7). Nodes/Edges count what was created (proposed or
+	// live per config); ExtractFailed counts chunks whose extraction errored and
+	// was skipped (the chunk itself is still stored).
+	ExtractedNodes int
+	ExtractedEdges int
+	ExtractFailed  int
 }
 
 // Ingest runs the Layer-1 pipeline for a connector: fetch → chunk → select →
@@ -223,6 +230,25 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 	stats.Kept += kept
 	stats.Queued += queued
 	stats.Deleted += int(deleted)
+
+	// Optional Layer-2 extraction: derive nodes/edges from the freshly-stored
+	// hot chunks. Runs after the chunk reconcile (chunks are provenance and must
+	// persist even if extraction fails), best-effort per chunk so one bad chunk
+	// never fails the whole document.
+	if c.extractor != nil {
+		for _, p := range toEmbed {
+			if p.tier != model.TierHot {
+				continue // extract from kept knowledge only, not the cold queue
+			}
+			n, e, err := c.extractChunk(ctx, p.text, doc.SourceURI, disc)
+			if err != nil {
+				stats.ExtractFailed++
+				continue
+			}
+			stats.ExtractedNodes += n
+			stats.ExtractedEdges += e
+		}
+	}
 	return nil
 }
 

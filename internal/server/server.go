@@ -148,6 +148,18 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				}
 				writeJSON(w, http.StatusOK, rep)
 			})
+
+			// Extraction proposal queue (local-LLM output awaiting review). Empty
+			// unless the extractor is enabled.
+			r.Get("/proposals", func(w http.ResponseWriter, req *http.Request) {
+				limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
+				q, err := c.Proposals(req.Context(), limit)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err)
+					return
+				}
+				writeJSON(w, http.StatusOK, q)
+			})
 			// Write endpoints: mounted only when explicitly writable + a token is
 			// set, and gated by bearer auth. Secure by default.
 			if opts.Writable && opts.AuthToken != "" {
@@ -203,6 +215,13 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 					})
+
+					// Extraction proposal review: approve promotes to live, reject
+					// retires. Node and edge each have their own path.
+					r.Post("/proposals/nodes/{id}/approve", proposalHandler(c.ApproveNode))
+					r.Post("/proposals/nodes/{id}/reject", proposalHandler(c.RejectNode))
+					r.Post("/proposals/edges/{id}/approve", proposalHandler(c.ApproveEdge))
+					r.Post("/proposals/edges/{id}/reject", proposalHandler(c.RejectEdge))
 				})
 			}
 		})
@@ -212,6 +231,18 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	r.Handle("/*", webui.Handler())
 
 	return r
+}
+
+// proposalHandler adapts a core review action (approve/reject a node/edge by id)
+// to an HTTP handler, so the four proposal routes share one shape.
+func proposalHandler(action func(context.Context, string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		if err := action(req.Context(), chi.URLParam(req, "id")); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
 }
 
 func readyz(db Pinger, embedder Checker) http.HandlerFunc {

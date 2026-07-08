@@ -48,13 +48,24 @@ func run() error {
 	}
 
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
-	c := core.New(pool, embedder, density.New())
+	c := core.New(pool, embedder, density.New(), extractorOptions(cfg)...)
 	srv := mcpserver.New(c, importFunc(c, cfg))
 
 	// stdio: logs must go to stderr so they don't corrupt the protocol stream.
 	log.SetOutput(os.Stderr)
 	log.Printf("brainiac-mcp %s: serving over stdio", core.Version)
 	return srv.Run(ctx, &mcp.StdioTransport{})
+}
+
+// extractorOptions builds the optional local-LLM extractor wiring from config.
+// Off by default (chat-driven): returns no options, so ingest keeps its current
+// behavior and only the chat path writes nodes/edges.
+func extractorOptions(cfg *config.Config) []core.Option {
+	if !cfg.LocalExtractionEnabled() {
+		return nil
+	}
+	ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
+	return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
 }
 
 // importFunc dispatches an MCP ingest request to the right connector, keeping
