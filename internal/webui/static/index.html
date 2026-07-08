@@ -24,6 +24,12 @@
     .scope.project { color:var(--accent); border-color:var(--accent); }
     .fallback { color:#e0b341; background:var(--panel); border:1px solid #e0b341; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:13px; }
     .help { color:var(--muted); font-size:12px; margin:-4px 0 8px; }
+    .logs-box { background:#0d0f14; border:1px solid var(--line); border-radius:8px; max-height:60vh; overflow:auto; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .logline { display:flex; gap:8px; padding:1px 8px; white-space:pre-wrap; word-break:break-word; }
+    .logline:hover { background:#161922; }
+    .logline .ln { color:var(--muted); user-select:none; text-align:right; min-width:3ch; }
+    .logline .lc { color:var(--accent); opacity:0; cursor:pointer; user-select:none; }
+    .logline:hover .lc { opacity:.8; }
     .edge { padding:4px 0; border-bottom:1px solid var(--line); }
     .edge:last-child { border-bottom:0; }
     .name { color:var(--accent); }
@@ -57,6 +63,7 @@
       <div class="tab" data-tab="graph">Graph</div>
       <div class="tab" data-tab="health">Health</div>
       <div class="tab" data-tab="system">System</div>
+      <div class="tab" data-tab="logs">Logs</div>
     </div>
   </header>
 
@@ -101,6 +108,16 @@
       <div class="row"><button onclick="doSystem()">Refresh</button></div>
       <div id="system-results"></div>
     </section>
+
+    <section id="logs" class="hidden">
+      <div class="row">
+        <button onclick="doLogs()">Refresh</button>
+        <button onclick="copyAllLogs()">Copy all</button>
+        <label class="help" style="margin:0"><input type="checkbox" id="logs-auto" onchange="toggleLogsAuto()" /> auto-refresh</label>
+        <span id="logs-copied" class="help" style="margin:0"></span>
+      </div>
+      <div id="logs-results"></div>
+    </section>
   </main>
 
   <script>
@@ -114,12 +131,13 @@
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       t.classList.add('active');
-      for (const s of ['search','recall','consolidate','proposals','graph','health','system']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
+      for (const s of ['search','recall','consolidate','proposals','graph','health','system','logs']) $(s).classList.toggle('hidden', s !== t.dataset.tab);
       if (t.dataset.tab === 'health') doHealth();
       if (t.dataset.tab === 'consolidate') doConsolidate();
       if (t.dataset.tab === 'proposals') doProposals();
       if (t.dataset.tab === 'graph') doGraph();
       if (t.dataset.tab === 'system') doSystem();
+      if (t.dataset.tab === 'logs') doLogs();
     });
 
     async function getJSON(url) {
@@ -338,6 +356,46 @@
     async function reviewProposal(kind, id, action) {
       try { await post('/api/proposals/' + kind + '/' + encodeURIComponent(id) + '/' + action); doProposals(); }
       catch (e) { alert(action + ' failed: ' + e.message); }
+    }
+
+    // --- Logs tab (#166): recent app + access logs with copy buttons. ---
+    let logsLines = [];      // most recent fetch, for Copy all
+    let logsAutoTimer = null;
+
+    async function copyText(text, note) {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+        }
+        if (note) { const el = $('logs-copied'); el.textContent = note; setTimeout(() => { el.textContent = ''; }, 1500); }
+      } catch (e) { alert('copy failed: ' + e.message); }
+    }
+    function copyLine(i) { copyText(logsLines[i] ?? '', 'copied line'); }
+    function copyAllLogs() { copyText(logsLines.join('\n'), `copied ${logsLines.length} line(s)`); }
+
+    async function doLogs() {
+      const box = $('logs-results');
+      try {
+        const r = await getJSON('/api/logs?limit=1000');
+        logsLines = r.lines || [];
+        if (!logsLines.length) { box.innerHTML = '<div class="empty">no logs yet</div>'; return; }
+        const rows = logsLines.map((line, i) =>
+          `<div class="logline"><span class="lc" title="copy this line" onclick="copyLine(${i})">⧉</span>` +
+          `<span class="ln">${i + 1}</span><span>${esc(line)}</span></div>`
+        ).join('');
+        box.innerHTML = `<div class="help">Application + access logs (newest last, secrets redacted). Hover a line to copy it, or “Copy all”.</div>` +
+          `<div class="logs-box" id="logs-box">${rows}</div>`;
+        const lb = $('logs-box'); if (lb) lb.scrollTop = lb.scrollHeight; // jump to newest
+      } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
+    }
+
+    function toggleLogsAuto() {
+      if ($('logs-auto').checked) { logsAutoTimer = setInterval(doLogs, 3000); }
+      else if (logsAutoTimer) { clearInterval(logsAutoTimer); logsAutoTimer = null; }
     }
 
     // Compact built-in force-directed layout (no external lib; see SYSTEM.md).

@@ -324,6 +324,17 @@ human-readable warnings; thresholds live in `core` (`SystemMetrics`) so every cl
 These are cheap catalog/runtime reads, not history; long-run time-series is a separate concern (Prometheus
 scrapes `/metrics`). A DB read failure is non-fatal to the snapshot but downgrades `status` to `critical`.
 
+**Logs — the WebUI "Logs" tab + `GET /api/logs` (#166).** The HTTP process tees all logging — the
+standard logger (5xx internal errors, startup) **and** the chi access log (every request + status, so a
+4xx like an auth-rejected write is visible too) — into a bounded in-memory ring (`internal/logbuf`, last
+~2000 lines, no disk). The tab shows them newest-last with per-line and "Copy all" copy buttons plus
+optional auto-refresh, so an operator can grab an error (e.g. a failed conflict resolution) without shell
+access to the container. Lines are **redacted of obvious secrets** (PATs, `Bearer …`, `token=…`) at
+capture time, so neither the API nor the UI echoes a credential. Same open-read posture as `/system`
+(protect the whole surface via the reverse proxy); the endpoint is mounted only when the log sink is wired
+(it is, in `cmd/http`). The MCP server is a separate stdio process and logs to its own stderr — outside
+this viewer.
+
 **Evaluation:** a golden query set (~20–50 questions with expected sources) run at every notable growth
 step and after model/threshold changes; citation discipline (uncited answer = quality bug); capture rate
 as the adoption signal.
@@ -334,6 +345,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-08** — In-app log capture + WebUI Logs tab (#166): motivated by a WebUI conflict-resolution
+  error that was invisible without container shell access. The HTTP process tees the standard logger **and**
+  the chi access log (via a replaced `accessLogger` middleware) through `io.MultiWriter(stderr, ring)`, where
+  the ring is a bounded, thread-safe `internal/logbuf.Buffer` (last ~2000 lines, in-memory, no disk).
+  `GET /api/logs` (open-read, same posture as `/system`; mounted only when the sink is set) serves them, and
+  a WebUI **Logs** tab renders them newest-last with per-line + "Copy all" copy buttons and optional
+  auto-refresh. **Secrets are redacted at capture** (`Redact`: PATs, `Bearer …`, `token=…`) so the viewer
+  can't leak a credential — a deliberate constraint since access logs carry request paths/queries. Chose
+  in-memory ring over a file/log-service to preserve the single-container, no-extra-infra ethos. Unit tests
+  for the buffer (ring/partial-line/redaction/concurrent) + a non-DB server test for `/api/logs` incl. the
+  redaction guarantee. Follow-up: use the tab to capture the real conflict error and fix that bug. (#166)
 - **2026-07-08** — Pluggable local-LLM extractor (#164): made the `Extractor` seam real. An optional
   Ollama chat model (`extraction.default: local-llm` / `EXTRACTOR=local-llm`, model required) turns
   ingested hot chunks into nodes/edges via structured outputs (`/api/chat` + JSON schema), so a beefy
