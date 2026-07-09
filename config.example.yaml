@@ -20,8 +20,14 @@ embedding:
   batch_size: 32              # chunks per embed request on bulk ingest (#140); 0 = default
 
 extraction:
-  default: chat-driven        # graph grows in dialogue with Claude
-  fallback: local-llm         # optional, for batch jobs
+  default: chat-driven        # "chat-driven" (default): Claude supplies the graph via remember/link.
+                              # "local-llm": opt-in Ollama chat model derives nodes/edges during ingest
+                              # (needs a beefy box; a weak one keeps the free chat path). Env: EXTRACTOR.
+  # model: llama3.1           # required when default is local-llm (env: EXTRACTION_MODEL)
+  # base_url: ""              # extraction Ollama endpoint; empty = the embedding base_url (env: EXTRACTION_URL)
+  # retries: 3                # transient-failure attempts per chunk
+  review: true                # true (default): extracted rows go to the review queue (WebUI Proposals tab)
+                              # as 'proposed', invisible until approved. false: write them live. Env: EXTRACTION_REVIEW.
 
 consolidation:
   schedule: weekly
