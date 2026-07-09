@@ -49,9 +49,16 @@ type Options struct {
 // New builds the HTTP handler:
 //   - GET /healthz — liveness.
 //   - GET /readyz  — readiness (DB-gated; embedder reported, not fatal — §11).
-//   - GET /api/health, /api/system, /api/search, /api/recall, /api/graph, /api/consolidate — read REST.
-//   - POST /api/merge, /api/split, /api/edges/{id}/confirm|flag-stale|retire — writes,
-//     only when opts.Writable && opts.AuthToken != "", behind bearer auth.
+//   - GET /api/capabilities — {writable}, so the WebUI can gate its controls.
+//   - GET /api/health, /api/system, /api/search, /api/recall, /api/graph,
+//     /api/consolidate, /api/proposals — read REST.
+//   - GET /api/logs — recent app + access logs, only when a log sink is set (#166).
+//   - POST /api/merge, /api/split, /api/edges/{id}/confirm|flag-stale|retire,
+//     /api/proposals/{nodes|edges}/{id}/{approve|reject} — writes, only when
+//     opts.Writable && opts.AuthToken != "", behind bearer auth.
+//
+// Unmatched /api routes and methods answer with a JSON error, never plain text,
+// so a client never has to parse a non-JSON body (#168).
 func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	reg := metrics.New()
 
