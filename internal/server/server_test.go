@@ -115,6 +115,55 @@ func TestLogsEndpointAbsentWithoutSink(t *testing.T) {
 	}
 }
 
+func TestCapabilities(t *testing.T) {
+	// Default: read-only.
+	assertWritable(t, New(fakePinger{}, nil, core.New(nil, nil, nil), Options{}), false)
+	// Interactive + token: writable.
+	assertWritable(t, New(fakePinger{}, nil, core.New(nil, nil, nil), Options{Writable: true, AuthToken: "secret"}), true)
+	// Writable without a token stays read-only (secure by default).
+	assertWritable(t, New(fakePinger{}, nil, core.New(nil, nil, nil), Options{Writable: true}), false)
+}
+
+func assertWritable(t *testing.T, h http.Handler, want bool) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/capabilities", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/capabilities = %d", rec.Code)
+	}
+	var body struct {
+		Writable bool `json:"writable"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Writable != want {
+		t.Fatalf("writable = %v, want %v", body.Writable, want)
+	}
+}
+
+func TestUnmountedWriteRouteReturnsJSON(t *testing.T) {
+	// Read-only deploy: the retire route is not mounted. It must still answer with
+	// a JSON error, not a plain-text 404 the WebUI would fail to parse (#168).
+	h := New(fakePinger{}, nil, core.New(nil, nil, nil), Options{})
+	req := httptest.NewRequest(http.MethodPost, "/api/edges/abc/retire", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code == http.StatusOK {
+		t.Fatalf("unmounted write route returned 200")
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response was not JSON (%q): %v", rec.Body.String(), err)
+	}
+	if body.Error == "" {
+		t.Fatalf("expected an error message, got %q", rec.Body.String())
+	}
+}
+
 func TestReadyzEmbedderUnreachableStillReady(t *testing.T) {
 	down := func(context.Context) error { return errors.New("no ollama") }
 	h := New(fakePinger{}, down, nil, Options{})

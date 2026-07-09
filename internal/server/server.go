@@ -77,8 +77,31 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 		})
 	}
 
+	// Writes are live only when explicitly enabled AND a token is set (secure by
+	// default). The WebUI reads this via /api/capabilities to gate its action
+	// buttons instead of firing them at unmounted routes.
+	writeEnabled := opts.Writable && opts.AuthToken != ""
+
 	if c != nil {
 		r.Route("/api", func(r chi.Router) {
+			// API errors are always JSON, even for unmatched routes/methods, so a
+			// client (the WebUI) never gets a plain-text body it then fails to parse
+			// as JSON (#168). Without this, a write button in read-only mode POSTs to
+			// an unmounted route and chi's default plain-text 404 surfaces as a
+			// cryptic "invalid JSON" error in the browser.
+			r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
+				writeError(w, http.StatusNotFound, errNotFound)
+			})
+			r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
+				writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed)
+			})
+
+			// Capabilities: what the current deployment allows, so the UI can gate
+			// its controls. No DB, always available.
+			r.Get("/capabilities", func(w http.ResponseWriter, _ *http.Request) {
+				writeJSON(w, http.StatusOK, map[string]bool{"writable": writeEnabled})
+			})
+
 			r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 				m, err := c.Health(req.Context())
 				if err != nil {
@@ -179,7 +202,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			})
 			// Write endpoints: mounted only when explicitly writable + a token is
 			// set, and gated by bearer auth. Secure by default.
-			if opts.Writable && opts.AuthToken != "" {
+			if writeEnabled {
 				r.Group(func(r chi.Router) {
 					r.Use(bearerAuth(opts.AuthToken))
 					r.Post("/merge", func(w http.ResponseWriter, req *http.Request) {
@@ -301,8 +324,10 @@ type stringError string
 func (e stringError) Error() string { return string(e) }
 
 const (
-	errMissingQ     = stringError("missing required query parameter 'q'")
-	errUnauthorized = stringError("unauthorized")
+	errMissingQ         = stringError("missing required query parameter 'q'")
+	errUnauthorized     = stringError("unauthorized")
+	errNotFound         = stringError("not found")
+	errMethodNotAllowed = stringError("method not allowed")
 )
 
 // bearerAuth requires a matching `Authorization: Bearer <token>` header.
