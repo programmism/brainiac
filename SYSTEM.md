@@ -345,6 +345,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-09** — WebUI write actions fixed (#168): a conflict-resolution (and any other write) button
+  threw a cryptic "invalid JSON" error. Root cause chain: default `clients.webui=read-only` ⇒ write
+  endpoints unmounted; the WebUI rendered action buttons regardless; clicking POSTed to an unmounted route ⇒
+  chi's plain-text 404 ⇒ the WebUI's `post()` blindly ran `r.json()` ⇒ parse error. (Even interactive would
+  have 401'd — `post()` sent no bearer token.) Fix: (1) `/api` now returns **JSON** for NotFound/
+  MethodNotAllowed so the API is uniformly JSON; (2) `GET /api/capabilities` (`{writable}`, no DB) lets the
+  UI gate its controls — read-only shows a hint instead of dead buttons; (3) a **token field** in the UI
+  (paste `AUTH_TOKEN` → localStorage → `Authorization: Bearer` on writes), chosen over embedding the secret
+  in the page or trusting the proxy, keeping secure-by-default; (4) a hardened `post()` that surfaces
+  non-2xx/non-JSON as a readable message (401 → "paste the AUTH_TOKEN"). Non-DB server tests for
+  capabilities + the JSON-404 guarantee. To actually act in the WebUI: set `clients.webui=interactive` +
+  `AUTH_TOKEN`, then paste that token in the UI. (#168)
 - **2026-07-08** — In-app log capture + WebUI Logs tab (#166): motivated by a WebUI conflict-resolution
   error that was invisible without container shell access. The HTTP process tees the standard logger **and**
   the chi access log (via a replaced `accessLogger` middleware) through `io.MultiWriter(stderr, ring)`, where

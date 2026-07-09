@@ -24,6 +24,9 @@
     .scope.project { color:var(--accent); border-color:var(--accent); }
     .fallback { color:#e0b341; background:var(--panel); border:1px solid #e0b341; border-radius:8px; padding:8px 12px; margin-bottom:10px; font-size:13px; }
     .help { color:var(--muted); font-size:12px; margin:-4px 0 8px; }
+    header .auth { display:flex; gap:6px; align-items:center; margin-top:8px; }
+    header .auth input { flex:0 1 320px; }
+    header .auth.hidden { display:none; }
     .logs-box { background:#0d0f14; border:1px solid var(--line); border-radius:8px; max-height:60vh; overflow:auto; font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
     .logline { display:flex; gap:8px; padding:1px 8px; white-space:pre-wrap; word-break:break-word; }
     .logline:hover { background:#161922; }
@@ -64,6 +67,11 @@
       <div class="tab" data-tab="health">Health</div>
       <div class="tab" data-tab="system">System</div>
       <div class="tab" data-tab="logs">Logs</div>
+    </div>
+    <div class="auth" id="auth-bar">
+      <input type="password" id="auth-token" placeholder="AUTH_TOKEN (for write actions)" autocomplete="off" />
+      <button onclick="saveToken()">Save</button>
+      <span id="auth-status" class="help" style="margin:0"></span>
     </div>
   </header>
 
@@ -127,6 +135,34 @@
     // global ones muted, so project vs global is legible at a glance (#143).
     const scopeBadge = (scope) => scope
       ? `<span class="scope${scope === 'global' ? '' : ' project'}">${esc(scope)}</span>` : '';
+
+    // Write capability + auth token. Writes (merge/retire/approve) are disabled
+    // unless the server runs interactive with a token AND the operator pastes that
+    // token here; it is kept in localStorage and sent as a Bearer header, never
+    // embedded in the served page (#168).
+    let CAPS = { writable: false };
+    const authToken = () => localStorage.getItem('brainiac_token') || '';
+    function saveToken() {
+      localStorage.setItem('brainiac_token', $('auth-token').value.trim());
+      updateAuthBar();
+    }
+    async function loadCapabilities() {
+      try { const c = await getJSON('/api/capabilities'); CAPS.writable = !!c.writable; } catch { CAPS.writable = false; }
+      updateAuthBar();
+    }
+    function updateAuthBar() {
+      const bar = $('auth-bar'), st = $('auth-status');
+      if (!CAPS.writable) { bar.classList.add('hidden'); return; }
+      bar.classList.remove('hidden');
+      st.textContent = authToken() ? 'token set — write actions enabled' : 'paste AUTH_TOKEN to enable write actions';
+    }
+    // writeGate returns a banner for action tabs when writes can't work, so buttons
+    // don't silently fail; '' when writes are usable.
+    function writeGate() {
+      if (!CAPS.writable) return `<div class="help">Read-only mode — write actions are disabled. Set <code>clients.webui=interactive</code> and <code>AUTH_TOKEN</code> in the deployment to enable them.</div>`;
+      if (!authToken()) return `<div class="help">Paste your <code>AUTH_TOKEN</code> in the field above to enable the buttons below.</div>`;
+      return '';
+    }
 
     document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
@@ -253,9 +289,21 @@
     }
 
     async function post(url, body) {
-      const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : null });
-      if (!r.ok) throw new Error((await r.json()).error || r.statusText);
-      return r.json();
+      const headers = { 'Content-Type': 'application/json' };
+      const tok = authToken();
+      if (tok) headers['Authorization'] = 'Bearer ' + tok;
+      const r = await fetch(url, { method: 'POST', headers, body: body ? JSON.stringify(body) : null });
+      // Parse defensively: the response may be JSON (our API) or, on some errors,
+      // non-JSON — never let r.json() throw a cryptic "invalid JSON" over the real
+      // problem (#168).
+      const text = await r.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
+      if (!r.ok) {
+        if (r.status === 401) throw new Error('unauthorized — paste the AUTH_TOKEN above (write actions need it)');
+        throw new Error((data && data.error) || `${r.status} ${r.statusText}` || 'request failed');
+      }
+      return data || {};
     }
 
     async function doConsolidate() {
@@ -297,6 +345,7 @@
         };
         const h = (title, key) => `<h3>${title}</h3><div class="help">${help[key]}</div>`;
         box.innerHTML =
+          writeGate() +
           h('Merge candidates', 'merge') + groups +
           h('Conflicts', 'conflicts') + `<div class="card">${conflicts}</div>` +
           h('Split candidates', 'splits') + `<div class="card">${splits}</div>` +
@@ -341,7 +390,7 @@
         const help = 'Nodes and edges the optional local-LLM extractor derived from ingested text. ' +
           'They are invisible to search/recall until approved. Approve to make them live, reject to retire them. ' +
           'Approving an edge also promotes its endpoints.';
-        box.innerHTML = `<div class="help">${help}</div>` +
+        box.innerHTML = writeGate() + `<div class="help">${help}</div>` +
           `<h3>Proposed nodes</h3><div class="card">${nodes}</div>` +
           `<h3>Proposed edges</h3><div class="card">${edges}</div>`;
       } catch (e) { box.innerHTML = `<div class="empty">error: ${esc(e.message)}</div>`; }
@@ -443,6 +492,11 @@
 
     $('search-q').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
     $('recall-q').addEventListener('keydown', e => { if (e.key === 'Enter') doRecall(); });
+
+    // Boot: restore a saved token and learn whether writes are enabled server-side.
+    $('auth-token').value = authToken();
+    $('auth-token').addEventListener('keydown', e => { if (e.key === 'Enter') saveToken(); });
+    loadCapabilities();
   </script>
 </body>
 </html>
