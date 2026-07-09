@@ -44,10 +44,13 @@ behind it. Layer 2 is where a fact can go stale, be superseded, or conflict; Lay
 | **split** | 2 | Carve a tangled node into scoped children, routing its edges | One node's edges contradict — it's really two entities (prod vs staging) |
 | **retire-edge** | 2 | Mark one **edge** `historical` (edge-level supersession) | Two edges conflict; keep the correct one, retire the loser |
 | **confirm** / **flag-stale** | 2 | Clear / set an edge's "verify me" flag | An edge was flagged stale and you've checked it (or want to flag it) |
+| **proposals** | 2 | List pending nodes/edges the optional local-LLM extractor suggested (empty unless it's enabled) | Reviewing what bulk extraction proposed |
+| **review_proposal** | 2 | Approve (→ live) or reject (→ historical) a proposed node/edge | Curating the extractor's output before it enters the memory |
 
 `search`/`recall`/`remember`/`link`/`supersede`/`disambiguate` are available over **MCP** (Claude drives
-them) and **CLI**. `consolidate`/`merge`/`split`/`retire-edge`/`confirm` are **operator** verbs — the
-review-and-repair surface (CLI + WebUI), not things Claude does mid-conversation.
+them) and **CLI**. `proposals`/`review_proposal` are on **MCP + WebUI** (the extractor review queue).
+`consolidate`/`merge`/`split`/`retire-edge`/`confirm` are **operator** verbs — the review-and-repair
+surface (CLI + WebUI), not things Claude does mid-conversation.
 
 ### Type conventions
 

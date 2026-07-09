@@ -77,7 +77,7 @@ Brainiac never writes prose; it retrieves, the agent synthesizes.
   the touched region, not the whole tail. Deleting a source keeps its memory.
 - 🧹 **Librarian pass** — proposes duplicate **merges** and conflated-node **splits**;
   flags stale/contradictory facts. You approve; nothing is auto-applied.
-- 🖥️ **WebUI** — Search / Recall / Graph / Consolidation queue / Health / System.
+- 🖥️ **WebUI** — Search / Recall / Graph / Consolidation queue / Proposals / Health / System / Logs.
 - 📈 **Operable** — `/healthz`, `/readyz`, Prometheus `/metrics`, a System panel, and a
   CI smoke test that boots the whole stack and asserts readiness.
 - 🔒 **Private & self-hosted** — no data leaves your box; secure-by-default binding.
@@ -134,7 +134,7 @@ and reverts to the previous version on failure. Already on the latest tag → it
 Prefer to do it by hand? Same effect:
 
 ```bash
-git fetch --tags && git checkout v1.27.0   # pin a release (or `git pull` for latest main)
+git fetch --tags && git checkout vX.Y.Z    # pin a release (`git tag` to list; or `git pull` for latest main)
 docker compose up -d --build               # rebuilds & recreates app; only what changed is touched
 ```
 
@@ -187,8 +187,10 @@ WantedBy=timers.target
 **🚫 Not the right tool**
 
 - **Not a chatbot / answer generator** — it returns evidence; your agent writes the answer.
-- **Not an automatic knowledge extractor** — the graph is *curated* (by you/your agent),
-  not mined from documents by an LLM. That's a feature: no hallucinated relationships.
+- **Not an automatic knowledge extractor by default** — the graph is *curated* (by you/your agent),
+  not mined from documents by an LLM. That's a feature: no hallucinated relationships. (An optional,
+  self-hosted local-LLM extractor exists for bulk ingest — off by default and **review-gated**, so nothing
+  reaches the memory until a human approves it.)
 - **Not a web-scale vector store** — it's tuned for a curated corpus on a small box, not
   hundreds of millions of documents (there's a scaling ladder, but that's not the target).
 - **Not your source of truth / primary database** — it's a memory layer alongside them.

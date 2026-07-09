@@ -75,8 +75,7 @@ type EmbeddingConfig struct {
 // Ollama extractor during ingest — for a box beefy enough to run a chat model —
 // while a weak box keeps the free chat-driven path (SYSTEM.md §7).
 type ExtractionConfig struct {
-	Default  string `yaml:"default"`
-	Fallback string `yaml:"fallback"`
+	Default string `yaml:"default"`
 	// BaseURL is the Ollama endpoint for the extraction model; empty falls back
 	// to the embedding base_url (they usually share one Ollama).
 	BaseURL string `yaml:"base_url"`

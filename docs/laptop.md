@@ -13,7 +13,7 @@ cp .env.example .env
 ./brainiac up
 ./brainiac logs ollama-pull      # wait for the model to download (~270 MB), then Ctrl-C
 ```
-WebUI: **http://localhost:8080** (Search / Recall / Health).
+WebUI: **http://localhost:8080** (Search / Recall / Graph / Consolidate / Proposals / Health / System / Logs).
 
 ## 2. Add your docs — just drop files
 Put Markdown files under **`./data/docs/`**. With the default `INGEST_INTERVAL=60s`
