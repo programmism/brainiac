@@ -80,6 +80,27 @@ func TestLoadMissingFileUsesDefaultsPlusEnv(t *testing.T) {
 	}
 }
 
+func TestWebUIModeEnvOverride(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-dsn")
+	// Default (no env): read-only.
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Clients.WebUI != "read-only" {
+		t.Fatalf("default webui = %q, want read-only", c.Clients.WebUI)
+	}
+	// WEBUI_MODE flips it — the only switch available in the config-less image.
+	t.Setenv("WEBUI_MODE", "interactive")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Clients.WebUI != "interactive" {
+		t.Fatalf("WEBUI_MODE not applied: %q", c.Clients.WebUI)
+	}
+}
+
 func TestLoadFileThenEnvWins(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
