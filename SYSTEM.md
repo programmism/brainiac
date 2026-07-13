@@ -127,8 +127,11 @@ Compose (`docker-compose.yml`) brings up:
 
 **Updating.** `app` is built from the checkout, so an update is get-new-code + rebuild. `./brainiac update`
 (#160) does it safely in one command: refuse on a dirty tree → fetch tags → checkout the **latest release
-tag** (never `main`) → `docker compose up -d --build` → poll `/readyz` → **roll back to the prior ref on
-failure**. Already-latest is a no-op. Scheduling is left to host cron/systemd (a documented recipe), not an
+tag** (never `main`) → `docker compose up -d --build` → wait for the **app container's Docker health
+status** to reach `healthy` (the container's own `/brainiac healthcheck`, falling back to curl `/readyz`
+only if `app` has no healthcheck) → **roll back to the prior ref on failure**. Gating on container health
+(not a fixed curl window) means a slow first boot sits in `starting` rather than tripping a false
+rollback. Already-latest is a no-op. Scheduling is left to host cron/systemd (a documented recipe), not an
 in-app daemon — the update path is a shell operation, kept out of the binary.
 
 Design constraints for deploy:
@@ -345,6 +348,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-13** — Update health gate waits on container health, not a fixed curl window: a real
+  v1.29.0→v1.30.2 update tripped a **false rollback** — the version was sound (a plain `up -d --build app`
+  came up healthy in seconds), but during the coordinated full-stack recreate the app didn't answer
+  `/readyz` within the fixed 120s (60×2s) curl window. Fix: the gate now polls the **app container's own
+  Docker health status** (`docker inspect .State.Health.Status`, the same `/brainiac healthcheck` Docker
+  uses), waits up to 180s (90×2s), treats `starting` as keep-waiting, breaks early on `unhealthy`, and
+  succeeds on `healthy`; it falls back to curl `/readyz` only when `app` declares no healthcheck. This
+  gates on the authoritative signal, so a slow first boot no longer reads as failure. Shell-only change to
+  the `brainiac` wrapper (`sh -n` clean); no binary/API/schema impact.
 - **2026-07-09** — WebUI write actions fixed (#168): a conflict-resolution (and any other write) button
   threw a cryptic "invalid JSON" error. Root cause chain: default `clients.webui=read-only` ⇒ write
   endpoints unmounted; the WebUI rendered action buttons regardless; clicking POSTed to an unmounted route ⇒
