@@ -348,6 +348,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-13** — `WEBUI_MODE` env override (#174): WebUI writes could not be enabled in a standard
+  `docker compose` deploy at all — `clients.webui` was settable only via `config.yaml`, but the shipped
+  image carries **no config.yaml** (config-less → `Default()` → `read-only`) and compose mounts none. So
+  every write button 404'd (`POST /api/edges/{id}/retire` → the unmounted-route JSON 404 from #168), with
+  no switch to flip. Added a `WEBUI_MODE` (`read-only`|`interactive`) env override in `applyEnvOverrides`,
+  passed through in compose; `WEBUI_MODE=interactive` + `AUTH_TOKEN` now enables writes with no config
+  file — consistent with `DATABASE_URL`/`AUTH_TOKEN`/`EXTRACTOR`. `.env.example` documents both are
+  required; config test covers the override. Secure by default unchanged (unset = read-only). (#174)
 - **2026-07-13** — Update health gate waits on container health, not a fixed curl window: a real
   v1.29.0→v1.30.2 update tripped a **false rollback** — the version was sound (a plain `up -d --build app`
   came up healthy in seconds), but during the coordinated full-stack recreate the app didn't answer
