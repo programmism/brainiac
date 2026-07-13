@@ -49,24 +49,35 @@ case "${1:-}" in
 			docker compose up -d --build || true
 			exit 1
 		fi
-		if command -v curl >/dev/null 2>&1; then
-			echo "update: waiting for $url/readyz …"
-			ok=0
-			i=0
-			while [ "$i" -lt 60 ]; do
-				if curl -fsS "$url/readyz" >/dev/null 2>&1; then ok=1; break; fi
-				i=$((i + 1))
-				sleep 2
-			done
-			if [ "$ok" -ne 1 ]; then
-				echo "update: $latest did not become healthy in time — rolling back to ${current:-$before}…" >&2
-				git checkout --quiet "$before"
-				docker compose up -d --build || true
-				echo "update: rolled back. Check 'brainiac logs app'." >&2
-				exit 1
+		# Gate on the app container's OWN Docker health status — the same check
+		# that marks it "healthy" — instead of a fixed curl/readyz window. During
+		# the coordinated recreate the container sits in "starting" (not
+		# "unhealthy") until its healthcheck first passes, so a slow first boot no
+		# longer trips a false rollback. Falls back to curl /readyz only if the
+		# app has no healthcheck defined.
+		echo "update: waiting for the app container to become healthy…"
+		ok=0
+		i=0
+		while [ "$i" -lt 90 ]; do
+			cid="$(docker compose ps -q app 2>/dev/null)"
+			if [ -n "$cid" ]; then
+				health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo "")"
+				case "$health" in
+					healthy) ok=1; break ;;
+					unhealthy) break ;;  # definitively bad — stop waiting, roll back now
+					none)  # no healthcheck on app — fall back to curl /readyz
+						if command -v curl >/dev/null 2>&1 && curl -fsS "$url/readyz" >/dev/null 2>&1; then ok=1; break; fi ;;
+				esac
 			fi
-		else
-			echo "update: curl not found — skipping health check." >&2
+			i=$((i + 1))
+			sleep 2
+		done
+		if [ "$ok" -ne 1 ]; then
+			echo "update: $latest did not become healthy in time — rolling back to ${current:-$before}…" >&2
+			git checkout --quiet "$before"
+			docker compose up -d --build || true
+			echo "update: rolled back. Check 'brainiac logs app'." >&2
+			exit 1
 		fi
 		echo "update: now on $latest ✓"
 		exit 0
