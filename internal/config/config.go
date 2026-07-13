@@ -198,6 +198,12 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("AUTH_TOKEN"); v != "" {
 		c.HTTP.AuthToken = v
 	}
+	// WEBUI_MODE ("read-only"|"interactive") — the only way to enable WebUI write
+	// actions in the shipped image, which carries no config.yaml. Writes also need
+	// AUTH_TOKEN (secure by default).
+	if v := os.Getenv("WEBUI_MODE"); v != "" {
+		c.Clients.WebUI = v
+	}
 	if v := os.Getenv("INGEST_INTERVAL"); v != "" {
 		c.Ingest.Interval = v
 	}
