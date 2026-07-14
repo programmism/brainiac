@@ -126,6 +126,28 @@ func TestMCPRoundTrip(t *testing.T) {
 		t.Fatalf("recall edges missing writes_to: %+v", rec.Edges)
 	}
 
+	// get_node: direct lookup by name returns the full record + edges.
+	gn := callTool[getNodeOut](ctx, t, cs, "get_node", map[string]any{"name": "OrderService"})
+	if !gn.Found || gn.Node == nil {
+		t.Fatalf("get_node OrderService not found: %+v", gn)
+	}
+	if gn.Node.Type != "service" || !contains(gn.Node.Aliases, "orders-svc") {
+		t.Fatalf("get_node missing type/aliases: %+v", gn.Node)
+	}
+	gnEdge := false
+	for _, e := range gn.Edges {
+		if e.From == "OrderService" && e.To == "Postgres" && e.Type == "writes_to" {
+			gnEdge = true
+		}
+	}
+	if !gnEdge {
+		t.Fatalf("get_node edges missing writes_to: %+v", gn.Edges)
+	}
+	// A missing entity is not-found, not an error.
+	if miss := callTool[getNodeOut](ctx, t, cs, "get_node", map[string]any{"name": "NoSuchEntity"}); miss.Found {
+		t.Fatalf("get_node should not find NoSuchEntity: %+v", miss)
+	}
+
 	// add_document: store text Claude "read elsewhere", then find it via search.
 	const doc = "OrderService streams events to Kafka for durability and audit."
 	add := callTool[ingestOut](ctx, t, cs, "add_document", map[string]any{
