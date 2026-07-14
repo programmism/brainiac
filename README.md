@@ -95,6 +95,15 @@ docker compose up             # db (pgvector) + ollama + app; migrations & model
 That's the hard requirement: **one command → a healthy stack**, even on a 4 GB box.
 Open the WebUI at **http://localhost:8080** and check `curl -s localhost:8080/readyz`.
 
+Optionally put the `brainiac` helper on your PATH so you can run it from anywhere:
+
+```bash
+sudo ./brainiac install                 # symlink into /usr/local/bin (or: ./brainiac install "$HOME/.local/bin")
+brainiac health                         # now works from any directory
+```
+
+It's a symlink to this checkout, so `brainiac update` keeps the installed command current — no reinstall.
+
 ### On your laptop (no Go, no exposed ports)
 
 ```bash
