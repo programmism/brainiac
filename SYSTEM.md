@@ -189,9 +189,10 @@ commands — same functions underneath.
 | `ingest(source, opts)` | connector → select → chunk → embed → store |
 | `health()` | Metrics (§9) |
 
-**Retrieval flow (`recall`):** vector search → graph lookup for the entity → traverse edges → join raw
-chunks by `source_uri` → Claude synthesizes **with citations**. Every claim maps to `source_uri` +
-locator. **An answer without a source is a quality bug.**
+**Retrieval flow (`recall`):** vector search → entity nodes (lexical name/alias match + precision-gated
+`summary_embedding` neighbors, §10) → traverse edges in relevance order → join raw chunks by `source_uri`
+→ Claude synthesizes **with citations**. Every claim maps to `source_uri` + locator. **An answer without
+a source is a quality bug.**
 
 **Capture flow (default, chat-driven):** human investigates → tells Claude to save it → Claude calls
 `remember`/`link` → core upserts node(s) + edge (with `why`, provenance, author) in one transaction. No
@@ -348,6 +349,23 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-14** — **Recall node precision + lexical matching.** `recall` retrieved entity nodes by
+  `summary_embedding` proximity only, with the chunk-tuned cutoff (`MaxRelevantDistance = 0.75`) and
+  `DefaultRecallNodes = 5`. On a corpus dominated by one domain, a query about a sparse entity admitted
+  ~5 weakly-similar nodes; their edges (traversed for *every* admitted node, cap 100) then flooded the
+  bundle with off-topic rationale. Two root gaps: (1) names/aliases are **not embedded** (only a node's
+  `Summary` is), so a query that literally names an entity had no vector path to it; (2) the cutoff was
+  too lenient for short node summaries and edges were taken from all admitted nodes without a relevance
+  order. Fix (`recall.go`, `store.FindNodesByMention`): a **lexical path** admits nodes whose
+  `canonical_name` or any alias occurs as a whole word/phrase in the query (distance-independent, ranked
+  first), plus a **precision path** for vector hits — a dedicated node cutoff `MaxNodeDistance = 0.55`
+  (distinct from the chunk 0.75) **and** a relative gap `NodeDistanceGap = 0.10` from the best hit, with
+  `DefaultRecallNodes` 5→3 and `maxRecallEdges` 100→40, edges traversed in relevance order. Grounded in
+  measured nomic-embed distances (a named entity sits well under 0.5 vs unrelated nodes >0.55; a foreign
+  query bottoms out ~0.59). Result: a query naming an entity returns that entity + its own edges/aliases;
+  a foreign query returns empty. Chunk search (`search.go`) is untouched. DB-gated tests added
+  (`recall_test.go`); the chunk-based eval harness (#29) does not cover node recall — a node-recall metric
+  is a follow-up.
 - **2026-07-14** — Wrapper help no longer says "kb" (#178): running `brainiac` (bare) or `brainiac help`
   forwarded to the in-container CLI, whose cobra help is hardcoded to `Use: "kb"` — so the help talked
   about `kb` even though the user invoked `brainiac`. Two fixes: (1) the wrapper now has its **own** `help`

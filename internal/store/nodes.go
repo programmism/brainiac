@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/pgvector/pgvector-go"
 
@@ -120,6 +121,73 @@ func FindNodesByNormalizedName(ctx context.Context, db DBTX, name string, scope 
 		  AND (cardinality($2::text[]) = 0 OR scope_key = ANY($2::text[]))
 		  AND regexp_replace(lower(canonical_name), '[^a-z0-9]', '', 'g') = regexp_replace(lower($1), '[^a-z0-9]', '', 'g')
 		  AND canonical_name <> $1`, name, scope.arg())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []model.Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes, rows.Err()
+}
+
+// normalizeMention lowercases s, collapses every run of non-alphanumeric
+// characters into a single space, and trims — the same shape the SQL side derives
+// from canonical_name/aliases, so a space-padded substring test is a whole-word
+// (whole-phrase) match rather than a raw substring.
+func normalizeMention(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	space := false
+	for _, r := range strings.ToLower(s) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			space = false
+		case !space:
+			b.WriteByte(' ')
+			space = true
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// FindNodesByMention returns current in-scope nodes whose canonical_name or any
+// alias occurs as a whole word/phrase inside query. Matching is case-insensitive
+// with every non-alphanumeric run treated as a word boundary ("Order Service"
+// matches "...the order-service..."); names or aliases with fewer than minLen
+// alphanumeric characters are skipped so short tokens don't match noise.
+//
+// This is the lexical half of node retrieval. Names and aliases are not embedded
+// anywhere (only a node's Summary is), so a query that literally names an entity
+// — e.g. "who is <nickname>?" where the nickname is an alias — has no vector path
+// to it and must be reached lexically (recall precision fix).
+func FindNodesByMention(ctx context.Context, db DBTX, query string, minLen int, scope ScopeFilter) ([]model.Node, error) {
+	norm := normalizeMention(query)
+	if norm == "" {
+		return nil, nil
+	}
+	padded := " " + norm + " "
+	rows, err := db.Query(ctx, `
+		SELECT `+nodeCols+`
+		FROM nodes
+		WHERE status = 'current'
+		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
+		  AND (
+		        ( length(regexp_replace(lower(canonical_name), '[^a-z0-9]', '', 'g')) >= $2
+		          AND position(' ' || btrim(regexp_replace(lower(canonical_name), '[^a-z0-9]+', ' ', 'g')) || ' ' IN $1) > 0 )
+		     OR EXISTS (
+		          SELECT 1 FROM unnest(aliases) AS a
+		          WHERE length(regexp_replace(lower(a), '[^a-z0-9]', '', 'g')) >= $2
+		            AND position(' ' || btrim(regexp_replace(lower(a), '[^a-z0-9]+', ' ', 'g')) || ' ' IN $1) > 0 )
+		  )
+		LIMIT 32`, padded, minLen, scope.arg())
 	if err != nil {
 		return nil, err
 	}

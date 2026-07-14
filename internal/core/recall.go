@@ -12,11 +12,27 @@ import (
 // Recall tuning.
 const (
 	DefaultRecallChunks   = 8
-	DefaultRecallNodes    = 5
+	DefaultRecallNodes    = 3 // vector node top-k (down from 5): a tighter budget so weakly-similar nodes don't dilute the bundle (recall precision fix)
+	maxRecallNodes        = 8 // hard ceiling on admitted nodes (lexical mentions + vector neighbors)
+	minMentionLen         = 2 // ignore name/alias mentions shorter than this many alphanumeric chars
 	evidenceChunksPerEdge = 3
-	maxEdgesPerNode       = 50  // bound hub-node fan-out (#73)
-	maxRecallEdges        = 100 // cap the evidence bundle size (#73)
+	maxEdgesPerNode       = 50 // bound hub-node fan-out (#73)
+	maxRecallEdges        = 40 // cap the evidence bundle size (#73; tightened so the budget favors the most relevant nodes, traversed first)
 	maxRecallEvidence     = 30
+)
+
+// Node-relevance cutoffs for vector node hits (recall precision fix). A hit is
+// admitted only when it is both absolutely close (<= MaxNodeDistance) and close
+// relative to the best hit (<= best + NodeDistanceGap). Grounded in measured
+// nomic-embed cosine distances: a query that names a real entity lands it well
+// under 0.5 with the next, unrelated node above ~0.55, while a fully off-corpus
+// query bottoms out near 0.59 — so a ~0.55 absolute cap plus a 0.10 relative gap
+// isolates the real hit and returns nothing for a foreign query. Deliberately
+// distinct from the chunk cutoff (search.go MaxRelevantDistance=0.75): node
+// summaries are short, so the chunk-tuned leniency would admit noise here.
+const (
+	MaxNodeDistance = 0.55
+	NodeDistanceGap = 0.10
 )
 
 // EdgeView is an edge with its endpoint names resolved, for citation.
@@ -62,37 +78,63 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 	}
 	res.Chunks = chunks
 
-	// 2. Relevant nodes by summary-embedding proximity, same lens.
+	// 2. Relevant nodes, same lens, from two paths: lexical name/alias mentions
+	//    first (a query that literally names an entity must reach it — names and
+	//    aliases are not embedded), then summary-embedding neighbors that pass the
+	//    relevance cutoffs. Lexical hits rank highest, so their edges are traversed
+	//    first under the budget below.
+	lens := store.LensFor(project)
+	names := make(map[string]string)
+	seenNode := make(map[string]bool)
+	addNode := func(n model.Node) {
+		if seenNode[n.ID] || len(res.Nodes) >= maxRecallNodes {
+			return
+		}
+		seenNode[n.ID] = true
+		res.Nodes = append(res.Nodes, n)
+		names[n.ID] = n.CanonicalName
+	}
+
+	// 2a. Lexical mentions — distance-independent, highest priority.
+	mentioned, err := store.FindNodesByMention(ctx, c.pool, query, minMentionLen, lens)
+	if err != nil {
+		return nil, fmt.Errorf("find nodes by mention: %w", err)
+	}
+	for _, n := range mentioned {
+		addNode(n)
+	}
+
+	// 2b. Vector neighbors, admitted by an absolute cutoff and a relative gap from
+	//     the best hit, so a single strong match isn't diluted by a weakly-similar
+	//     tail (recall precision fix). Hits are sorted nearest-first.
 	emb, err := c.embedder.Embed(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, store.LensFor(project))
+	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, lens)
 	if err != nil {
 		return nil, fmt.Errorf("find nodes: %w", err)
 	}
-
-	names := make(map[string]string)
-	relevant := nodeHits[:0]
-	for _, nh := range nodeHits {
-		if nh.Distance > MaxRelevantDistance {
-			continue // drop off-topic nodes (#70)
+	for i, nh := range nodeHits {
+		if nh.Distance > MaxNodeDistance {
+			break // past the absolute cutoff — nothing further qualifies
 		}
-		relevant = append(relevant, nh)
-		res.Nodes = append(res.Nodes, nh.Node)
-		names[nh.Node.ID] = nh.Node.CanonicalName
+		if i > 0 && nh.Distance > nodeHits[0].Distance+NodeDistanceGap {
+			break // much farther than the best hit — a diluting tail
+		}
+		addNode(nh.Node)
 	}
-	nodeHits = relevant
 
-	// 3. Traverse edges (incl. supersedes history) and join raw chunks by URI,
-	//    bounded so a hub node can't flood the evidence bundle (#73).
+	// 3. Traverse edges (incl. supersedes history) for the admitted nodes, in
+	//    priority order, and join raw chunks by URI — bounded so a hub node can't
+	//    flood the evidence bundle (#73).
 	seenEdge := make(map[string]bool)
 	seenURI := make(map[string]bool)
-	for _, nh := range nodeHits {
+	for _, n := range res.Nodes {
 		if len(res.Edges) >= maxRecallEdges {
 			break
 		}
-		edges, err := store.EdgesForNode(ctx, c.pool, nh.Node.ID, true, maxEdgesPerNode)
+		edges, err := store.EdgesForNode(ctx, c.pool, n.ID, true, maxEdgesPerNode)
 		if err != nil {
 			return nil, fmt.Errorf("traverse edges: %w", err)
 		}
