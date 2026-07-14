@@ -16,10 +16,17 @@ import (
 	"github.com/programmism/brainiac/internal/store"
 )
 
-// newRootCmd assembles the full command tree.
+// newRootCmd assembles the full command tree. The command name shown in help is
+// taken from BRAINIAC_CLI_NAME when set (the `brainiac` wrapper passes
+// "brainiac"), so usage text matches how the user actually invoked it; direct
+// `/kb` in the container keeps the "kb" name.
 func newRootCmd() *cobra.Command {
+	name := os.Getenv("BRAINIAC_CLI_NAME")
+	if name == "" {
+		name = "kb"
+	}
 	root := &cobra.Command{
-		Use:           "kb",
+		Use:           name,
 		Short:         "Brainiac operator CLI",
 		Version:       core.Version,
 		SilenceUsage:  true,

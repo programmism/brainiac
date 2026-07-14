@@ -13,7 +13,8 @@
 #   ./brainiac mcp-config             # print the Claude Desktop MCP config
 #   ./brainiac instructions           # print the agent memory instruction block
 #
-# Everything else is passed straight to the in-container `kb` CLI.
+# Run `brainiac help` for the full command list. Everything not handled here is
+# passed straight to the in-container CLI.
 set -e
 
 # Resolve this script's real location, following symlinks, then run from there.
@@ -29,7 +30,31 @@ while [ -L "$self" ]; do
 done
 cd "$(dirname "$self")"
 
+usage() {
+	cat <<'EOF'
+brainiac — operator wrapper around the docker compose stack and the in-container CLI.
+
+Stack:
+  brainiac up | down | logs
+  brainiac update                    health-gated update to the latest release (rolls back on failure)
+  brainiac install [dir]             symlink onto PATH (default /usr/local/bin) so brainiac runs anywhere
+  brainiac uninstall [dir]           remove that symlink
+  brainiac mcp-config                print the Claude Desktop MCP config
+  brainiac instructions              print the agent-memory instruction block
+
+Memory CLI (forwarded to the in-container CLI — the stack must be up):
+  brainiac search "why kafka"        semantic search
+  brainiac recall "why is X like this"
+  brainiac remember | link | consolidate | merge | split | disambiguate | supersede | reembed | health
+  brainiac import                    ingest Markdown from ./data/docs
+  brainiac <command> --help          help for a specific CLI command
+
+Everything not listed above is passed straight to the CLI.
+EOF
+}
+
 case "${1:-}" in
+	help|-h|--help) usage ;;
 	up)    shift; exec docker compose up -d "$@" ;;
 	down)  shift; exec docker compose down "$@" ;;
 	logs)  shift; exec docker compose logs -f "$@" ;;
@@ -182,10 +207,12 @@ EOF
 	import)
 		# `import` with no extra args defaults to the mounted markdown folder.
 		if [ "$#" -eq 1 ]; then
-			exec docker compose exec app /kb import --source markdown --path /data/docs
+			exec docker compose exec -e BRAINIAC_CLI_NAME=brainiac app /kb import --source markdown --path /data/docs
 		fi
-		exec docker compose exec app /kb "$@"
+		exec docker compose exec -e BRAINIAC_CLI_NAME=brainiac app /kb "$@"
 		;;
-	"")    exec docker compose exec app /kb ;;
-	*)     exec docker compose exec app /kb "$@" ;;
+	# Bare invocation shows this wrapper's help, not the CLI's (which would say "kb").
+	"")    usage ;;
+	# Anything else is a CLI command; BRAINIAC_CLI_NAME makes its help say "brainiac".
+	*)     exec docker compose exec -e BRAINIAC_CLI_NAME=brainiac app /kb "$@" ;;
 esac

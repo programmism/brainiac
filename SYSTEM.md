@@ -348,6 +348,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-14** — Wrapper help no longer says "kb" (#178): running `brainiac` (bare) or `brainiac help`
+  forwarded to the in-container CLI, whose cobra help is hardcoded to `Use: "kb"` — so the help talked
+  about `kb` even though the user invoked `brainiac`. Two fixes: (1) the wrapper now has its **own** `help`
+  (also `-h`/`--help`, and the bare invocation) listing the wrapper verbs plus the forwarded CLI verbs;
+  (2) the CLI's root command name is read from **`BRAINIAC_CLI_NAME`** (default `kb`), and the wrapper
+  forwards CLI commands with `BRAINIAC_CLI_NAME=brainiac`, so sub-command help renders `brainiac search …`
+  when invoked through the wrapper while a direct `/kb` in the container stays `kb`. Verified both paths;
+  shell `sh -n` clean, CLI test covers the env-driven name. (#178)
+
 - **2026-07-14** — `brainiac install` puts the wrapper on PATH (#176): the `brainiac` helper was runnable
   only as `./brainiac` from the checkout. Added `install [dir]` / `uninstall [dir]` subcommands that
   symlink it onto PATH (default `/usr/local/bin`, with PATH + writability checks and a sudo / `~/.local/bin`
