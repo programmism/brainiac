@@ -133,7 +133,17 @@ func recallCmd() *cobra.Command {
 			if res.ScopeFallback {
 				fmt.Fprintf(out, "(no results in %s — showing global memory)\n", res.Scope)
 			}
-			fmt.Fprintf(out, "nodes: %s\n", strings.Join(nodeNames(res), ", "))
+			fmt.Fprintln(out, "nodes:")
+			for _, n := range res.Nodes {
+				fmt.Fprintf(out, "  %s", n.CanonicalName)
+				if n.Type != "" {
+					fmt.Fprintf(out, " [%s]", n.Type)
+				}
+				if len(n.Aliases) > 0 {
+					fmt.Fprintf(out, " (aka: %s)", strings.Join(n.Aliases, ", "))
+				}
+				fmt.Fprintln(out)
+			}
 			fmt.Fprintln(out, "edges:")
 			for _, e := range res.Edges {
 				fmt.Fprintf(out, "  %s -%s-> %s", e.FromName, e.Edge.Type, e.ToName)
@@ -592,14 +602,6 @@ func supersedeCmd() *cobra.Command {
 }
 
 // --- helpers ---
-
-func nodeNames(res *core.RecallResult) []string {
-	names := make([]string, 0, len(res.Nodes))
-	for _, n := range res.Nodes {
-		names = append(names, n.CanonicalName)
-	}
-	return names
-}
 
 // scopeTag renders a result's scope as a space-prefixed tag for CLI output,
 // shown only when the result is project-scoped (global is the unmarked default)
