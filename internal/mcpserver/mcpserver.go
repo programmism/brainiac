@@ -140,13 +140,26 @@ type edgeDTO struct {
 	SourceURI string `json:"source_uri,omitempty"`
 	Status    string `json:"status,omitempty"`
 }
+
+// nodeDTO carries a recalled entity's full identity, not just its name — so a
+// caller that recalls an entity can read its aliases/type without a second
+// lookup (the core already has these on model.Node; earlier only CanonicalName
+// was surfaced).
+type nodeDTO struct {
+	ID             string            `json:"id"`
+	CanonicalName  string            `json:"canonical_name"`
+	Aliases        []string          `json:"aliases,omitempty"`
+	Type           string            `json:"type,omitempty"`
+	Discriminators map[string]string `json:"discriminators,omitempty"`
+	Status         string            `json:"status,omitempty"`
+}
 type recallIn struct {
 	Query   string `json:"query" jsonschema:"the question to answer"`
 	Project string `json:"project,omitempty" jsonschema:"scope recall to this project + global; omit to recall across all projects"`
 }
 type recallOut struct {
 	Chunks   []chunkDTO `json:"chunks"`
-	Nodes    []string   `json:"nodes"`
+	Nodes    []nodeDTO  `json:"nodes"`
 	Edges    []edgeDTO  `json:"edges"`
 	Evidence []chunkDTO `json:"evidence"`
 	// Scope is the requested retrieval scope; ScopeFallback is true when a scoped
@@ -289,7 +302,7 @@ func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 		}
 		out := recallOut{
 			Chunks:        make([]chunkDTO, 0, len(res.Chunks)),
-			Nodes:         make([]string, 0, len(res.Nodes)),
+			Nodes:         make([]nodeDTO, 0, len(res.Nodes)),
 			Edges:         make([]edgeDTO, 0, len(res.Edges)),
 			Evidence:      make([]chunkDTO, 0, len(res.EvidenceChunks)),
 			Scope:         res.Scope,
@@ -299,7 +312,10 @@ func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 			out.Chunks = append(out.Chunks, chunkDTO{Text: h.Text, SourceURI: h.SourceURI, Distance: h.Distance, Scope: h.Scope})
 		}
 		for _, n := range res.Nodes {
-			out.Nodes = append(out.Nodes, n.CanonicalName)
+			out.Nodes = append(out.Nodes, nodeDTO{
+				ID: n.ID, CanonicalName: n.CanonicalName, Aliases: n.Aliases,
+				Type: n.Type, Discriminators: n.Discriminators, Status: string(n.Status),
+			})
 		}
 		for _, e := range res.Edges {
 			out.Edges = append(out.Edges, edgeDTO{

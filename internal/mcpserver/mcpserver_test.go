@@ -79,6 +79,7 @@ func TestMCPRoundTrip(t *testing.T) {
 	// remember → link → recall through the MCP boundary.
 	rem := callTool[rememberOut](ctx, t, cs, "remember", map[string]any{
 		"canonical_name": "OrderService", "type": "service", "summary": "orders",
+		"aliases": []string{"orders-svc"},
 	})
 	if !rem.Created || rem.NodeID == "" {
 		t.Fatalf("remember: %+v", rem)
@@ -102,8 +103,18 @@ func TestMCPRoundTrip(t *testing.T) {
 	})
 
 	rec := callTool[recallOut](ctx, t, cs, "recall", map[string]any{"query": "orders"})
-	if !contains(rec.Nodes, "OrderService") {
+	var os *nodeDTO
+	for i := range rec.Nodes {
+		if rec.Nodes[i].CanonicalName == "OrderService" {
+			os = &rec.Nodes[i]
+		}
+	}
+	if os == nil {
 		t.Fatalf("recall nodes missing OrderService: %+v", rec.Nodes)
+	}
+	// Node detail (type + aliases) must survive the MCP boundary, not just the name.
+	if os.Type != "service" || !contains(os.Aliases, "orders-svc") {
+		t.Fatalf("recall node OrderService missing type/aliases: %+v", *os)
 	}
 	found := false
 	for _, e := range rec.Edges {

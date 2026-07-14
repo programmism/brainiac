@@ -349,6 +349,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-14** — **Recall returns node objects, not bare names (Tier 1 of #181).** `recall` surfaced
+  entity nodes as `canonical_name` strings on the agent/human clients (MCP `recallOut.Nodes []string`,
+  CLI `nodeNames`, WebUI), discarding aliases/type/discriminators/status even though the core carries
+  full `[]model.Node` — so a caller that recalled an entity couldn't read its aliases without a direct
+  Postgres query. Fix: a `nodeDTO {id, canonical_name, aliases, type, discriminators, status}` (mirrors
+  `edgeDTO`) is now emitted from MCP `recall`; the CLI renders `name [type] (aka: …)`; the WebUI shows
+  type + aliases in the entities card. HTTP `/api/recall` already returned full node JSON (unchanged).
+  Chunk/edge output untouched. Follow-ups tracked in #181: a `get_node` by-id/name lookup (Tier 2) and
+  persisting node summary **text** — today only its embedding is stored (Tier 3).
 - **2026-07-14** — **Recall node precision + lexical matching.** `recall` retrieved entity nodes by
   `summary_embedding` proximity only, with the chunk-tuned cutoff (`MaxRelevantDistance = 0.75`) and
   `DefaultRecallNodes = 5`. On a corpus dominated by one domain, a query about a sparse entity admitted

@@ -198,7 +198,11 @@
       const box = $('recall-results'); box.innerHTML = '<div class="empty">recalling…</div>';
       try {
         const r = await getJSON('/api/recall?q=' + encodeURIComponent(q));
-        const nodes = (r.Nodes || []).map(n => esc(n.canonical_name)).join(', ') || '—';
+        const nodes = (r.Nodes || []).map(n => {
+          const type = n.type ? ` <span class="meta">[${esc(n.type)}]</span>` : '';
+          const aka = (n.aliases && n.aliases.length) ? ` <span class="meta">(aka: ${esc(n.aliases.join(', '))})</span>` : '';
+          return `<div class="edge"><span class="name">${esc(n.canonical_name)}</span>${type}${aka}</div>`;
+        }).join('') || '<div class="empty">no entities</div>';
         const edges = (r.Edges || []).map(e =>
           `<div class="edge"><span class="name">${esc(e.FromName)}</span> —${esc(e.Edge.type)}→ <span class="name">${esc(e.ToName)}</span>` +
           (e.Edge.why ? ` <span class="meta">(${esc(e.Edge.why)})</span>` : '') +
