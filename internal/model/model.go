@@ -67,11 +67,15 @@ type Node struct {
 	// Discriminators are the identity-bearing axes (project, env, ...) that make
 	// same-named entities distinct. Empty = global/shared. Facet/descriptive tags
 	// are NOT identity and are not stored here (#117).
-	Discriminators   map[string]string `json:"discriminators,omitempty"`
-	SummaryEmbedding []float32         `json:"-"`
-	Status           Status            `json:"status"`
-	CreatedAt        time.Time         `json:"created_at"`
-	LastConfirmedAt  *time.Time        `json:"last_confirmed_at,omitempty"`
+	Discriminators map[string]string `json:"discriminators,omitempty"`
+	// Summary is the node's human-readable description. It is the text the
+	// SummaryEmbedding is derived from; unlike the vector it is returned to
+	// clients, so a recalled/looked-up entity can describe and cite itself (#181).
+	Summary          string     `json:"summary,omitempty"`
+	SummaryEmbedding []float32  `json:"-"`
+	Status           Status     `json:"status"`
+	CreatedAt        time.Time  `json:"created_at"`
+	LastConfirmedAt  *time.Time `json:"last_confirmed_at,omitempty"`
 }
 
 // ValidateDiscriminators rejects discriminator sets that would corrupt the

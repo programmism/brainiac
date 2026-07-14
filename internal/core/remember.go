@@ -62,15 +62,26 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 			}
 			existing.Aliases = merged
 		}
+		// Re-remembering with a description backfills/updates the node's summary
+		// text and its derived embedding together — the path by which nodes created
+		// before summaries were persisted acquire one (#181).
+		if in.Summary != "" && in.Summary != existing.Summary {
+			emb, err := c.embedSummary(ctx, in.Summary)
+			if err != nil {
+				return nil, err
+			}
+			if err := store.UpdateNodeSummary(ctx, c.pool, existing.ID, in.Summary, emb); err != nil {
+				return nil, fmt.Errorf("update summary: %w", err)
+			}
+			existing.Summary = in.Summary
+			existing.SummaryEmbedding = emb
+		}
 		return &RememberResult{Node: existing, Created: false}, nil
 	}
 
-	var emb []float32
-	if in.Summary != "" && c.embedder != nil {
-		emb, err = c.embedder.Embed(ctx, in.Summary)
-		if err != nil {
-			return nil, fmt.Errorf("embed summary: %w", err)
-		}
+	emb, err := c.embedSummary(ctx, in.Summary)
+	if err != nil {
+		return nil, err
 	}
 
 	dups, err := c.findDuplicates(ctx, in.CanonicalName, scope, emb)
@@ -83,12 +94,26 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 		Type:             normalizeType(in.Type), // canonicalize separator/case variants (#156)
 		Aliases:          in.Aliases,
 		Discriminators:   in.Discriminators,
+		Summary:          in.Summary,
 		SummaryEmbedding: emb,
 	}
 	if err := store.InsertNode(ctx, c.pool, node); err != nil {
 		return nil, fmt.Errorf("insert node: %w", err)
 	}
 	return &RememberResult{Node: node, Created: true, Duplicates: dups}, nil
+}
+
+// embedSummary embeds a node summary for semantic dedup, or returns nil when
+// there is no summary or no embedder configured.
+func (c *Core) embedSummary(ctx context.Context, summary string) ([]float32, error) {
+	if summary == "" || c.embedder == nil {
+		return nil, nil
+	}
+	emb, err := c.embedder.Embed(ctx, summary)
+	if err != nil {
+		return nil, fmt.Errorf("embed summary: %w", err)
+	}
+	return emb, nil
 }
 
 func (c *Core) findDuplicates(ctx context.Context, name, scope string, emb []float32) ([]DuplicateCandidate, error) {

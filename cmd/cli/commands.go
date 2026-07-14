@@ -143,6 +143,9 @@ func recallCmd() *cobra.Command {
 					fmt.Fprintf(out, " (aka: %s)", strings.Join(n.Aliases, ", "))
 				}
 				fmt.Fprintln(out)
+				if n.Summary != "" {
+					fmt.Fprintf(out, "    %s\n", oneline(n.Summary))
+				}
 			}
 			fmt.Fprintln(out, "edges:")
 			for _, e := range res.Edges {
@@ -205,6 +208,9 @@ func nodeCmd() *cobra.Command {
 			if len(n.Aliases) > 0 {
 				fmt.Fprintf(out, "  aliases: %s\n", strings.Join(n.Aliases, ", "))
 			}
+			if n.Summary != "" {
+				fmt.Fprintf(out, "  summary: %s\n", n.Summary)
+			}
 			fmt.Fprintf(out, "  id: %s  status: %s\n", n.ID, n.Status)
 			fmt.Fprintln(out, "edges:")
 			for _, e := range det.Edges {
@@ -265,7 +271,7 @@ func rememberCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&typ, "type", "", "node type (service, datastore, decision, ...)")
-	cmd.Flags().StringVar(&summary, "summary", "", "short description; embedded for semantic dedup")
+	cmd.Flags().StringVar(&summary, "summary", "", "short description; stored, returned on recall/node, and embedded for semantic dedup")
 	cmd.Flags().StringArrayVar(&aliases, "alias", nil, "alternative surface form (repeatable)")
 	cmd.Flags().StringVar(&project, "project", "", "project this entity belongs to (scopes identity; omit for global)")
 	cmd.Flags().StringArrayVar(&discs, "disc", nil, "extra identity axis key=value (repeatable, e.g. --disc env=prod)")

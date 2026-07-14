@@ -154,9 +154,11 @@ Three tables; vectors and graph in the same Postgres. Full DDL in `migrations/` 
   global (#119).
   - *Raw text is mandatory:* needed to answer, and to **re-embed on model change without re-reading
     sources** (§7 optimization).
-- **`nodes` (Layer 2)** — `id, canonical_name, aliases[], type, summary_embedding halfvec(768),
+- **`nodes` (Layer 2)** — `id, canonical_name, aliases[], type, summary text, summary_embedding halfvec(768),
   status(current|historical), discriminators jsonb, scope_key text, created_at, last_confirmed_at`.
-  `summary_embedding` powers semantic dedup. **Node identity = `canonical_name` + `discriminators`**
+  `summary` is the human-readable description; `summary_embedding` is derived from it and powers semantic
+  dedup. Unlike the vector, the text is returned to clients so a recalled/looked-up entity can describe and
+  cite itself (#181, Tier 3); pre-Tier-3 nodes stay NULL until re-remembered. **Node identity = `canonical_name` + `discriminators`**
   (the identity-bearing axes: `project`, `env`, …; empty = global/shared). `scope_key` is their canonical
   serialization (sorted `k=v;` pairs, written by the app) and keys idempotent upsert + dedup, so same-named
   entities in different projects stay distinct while universal ones accrue globally (#117, §12).
@@ -349,6 +351,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-14** — **Persist node summary text (Tier 3 of #181 — closes it).** A node's description was
+  embedded into `summary_embedding` and the prose thrown away, so "describe X" had no text to return and a
+  node could not cite itself; the only human-readable fields were name/aliases/type. Fix: a `summary text`
+  column (migration `0006`) stored on `remember` alongside the derived embedding, carried on `model.Node`
+  (JSON `summary`) through every read (`nodeCols` + `scanNode`), and surfaced on all clients — MCP
+  `nodeDTO.summary` (both `recall` and `get_node`), `GET /api/recall`/`/api/node` (raw node JSON), CLI
+  `recall`/`node`, WebUI entities card. **Backfill:** re-remembering with a description updates the text
+  **and** re-embeds it together (`store.UpdateNodeSummary`), so prose and vector never drift; nodes created
+  before this stay NULL until re-remembered. Completes the tiered #181 (Tier 1 rich node objects, Tier 2
+  `get_node`, Tier 3 summary text).
 - **2026-07-14** — **`get_node` — direct entity lookup (Tier 2 of #181).** Added a by-name (project-scoped,
   then global) or by-id read that returns a node's full record (aliases, type, discriminators, status)
   **plus its edges** — the "I already know this entity; give me its details and relationships" path that
