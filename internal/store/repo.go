@@ -140,12 +140,22 @@ func InsertNode(ctx context.Context, db DBTX, n *model.Node) error {
 		return err
 	}
 	return db.QueryRow(ctx, `
-		INSERT INTO nodes (canonical_name, aliases, type, summary_embedding, status, discriminators, scope_key)
-		VALUES ($1, $2, $3, $4::halfvec, $5, $6::jsonb, $7)
+		INSERT INTO nodes (canonical_name, aliases, type, summary, summary_embedding, status, discriminators, scope_key)
+		VALUES ($1, $2, $3, $4, $5::halfvec, $6, $7::jsonb, $8)
 		RETURNING id, created_at`,
-		n.CanonicalName, aliases, nullStr(n.Type), encodeVec(n.SummaryEmbedding), string(status),
+		n.CanonicalName, aliases, nullStr(n.Type), nullStr(n.Summary), encodeVec(n.SummaryEmbedding), string(status),
 		discJSON, model.ScopeKey(n.Discriminators),
 	).Scan(&n.ID, &n.CreatedAt)
+}
+
+// UpdateNodeSummary replaces a node's summary text and its derived embedding
+// together, so the prose and the vector never drift apart. Used when an entity is
+// re-remembered with a description — the backfill path for nodes created before
+// summaries were persisted (#181).
+func UpdateNodeSummary(ctx context.Context, db DBTX, id, summary string, emb []float32) error {
+	_, err := db.Exec(ctx, `UPDATE nodes SET summary = $2, summary_embedding = $3::halfvec WHERE id = $1`,
+		id, nullStr(summary), encodeVec(emb))
+	return err
 }
 
 // GetNodeByCanonicalName returns the most recent current node with the given

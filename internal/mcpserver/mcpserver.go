@@ -112,7 +112,7 @@ type rememberIn struct {
 	CanonicalName  string            `json:"canonical_name" jsonschema:"the entity's canonical name"`
 	Type           string            `json:"type,omitempty" jsonschema:"node type (snake_case; reuse an existing one over a synonym): service, datastore, decision, constraint, team, person, ..."`
 	Aliases        []string          `json:"aliases,omitempty" jsonschema:"alternative surface forms"`
-	Summary        string            `json:"summary,omitempty" jsonschema:"short description; embedded for semantic dedup"`
+	Summary        string            `json:"summary,omitempty" jsonschema:"short description of the entity; stored and returned on recall/get_node, and embedded for semantic dedup"`
 	Project        string            `json:"project,omitempty" jsonschema:"the project this entity belongs to (scopes identity so same-named entities in different projects stay distinct); omit for universal/global entities like a vendor or standard"`
 	Discriminators map[string]string `json:"discriminators,omitempty" jsonschema:"extra identity axes beyond project (e.g. env, client, version) to keep same-named entities distinct; keys/values must not contain ';' or '='"`
 }
@@ -155,9 +155,20 @@ type nodeDTO struct {
 	CanonicalName  string            `json:"canonical_name"`
 	Aliases        []string          `json:"aliases,omitempty"`
 	Type           string            `json:"type,omitempty"`
+	Summary        string            `json:"summary,omitempty"`
 	Discriminators map[string]string `json:"discriminators,omitempty"`
 	Status         string            `json:"status,omitempty"`
 }
+
+// toNodeDTO flattens a model.Node into the client-facing DTO (identity + summary,
+// without the embedding).
+func toNodeDTO(n model.Node) nodeDTO {
+	return nodeDTO{
+		ID: n.ID, CanonicalName: n.CanonicalName, Aliases: n.Aliases, Type: n.Type,
+		Summary: n.Summary, Discriminators: n.Discriminators, Status: string(n.Status),
+	}
+}
+
 type recallIn struct {
 	Query   string `json:"query" jsonschema:"the question to answer"`
 	Project string `json:"project,omitempty" jsonschema:"scope recall to this project + global; omit to recall across all projects"`
@@ -317,10 +328,7 @@ func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 			out.Chunks = append(out.Chunks, chunkDTO{Text: h.Text, SourceURI: h.SourceURI, Distance: h.Distance, Scope: h.Scope})
 		}
 		for _, n := range res.Nodes {
-			out.Nodes = append(out.Nodes, nodeDTO{
-				ID: n.ID, CanonicalName: n.CanonicalName, Aliases: n.Aliases,
-				Type: n.Type, Discriminators: n.Discriminators, Status: string(n.Status),
-			})
+			out.Nodes = append(out.Nodes, toNodeDTO(n))
 		}
 		for _, e := range res.Edges {
 			out.Edges = append(out.Edges, edgeDTO{
@@ -364,12 +372,10 @@ func getNodeTool(c *core.Core) mcp.ToolHandlerFor[getNodeIn, getNodeOut] {
 			return text(fmt.Sprintf("no entity found for %q", ref)), getNodeOut{Found: false, Edges: []edgeDTO{}}, nil
 		}
 		n := det.Node
+		dto := toNodeDTO(n)
 		out := getNodeOut{
 			Found: true,
-			Node: &nodeDTO{
-				ID: n.ID, CanonicalName: n.CanonicalName, Aliases: n.Aliases,
-				Type: n.Type, Discriminators: n.Discriminators, Status: string(n.Status),
-			},
+			Node:  &dto,
 			Edges: make([]edgeDTO, 0, len(det.Edges)),
 		}
 		for _, e := range det.Edges {

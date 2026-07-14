@@ -105,6 +105,57 @@ func TestRememberCreateIdempotentAndDedup(t *testing.T) {
 	}
 }
 
+func TestRememberPersistsSummaryAndGetNode(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	r, err := c.Remember(ctx, RememberInput{
+		CanonicalName: "Ada Lovelace", Type: "person", Aliases: []string{"Ace"},
+		Summary: "English mathematician; wrote the first algorithm.",
+	})
+	if err != nil {
+		t.Fatalf("remember: %v", err)
+	}
+	if r.Node.Summary != "English mathematician; wrote the first algorithm." {
+		t.Fatalf("summary not on returned node: %q", r.Node.Summary)
+	}
+
+	// The summary text round-trips through a direct read (not just the embedding).
+	stored, err := store.GetNodeByID(ctx, pool, r.Node.ID)
+	if err != nil || stored == nil {
+		t.Fatalf("get by id: %v (node=%v)", err, stored)
+	}
+	if stored.Summary != r.Node.Summary {
+		t.Fatalf("stored summary %q != %q", stored.Summary, r.Node.Summary)
+	}
+
+	// GetNode by name surfaces the full record — aliases + summary — for citation.
+	det, err := c.GetNode(ctx, "", "Ada Lovelace", "")
+	if err != nil || det == nil {
+		t.Fatalf("get node: %v (det=%v)", err, det)
+	}
+	if det.Node.Summary != r.Node.Summary || len(det.Node.Aliases) != 1 || det.Node.Aliases[0] != "Ace" {
+		t.Fatalf("get node record: summary=%q aliases=%v", det.Node.Summary, det.Node.Aliases)
+	}
+
+	// Re-remembering with a new description backfills/updates the summary in place.
+	r2, err := c.Remember(ctx, RememberInput{CanonicalName: "Ada Lovelace", Summary: "Countess of Lovelace."})
+	if err != nil {
+		t.Fatalf("re-remember: %v", err)
+	}
+	if r2.Created {
+		t.Fatal("exact-name re-remember should not create")
+	}
+	after, err := store.GetNodeByID(ctx, pool, r.Node.ID)
+	if err != nil || after == nil {
+		t.Fatalf("get by id after update: %v", err)
+	}
+	if after.Summary != "Countess of Lovelace." {
+		t.Fatalf("summary not updated on re-remember: %q", after.Summary)
+	}
+}
+
 func TestRememberScopedIdentity(t *testing.T) {
 	c, pool := newTestCore(t)
 	defer pool.Close()
