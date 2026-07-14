@@ -46,6 +46,11 @@ func New(c *core.Core, importFn ImportFunc) *mcp.Server {
 	}, recallTool(c))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_node",
+		Description: "Look up one entity you already know — by name (optionally scoped to a project) or by id — and return its full record (aliases, type, discriminators) plus its relationships. Use after recall surfaces an entity and you need its details, or to check what it links to.",
+	}, getNodeTool(c))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "supersede",
 		Description: "Record that a new entity replaces an old one: adds a supersedes link and marks the old one historical (kept, not deleted).",
 	}, supersedeTool(c))
@@ -331,6 +336,49 @@ func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 			summary += fmt.Sprintf(" — no results in %s; showing global memory", out.Scope)
 		}
 		return text(summary), out, nil
+	}
+}
+
+type getNodeIn struct {
+	Name    string `json:"name,omitempty" jsonschema:"the entity's canonical name (optionally scoped by project); or pass id instead"`
+	ID      string `json:"id,omitempty" jsonschema:"the entity's node id (alternative to name)"`
+	Project string `json:"project,omitempty" jsonschema:"scope a name lookup to this project, then fall back to global"`
+}
+type getNodeOut struct {
+	Found bool      `json:"found"`
+	Node  *nodeDTO  `json:"node,omitempty"`
+	Edges []edgeDTO `json:"edges"`
+}
+
+func getNodeTool(c *core.Core) mcp.ToolHandlerFor[getNodeIn, getNodeOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in getNodeIn) (*mcp.CallToolResult, getNodeOut, error) {
+		det, err := c.GetNode(ctx, in.ID, in.Name, in.Project)
+		if err != nil {
+			return nil, getNodeOut{}, err
+		}
+		if det == nil {
+			ref := in.Name
+			if ref == "" {
+				ref = in.ID
+			}
+			return text(fmt.Sprintf("no entity found for %q", ref)), getNodeOut{Found: false, Edges: []edgeDTO{}}, nil
+		}
+		n := det.Node
+		out := getNodeOut{
+			Found: true,
+			Node: &nodeDTO{
+				ID: n.ID, CanonicalName: n.CanonicalName, Aliases: n.Aliases,
+				Type: n.Type, Discriminators: n.Discriminators, Status: string(n.Status),
+			},
+			Edges: make([]edgeDTO, 0, len(det.Edges)),
+		}
+		for _, e := range det.Edges {
+			out.Edges = append(out.Edges, edgeDTO{
+				From: e.FromName, Type: e.Edge.Type, To: e.ToName,
+				Why: e.Edge.Why, SourceURI: e.Edge.SourceURI, Status: string(e.Edge.Status),
+			})
+		}
+		return text(fmt.Sprintf("%s [%s]: %d alias(es), %d edge(s)", n.CanonicalName, n.Type, len(n.Aliases), len(out.Edges))), out, nil
 	}
 }
 

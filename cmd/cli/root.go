@@ -37,6 +37,7 @@ func newRootCmd() *cobra.Command {
 		healthCmd(),
 		searchCmd(),
 		recallCmd(),
+		nodeCmd(),
 		rememberCmd(),
 		linkCmd(),
 		disambiguateCmd(),

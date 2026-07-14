@@ -349,6 +349,13 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-14** — **`get_node` — direct entity lookup (Tier 2 of #181).** Added a by-name (project-scoped,
+  then global) or by-id read that returns a node's full record (aliases, type, discriminators, status)
+  **plus its edges** — the "I already know this entity; give me its details and relationships" path that
+  `recall` (semantic discovery) didn't serve. `Core.GetNode` wraps existing store reads
+  (`GetNodeByCanonicalNameScoped` / `GetNodeByID` + `EdgesForNode`); exposed as the MCP `get_node` tool,
+  `GET /api/node?name=|id=[&project=]` (404 on miss), and CLI `brainiac node <name> [--id] [--project]`.
+  Complements Tier 1. Remaining: persist node summary **text** (Tier 3, #181).
 - **2026-07-14** — **Recall returns node objects, not bare names (Tier 1 of #181).** `recall` surfaced
   entity nodes as `canonical_name` strings on the agent/human clients (MCP `recallOut.Nodes []string`,
   CLI `nodeNames`, WebUI), discarding aliases/type/discriminators/status even though the core carries

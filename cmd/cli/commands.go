@@ -166,6 +166,62 @@ func recallCmd() *cobra.Command {
 	return cmd
 }
 
+func nodeCmd() *cobra.Command {
+	var project, id string
+	cmd := &cobra.Command{
+		Use:   "node [canonical-name]",
+		Short: "Look up one entity by name or id: its full record (aliases, type) + edges",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var name string
+			if len(args) == 1 {
+				name = args[0]
+			}
+			if name == "" && id == "" {
+				return fmt.Errorf("provide an entity name or --id")
+			}
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			det, err := buildCore(cfg, pool).GetNode(ctx, id, name, project)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if det == nil {
+				fmt.Fprintln(out, "not found")
+				return nil
+			}
+			n := det.Node
+			fmt.Fprintf(out, "%s", n.CanonicalName)
+			if n.Type != "" {
+				fmt.Fprintf(out, " [%s]", n.Type)
+			}
+			fmt.Fprintln(out)
+			if len(n.Aliases) > 0 {
+				fmt.Fprintf(out, "  aliases: %s\n", strings.Join(n.Aliases, ", "))
+			}
+			fmt.Fprintf(out, "  id: %s  status: %s\n", n.ID, n.Status)
+			fmt.Fprintln(out, "edges:")
+			for _, e := range det.Edges {
+				fmt.Fprintf(out, "  %s -%s-> %s", e.FromName, e.Edge.Type, e.ToName)
+				if e.Edge.Why != "" {
+					fmt.Fprintf(out, " (why: %s)", e.Edge.Why)
+				}
+				fmt.Fprintln(out)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "scope the name lookup to this project, then global")
+	cmd.Flags().StringVar(&id, "id", "", "look up by node id instead of name")
+	return cmd
+}
+
 func rememberCmd() *cobra.Command {
 	var typ, summary, project string
 	var aliases, discs []string

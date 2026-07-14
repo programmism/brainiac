@@ -154,6 +154,26 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				writeJSON(w, http.StatusOK, res)
 			})
 
+			// Direct entity lookup by name (+ optional project) or id, with edges.
+			r.Get("/node", func(w http.ResponseWriter, req *http.Request) {
+				qv := req.URL.Query()
+				name, id := qv.Get("name"), qv.Get("id")
+				if name == "" && id == "" {
+					writeError(w, http.StatusBadRequest, errMissingNodeRef)
+					return
+				}
+				det, err := c.GetNode(req.Context(), id, name, qv.Get("project"))
+				if err != nil {
+					handleCoreErr(w, err)
+					return
+				}
+				if det == nil {
+					writeError(w, http.StatusNotFound, errNodeNotFound)
+					return
+				}
+				writeJSON(w, http.StatusOK, det)
+			})
+
 			// Operational snapshot: process footprint, container memory ceiling,
 			// DB size + connection saturation (§9). Read-only, same posture as
 			// the other read endpoints.
@@ -332,6 +352,8 @@ func (e stringError) Error() string { return string(e) }
 
 const (
 	errMissingQ         = stringError("missing required query parameter 'q'")
+	errMissingNodeRef   = stringError("missing required query parameter 'name' or 'id'")
+	errNodeNotFound     = stringError("entity not found")
 	errUnauthorized     = stringError("unauthorized")
 	errNotFound         = stringError("not found")
 	errMethodNotAllowed = stringError("method not allowed")
