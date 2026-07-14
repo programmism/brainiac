@@ -141,15 +141,17 @@ func ProposeNodeMerges(ctx context.Context, db DBTX) ([][]model.Node, error) {
 			typ      *string
 			status   string
 			disc     []byte
+			summary  *string
 			scopeKey string
 			norm     string
 		)
-		if err := rows.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &disc, &n.CreatedAt, &n.LastConfirmedAt, &scopeKey, &norm); err != nil {
+		if err := rows.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &disc, &summary, &n.CreatedAt, &n.LastConfirmedAt, &scopeKey, &norm); err != nil {
 			return nil, err
 		}
 		if typ != nil {
 			n.Type = *typ
 		}
+		n.Summary = deref(summary)
 		n.Status = model.Status(status)
 		n.Discriminators = decodeDiscriminators(disc)
 		// Group boundary is (scope, normalized name); the NUL separator can't
