@@ -8,12 +8,26 @@
 #   ./brainiac health
 #   ./brainiac update                 # health-gated update to the latest release (rolls back on failure)
 #   ./brainiac down | logs
+#   ./brainiac install [dir]          # symlink onto PATH (default /usr/local/bin) so `brainiac` works anywhere
+#   ./brainiac uninstall [dir]        # remove that symlink
 #   ./brainiac mcp-config             # print the Claude Desktop MCP config
 #   ./brainiac instructions           # print the agent memory instruction block
 #
 # Everything else is passed straight to the in-container `kb` CLI.
 set -e
-cd "$(dirname "$0")"
+
+# Resolve this script's real location, following symlinks, then run from there.
+# The wrapper operates on the checkout (docker compose, .env, git), so it must
+# find the checkout even when invoked via a symlink on PATH (`brainiac install`).
+self="$0"
+while [ -L "$self" ]; do
+	link="$(readlink "$self")"
+	case "$link" in
+		/*) self="$link" ;;
+		*)  self="$(dirname "$self")/$link" ;;
+	esac
+done
+cd "$(dirname "$self")"
 
 case "${1:-}" in
 	up)    shift; exec docker compose up -d "$@" ;;
@@ -128,6 +142,42 @@ Keep entity names canonical and consistent so duplicates merge. When unsure whet
 something is already stored, `recall` first to avoid duplicates. At the end of a
 substantive session, briefly list what you saved.
 EOF
+		;;
+	install)
+		# Symlink this wrapper onto PATH so `brainiac` runs from anywhere. It stays
+		# a link to the checkout copy, so `brainiac update` keeps it current — no
+		# reinstall, no per-update system writes.
+		shift
+		dir="${1:-/usr/local/bin}"
+		src="$(pwd)/brainiac"
+		if [ ! -d "$dir" ]; then
+			echo "install: $dir does not exist. Try: brainiac install \"\$HOME/.local/bin\"" >&2
+			exit 1
+		fi
+		if [ ! -w "$dir" ]; then
+			echo "install: $dir is not writable. Re-run with sudo, or install to a user dir:" >&2
+			echo "  sudo ./brainiac install                 # into /usr/local/bin" >&2
+			echo "  ./brainiac install \"\$HOME/.local/bin\"   # no sudo" >&2
+			exit 1
+		fi
+		ln -sf "$src" "$dir/brainiac"
+		echo "installed: $dir/brainiac -> $src"
+		case ":$PATH:" in
+			*":$dir:"*) echo "run 'brainiac' from anywhere; 'brainiac update' keeps it current." ;;
+			*) echo "note: $dir is not on your PATH — add it, then run 'brainiac'." ;;
+		esac
+		;;
+	uninstall)
+		shift
+		dir="${1:-/usr/local/bin}"
+		link="$dir/brainiac"
+		if [ -L "$link" ]; then
+			rm -f "$link"
+			echo "removed: $link"
+		else
+			echo "uninstall: $link is not a symlink installed by brainiac (left untouched)." >&2
+			exit 1
+		fi
 		;;
 	import)
 		# `import` with no extra args defaults to the mounted markdown folder.

@@ -348,6 +348,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-14** — `brainiac install` puts the wrapper on PATH (#176): the `brainiac` helper was runnable
+  only as `./brainiac` from the checkout. Added `install [dir]` / `uninstall [dir]` subcommands that
+  symlink it onto PATH (default `/usr/local/bin`, with PATH + writability checks and a sudo / `~/.local/bin`
+  fallback hint). The script now **resolves its own real path through symlinks** before `cd`-ing to the
+  checkout (a bare symlink would otherwise `cd` to `/usr/local/bin` and miss compose/.env/git). Because the
+  install is a symlink to the checkout copy, `brainiac update` (git checkout in place) keeps the installed
+  command current with no reinstall and no per-update system writes. Shell-only, `sh -n` clean; verified the
+  symlinked invocation resolves back to the real checkout. (#176)
+
 - **2026-07-13** — `WEBUI_MODE` env override (#174): WebUI writes could not be enabled in a standard
   `docker compose` deploy at all — `clients.webui` was settable only via `config.yaml`, but the shipped
   image carries **no config.yaml** (config-less → `Default()` → `read-only`) and compose mounts none. So
