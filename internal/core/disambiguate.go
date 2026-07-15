@@ -28,15 +28,17 @@ func (c *Core) Disambiguate(ctx context.Context, nodeID string, add map[string]s
 	if err := model.ValidateDiscriminators(add); err != nil {
 		return nil, err
 	}
+	// A principal may add facet axes (env, client, …) to its own entity but must
+	// not re-scope the `project` axis — that moves the entity across the wall (#265).
+	if _, ok := add["project"]; ok && PrincipalFrom(ctx) != nil {
+		return nil, ErrForbiddenNamespace
+	}
 
 	var updated *model.Node
 	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
-		node, err := store.GetNodeByID(ctx, db, nodeID)
+		node, err := c.assertNodeWritable(ctx, db, nodeID)
 		if err != nil {
-			return fmt.Errorf("load node: %w", err)
-		}
-		if node == nil {
-			return fmt.Errorf("node %s not found", nodeID)
+			return err
 		}
 
 		merged := mergeDiscriminators(node.Discriminators, add)

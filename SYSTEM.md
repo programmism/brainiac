@@ -356,6 +356,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Enforce the isolation wall on all by-id mutations (#265, security P0).** The Layer-2
+  wall was enforced on reads and on name-scoped writes, but the by-id mutations — `Supersede`,
+  `Disambiguate`, `Split`, `ApplyMerge`, and proposal `ApproveNode`/`RejectNode` — had **no** principal
+  check, so a principal could re-scope, supersede, or merge a node in another namespace by guessing its id
+  (cross-namespace takeover). Fix: `assertNodeWritable(ctx, db, id)` loads the node and rejects
+  (`ErrForbiddenNamespace`) when `node.project != principal.Write`; every by-id mutation now calls it. Plus a
+  principal may not re-scope the **`project`** axis (via disambiguate's `add` or split's `axis`) — that moves
+  an entity across the wall. Operators (no principal) are unaffected. DB-gated test in
+  `internal/core/mutation_wall_test.go`.
 - **2026-07-15** — **nomic task-instruction prefixes (#210, retrieval P0).** `nomic-embed-text` is trained
   for asymmetric retrieval and requires `search_query:` / `search_document:` prefixes; we were embedding
   both queries and documents raw, silently degrading recall corpus-wide and making query/doc cosine

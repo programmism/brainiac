@@ -158,12 +158,18 @@ func (c *Core) Proposals(ctx context.Context, limit int) (*ProposalQueue, error)
 
 // ApproveNode promotes a proposed node to current (live in the memory).
 func (c *Core) ApproveNode(ctx context.Context, id string) error {
+	if _, err := c.assertNodeWritable(ctx, c.pool, id); err != nil {
+		return err
+	}
 	return store.UpdateNodeStatus(ctx, c.pool, id, model.StatusCurrent)
 }
 
 // RejectNode retires a proposed node (kept as a historical record, out of every
 // read) rather than deleting it, preserving the trail of what was suggested.
 func (c *Core) RejectNode(ctx context.Context, id string) error {
+	if _, err := c.assertNodeWritable(ctx, c.pool, id); err != nil {
+		return err
+	}
 	return store.UpdateNodeStatus(ctx, c.pool, id, model.StatusHistorical)
 }
 

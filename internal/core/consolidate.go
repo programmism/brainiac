@@ -125,16 +125,14 @@ func (c *Core) ApplyMerge(ctx context.Context, keepID, dropID string) error {
 		return fmt.Errorf("cannot merge a node into itself")
 	}
 	return store.WithTx(ctx, c.pool, func(db store.DBTX) error {
-		keep, err := store.GetNodeByID(ctx, db, keepID)
+		// Both nodes must be in the caller's own namespace (#265).
+		keep, err := c.assertNodeWritable(ctx, db, keepID)
 		if err != nil {
 			return err
 		}
-		drop, err := store.GetNodeByID(ctx, db, dropID)
+		drop, err := c.assertNodeWritable(ctx, db, dropID)
 		if err != nil {
 			return err
-		}
-		if keep == nil || drop == nil {
-			return fmt.Errorf("keep or drop node not found")
 		}
 		merged := mergeAliases(keep.Aliases, append([]string{drop.CanonicalName}, drop.Aliases...))
 		if err := store.UpdateNodeAliases(ctx, db, keep.ID, merged); err != nil {

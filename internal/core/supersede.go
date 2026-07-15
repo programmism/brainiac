@@ -19,6 +19,13 @@ func (c *Core) Supersede(ctx context.Context, oldID, newID, why, author string) 
 		return fmt.Errorf("a node cannot supersede itself")
 	}
 	return store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+		// Both endpoints must be in the caller's own namespace (#265).
+		if _, err := c.assertNodeWritable(ctx, db, oldID); err != nil {
+			return err
+		}
+		if _, err := c.assertNodeWritable(ctx, db, newID); err != nil {
+			return err
+		}
 		if err := store.InsertEdge(ctx, db, &model.Edge{
 			FromID: newID,
 			ToID:   oldID,

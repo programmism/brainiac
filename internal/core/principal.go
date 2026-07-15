@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -141,6 +142,26 @@ func (c *Core) visibleToPrincipal(ctx context.Context, disc map[string]string) b
 		return true
 	}
 	return contains(p.Read, disc["project"])
+}
+
+// assertNodeWritable loads a node by id and rejects a by-id mutation when the
+// caller's principal doesn't own the node's namespace — closing the cross-
+// namespace-takeover gap on supersede/disambiguate/split/merge/proposal-approve,
+// which otherwise operate on arbitrary ids with no wall check (#265). Returns the
+// loaded node so callers avoid a second fetch. An operator (no principal) may
+// mutate any node.
+func (c *Core) assertNodeWritable(ctx context.Context, db store.DBTX, id string) (*model.Node, error) {
+	node, err := store.GetNodeByID(ctx, db, id)
+	if err != nil {
+		return nil, fmt.Errorf("load node %s: %w", id, err)
+	}
+	if node == nil {
+		return nil, fmt.Errorf("node %s not found", id)
+	}
+	if p := PrincipalFrom(ctx); p != nil && node.Discriminators["project"] != p.Write {
+		return nil, ErrForbiddenNamespace
+	}
+	return node, nil
 }
 
 func contains(set []string, v string) bool {
