@@ -351,6 +351,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Migration numbering convention: next number = highest existing prefix + 1; never
+  reuse a prefix.** `0006_node_summary.sql` shipped alongside the pre-existing `0006_proposed_status.sql`
+  — two `0006_*` files. It *runs* (Migrate keys `schema_migrations` by full filename, and the two alter
+  independent objects), but a reused number is confusing and, worse, **unrenamable after shipping**: on
+  any DB that already recorded the file, renaming it makes Migrate re-run its `ADD COLUMN` and fail
+  "already exists". Concrete bite: a DB that had applied a superseded branch's `0007_node_summary.sql`
+  crash-looped on boot when main's `0006_node_summary.sql` tried to re-add the column; fixed by hand
+  (record `0006_node_summary` as applied, drop the stale `0007` row). **Rule going forward:** before
+  adding a migration, `ls internal/store/migrations/` and pick one past the highest numeric prefix — never
+  reuse a number, even across parallel branches (rebase/renumber before merge if two branches both grab N).
 - **2026-07-15** — **Layer 2 hard isolation — foundation (#185, part of #120).** Turned "hard isolation = a
   separate stack per team" into **one server, many namespaces, per-token wall** — the only shape that adds
   value over running a second stack (a shared graph + shared/global layer behind a per-caller wall). Model:
