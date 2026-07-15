@@ -46,15 +46,17 @@ func (c *Core) Split(ctx context.Context, nodeID, axis string, routes map[string
 			return nil, err
 		}
 	}
+	// A principal must not split on the project axis — that would route children
+	// out of its namespace (#265). Facet axes (env, client, …) stay in-namespace.
+	if axis == "project" && PrincipalFrom(ctx) != nil {
+		return nil, ErrForbiddenNamespace
+	}
 
 	result := &SplitResult{}
 	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
-		parent, err := store.GetNodeByID(ctx, db, nodeID)
+		parent, err := c.assertNodeWritable(ctx, db, nodeID)
 		if err != nil {
-			return fmt.Errorf("load node: %w", err)
-		}
-		if parent == nil {
-			return fmt.Errorf("node %s not found", nodeID)
+			return err
 		}
 
 		// One child node per distinct routed value (get-or-create by identity).
