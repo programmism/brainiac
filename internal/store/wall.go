@@ -43,14 +43,12 @@ func (w Wall) arg() any {
 	return w.ns
 }
 
-// projectClause is the wall predicate for a base table with a discriminators
-// jsonb column. paramIdx is the $n position of the wall text[] argument; a NULL
-// argument (Layer 1) disables the clause.
+// projectClause is the wall predicate for a base table with the generated
+// `project` column (migration 0011). paramIdx is the $n position of the wall
+// text[] argument; a NULL argument (Layer 1) disables the clause. Filtering the
+// indexed column (not the jsonb expression) makes it sargable (#226).
 func projectClause(paramIdx int) string {
-	return fmt.Sprintf(
-		`($%d::text[] IS NULL OR COALESCE(NULLIF(discriminators->>'project',''),'') = ANY($%d::text[]))`,
-		paramIdx, paramIdx,
-	)
+	return fmt.Sprintf(`($%d::text[] IS NULL OR project = ANY($%d::text[]))`, paramIdx, paramIdx)
 }
 
 // edgeEndpointsClause is the wall predicate for an edge row aliased `e`: both
@@ -59,9 +57,7 @@ func projectClause(paramIdx int) string {
 // both ends. paramIdx is the $n position of the wall text[] argument.
 func edgeEndpointsClause(paramIdx int) string {
 	return fmt.Sprintf(`($%d::text[] IS NULL OR (
-		EXISTS (SELECT 1 FROM nodes nf WHERE nf.id = e.from_id
-		        AND COALESCE(NULLIF(nf.discriminators->>'project',''),'') = ANY($%d::text[]))
-	AND EXISTS (SELECT 1 FROM nodes nt WHERE nt.id = e.to_id
-		        AND COALESCE(NULLIF(nt.discriminators->>'project',''),'') = ANY($%d::text[]))))`,
+		EXISTS (SELECT 1 FROM nodes nf WHERE nf.id = e.from_id AND nf.project = ANY($%d::text[]))
+	AND EXISTS (SELECT 1 FROM nodes nt WHERE nt.id = e.to_id AND nt.project = ANY($%d::text[]))))`,
 		paramIdx, paramIdx, paramIdx)
 }
