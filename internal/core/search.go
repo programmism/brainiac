@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/programmism/brainiac/internal/model"
+	"github.com/programmism/brainiac/internal/plugins"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -35,7 +36,7 @@ func (c *Core) Search(ctx context.Context, query string, k int, project string) 
 	if k <= 0 {
 		k = DefaultSearchK
 	}
-	emb, err := c.embedder.Embed(ctx, query)
+	emb, err := c.embedQuery(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
@@ -45,6 +46,15 @@ func (c *Core) Search(ctx context.Context, query string, k int, project string) 
 		return nil, err
 	}
 	return filterByDistance(hits), nil
+}
+
+// embedQuery embeds a search query, using the embedder's asymmetric query path
+// (nomic `search_query:` prefix, #210) when it exposes one, else the plain path.
+func (c *Core) embedQuery(ctx context.Context, text string) ([]float32, error) {
+	if qe, ok := c.embedder.(plugins.QueryEmbedder); ok {
+		return qe.EmbedQuery(ctx, text)
+	}
+	return c.embedder.Embed(ctx, text)
 }
 
 // filterByDistance drops chunk hits beyond the relevance cutoff (results are

@@ -107,7 +107,7 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 	// 2b. Vector neighbors, admitted by an absolute cutoff and a relative gap from
 	//     the best hit, so a single strong match isn't diluted by a weakly-similar
 	//     tail (recall precision fix). Hits are sorted nearest-first.
-	emb, err := c.embedder.Embed(ctx, query)
+	emb, err := c.embedQuery(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}

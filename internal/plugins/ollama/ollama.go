@@ -33,6 +33,11 @@ type Embedder struct {
 	client    *http.Client
 	retries   int
 	batchSize int
+	// queryPrefix/docPrefix are task-instruction prefixes for asymmetric-retrieval
+	// models (nomic-embed-text). Empty for symmetric models. Documents (Embed,
+	// EmbedBatch) get docPrefix; queries (EmbedQuery) get queryPrefix (#210).
+	queryPrefix string
+	docPrefix   string
 }
 
 // Option customizes an Embedder.
@@ -68,10 +73,23 @@ func New(baseURL, model string, dims int, opts ...Option) *Embedder {
 		retries:   DefaultRetries,
 		batchSize: DefaultBatchSize,
 	}
+	// nomic-embed-text is trained for asymmetric retrieval and REQUIRES these task
+	// prefixes; default them by model name so the common deploy is correct out of
+	// the box. Options can override (e.g. WithTaskPrefixes("","") to disable).
+	if strings.Contains(model, "nomic-embed") {
+		e.queryPrefix = "search_query: "
+		e.docPrefix = "search_document: "
+	}
 	for _, o := range opts {
 		o(e)
 	}
 	return e
+}
+
+// WithTaskPrefixes sets the query/document task-instruction prefixes explicitly
+// (pass "","" to disable for a symmetric model).
+func WithTaskPrefixes(query, doc string) Option {
+	return func(e *Embedder) { e.queryPrefix, e.docPrefix = query, doc }
 }
 
 // Dims returns the embedding dimensionality.
@@ -122,8 +140,20 @@ func (e *Embedder) withRetries(ctx context.Context, fn func() error) error {
 	return lastErr
 }
 
-// Embed returns the vector for a single text (query path).
+// Embed returns the vector for a single document (storage/index path); the text
+// is prefixed with the document task instruction for asymmetric models (#210).
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	return e.embed(ctx, e.docPrefix+text)
+}
+
+// EmbedQuery returns the vector for a search query, prefixed with the query task
+// instruction so query/document distances are comparable (nomic asymmetric
+// retrieval, #210). It satisfies plugins.QueryEmbedder.
+func (e *Embedder) EmbedQuery(ctx context.Context, text string) ([]float32, error) {
+	return e.embed(ctx, e.queryPrefix+text)
+}
+
+func (e *Embedder) embed(ctx context.Context, text string) ([]float32, error) {
 	var vec []float32
 	err := e.withRetries(ctx, func() error {
 		v, err := e.embedOnce(ctx, text)
@@ -147,13 +177,21 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 	if size < 1 {
 		size = DefaultBatchSize
 	}
-	out := make([][]float32, 0, len(texts))
-	for start := 0; start < len(texts); start += size {
-		end := start + size
-		if end > len(texts) {
-			end = len(texts)
+	// Documents get the document task prefix (#210); avoid mutating the caller's slice.
+	prefixed := texts
+	if e.docPrefix != "" {
+		prefixed = make([]string, len(texts))
+		for i, t := range texts {
+			prefixed[i] = e.docPrefix + t
 		}
-		batch := texts[start:end]
+	}
+	out := make([][]float32, 0, len(prefixed))
+	for start := 0; start < len(prefixed); start += size {
+		end := start + size
+		if end > len(prefixed) {
+			end = len(prefixed)
+		}
+		batch := prefixed[start:end]
 		var vecs [][]float32
 		err := e.withRetries(ctx, func() error {
 			v, err := e.embedBatchOnce(ctx, batch)
