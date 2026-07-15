@@ -23,19 +23,19 @@ func DeleteNamespace(ctx context.Context, db DBTX, namespace string) (DeleteCoun
 		WHERE EXISTS (
 			SELECT 1 FROM nodes n
 			WHERE (n.id = e.from_id OR n.id = e.to_id)
-			  AND COALESCE(NULLIF(n.discriminators->>'project',''),'') = ANY($1::text[]))`, arg)
+			  AND n.project = ANY($1::text[]))`, arg)
 	if err != nil {
 		return c, err
 	}
 	c.Edges = et.RowsAffected()
 
-	nt, err := db.Exec(ctx, `DELETE FROM nodes WHERE COALESCE(NULLIF(discriminators->>'project',''),'') = ANY($1::text[])`, arg)
+	nt, err := db.Exec(ctx, `DELETE FROM nodes WHERE project = ANY($1::text[])`, arg)
 	if err != nil {
 		return c, err
 	}
 	c.Nodes = nt.RowsAffected()
 
-	ct, err := db.Exec(ctx, `DELETE FROM chunks WHERE COALESCE(NULLIF(discriminators->>'project',''),'') = ANY($1::text[])`, arg)
+	ct, err := db.Exec(ctx, `DELETE FROM chunks WHERE project = ANY($1::text[])`, arg)
 	if err != nil {
 		return c, err
 	}
