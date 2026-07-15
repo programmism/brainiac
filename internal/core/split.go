@@ -96,7 +96,7 @@ func (c *Core) Split(ctx context.Context, nodeID, axis string, routes map[string
 		}
 
 		// Retire the parent if it has no current edges left.
-		remaining, err := store.EdgesForNode(ctx, db, parent.ID, false, 1)
+		remaining, err := store.EdgesForNode(ctx, db, parent.ID, false, 1, store.NoWall())
 		if err != nil {
 			return fmt.Errorf("check remaining edges: %w", err)
 		}

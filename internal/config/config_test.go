@@ -35,6 +35,49 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestPrincipalValidationAndMapping(t *testing.T) {
+	base := Default()
+	base.Storage.DSN = "postgres://x"
+
+	// A principal missing its token fails validation.
+	c := base
+	c.Principals = []PrincipalConfig{{Name: "team-a", Read: []string{"team-a"}, Write: "team-a"}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("principal with no token should fail validation")
+	}
+
+	// A well-formed roster validates and maps to core principals keyed by token,
+	// with the "global" read alias normalized to "".
+	c.Principals[0].Token = "tok-a"
+	c.Principals = append(c.Principals, PrincipalConfig{Name: "platform", Read: []string{"team-a", "global"}, Write: "platform", Token: "tok-p"})
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid roster rejected: %v", err)
+	}
+	m := c.BuildPrincipals()
+	if len(m) != 2 || m["tok-a"] == nil || m["tok-p"] == nil {
+		t.Fatalf("principal map wrong: %+v", m)
+	}
+	got := m["tok-p"].Read
+	if len(got) != 2 || got[0] != "team-a" || got[1] != "" {
+		t.Fatalf("global alias not normalized to \"\": %+v", got)
+	}
+
+	// A reused token is rejected (would conflate two identities).
+	c.Principals[1].Token = "tok-a"
+	if err := c.Validate(); err == nil {
+		t.Fatal("duplicate token should fail validation")
+	}
+}
+
+func TestEnvKey(t *testing.T) {
+	cases := map[string]string{"team-a": "TEAM_A", "Platform": "PLATFORM", "a.b c": "A_B_C"}
+	for in, want := range cases {
+		if got := envKey(in); got != want {
+			t.Errorf("envKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestValidateEmbeddingFields(t *testing.T) {
 	c := Default()
 	c.Storage.DSN = "postgres://x"

@@ -34,6 +34,11 @@ func (c *Core) Link(ctx context.Context, in LinkInput) (*model.Edge, error) {
 	if err := model.ValidateDiscriminators(in.Discriminators); err != nil {
 		return nil, err
 	}
+	disc, err := c.pinWrite(ctx, in.Discriminators)
+	if err != nil {
+		return nil, err
+	}
+	in.Discriminators = disc
 	edge := &model.Edge{
 		Type:          in.Type,
 		Why:           in.Why,
@@ -41,7 +46,7 @@ func (c *Core) Link(ctx context.Context, in LinkInput) (*model.Edge, error) {
 		SourceLocator: in.SourceLocator,
 		Author:        in.Author,
 	}
-	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+	err = store.WithTx(ctx, c.pool, func(db store.DBTX) error {
 		from, err := ensureNode(ctx, db, in.From, in.Discriminators)
 		if err != nil {
 			return fmt.Errorf("resolve from-node: %w", err)

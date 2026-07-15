@@ -36,7 +36,8 @@ func (c *Core) Graph(ctx context.Context, limit int) (*GraphView, error) {
 	if limit <= 0 {
 		limit = DefaultGraphLimit
 	}
-	nodes, edges, err := store.GraphSnapshot(ctx, c.pool, limit)
+	_, wall := c.readScope(ctx, "")
+	nodes, edges, err := store.GraphSnapshot(ctx, c.pool, limit, wall)
 	if err != nil {
 		return nil, err
 	}

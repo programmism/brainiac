@@ -70,14 +70,14 @@ func UpdateEdgeStatus(ctx context.Context, db DBTX, id string, status model.Stat
 // most recent first. With includeHistorical, superseded edges are included (for
 // the "why we changed our minds" history, §10, §11.2). The limit bounds recall
 // on hub nodes (#73).
-func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical bool, limit int) ([]model.Edge, error) {
-	q := `SELECT ` + edgeCols + ` FROM edges WHERE (from_id = $1 OR to_id = $1)`
+func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical bool, limit int, wall Wall) ([]model.Edge, error) {
+	q := `SELECT ` + edgeCols + ` FROM edges e WHERE (from_id = $1 OR to_id = $1)`
 	if !includeHistorical {
 		q += ` AND status = 'current'`
 	}
-	q += ` ORDER BY created_at DESC LIMIT $2`
+	q += ` AND ` + edgeEndpointsClause(3) + ` ORDER BY created_at DESC LIMIT $2`
 
-	rows, err := db.Query(ctx, q, nodeID, limit)
+	rows, err := db.Query(ctx, q, nodeID, limit, wall.arg())
 	if err != nil {
 		return nil, err
 	}
@@ -96,8 +96,8 @@ func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical
 
 // GraphSnapshot returns up to limit current nodes and the current edges among
 // them, for visualization.
-func GraphSnapshot(ctx context.Context, db DBTX, limit int) ([]model.Node, []model.Edge, error) {
-	nrows, err := db.Query(ctx, `SELECT `+nodeCols+` FROM nodes WHERE status = 'current' ORDER BY created_at LIMIT $1`, limit)
+func GraphSnapshot(ctx context.Context, db DBTX, limit int, wall Wall) ([]model.Node, []model.Edge, error) {
+	nrows, err := db.Query(ctx, `SELECT `+nodeCols+` FROM nodes WHERE status = 'current' AND `+projectClause(2)+` ORDER BY created_at LIMIT $1`, limit, wall.arg())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -114,7 +114,7 @@ func GraphSnapshot(ctx context.Context, db DBTX, limit int) ([]model.Node, []mod
 		return nil, nil, err
 	}
 
-	erows, err := db.Query(ctx, `SELECT `+edgeCols+` FROM edges WHERE status = 'current' ORDER BY created_at LIMIT $1`, limit*4)
+	erows, err := db.Query(ctx, `SELECT `+edgeCols+` FROM edges e WHERE status = 'current' AND `+edgeEndpointsClause(2)+` ORDER BY created_at LIMIT $1`, limit*4, wall.arg())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -132,13 +132,14 @@ func GraphSnapshot(ctx context.Context, db DBTX, limit int) ([]model.Node, []mod
 
 // GetChunksBySourceURI returns up to limit chunks sharing a source URI — the raw
 // text behind an edge's provenance (§10 step 3).
-func GetChunksBySourceURI(ctx context.Context, db DBTX, uri string, limit int) ([]model.Chunk, error) {
+func GetChunksBySourceURI(ctx context.Context, db DBTX, uri string, limit int, wall Wall) ([]model.Chunk, error) {
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier, content_hash, created_at, source_modified_at
 		FROM chunks
 		WHERE source_uri = $1 AND tier = 'hot'
+		  AND `+projectClause(3)+`
 		ORDER BY created_at
-		LIMIT $2`, uri, limit)
+		LIMIT $2`, uri, limit, wall.arg())
 	if err != nil {
 		return nil, err
 	}

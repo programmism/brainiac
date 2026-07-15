@@ -22,8 +22,19 @@ type ImportFunc func(ctx context.Context, source, target, project string) (core.
 
 // New builds an MCP server exposing search/remember/link/recall/supersede (and
 // ingest, if importFn is set) over the given core.
-func New(c *core.Core, importFn ImportFunc) *mcp.Server {
+// principal, when non-nil, is the single hard-isolation identity this stdio
+// process runs as (#120): a receiving middleware binds it to every tool call's
+// context so core walls reads / pins writes. Nil = Layer 1.
+func New(c *core.Core, importFn ImportFunc, principal *core.Principal) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "brainiac", Version: core.Version}, nil)
+
+	if principal != nil {
+		s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+			return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+				return next(core.WithPrincipal(ctx, principal), method, req)
+			}
+		})
+	}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "search",

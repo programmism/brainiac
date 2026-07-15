@@ -320,7 +320,7 @@ func TestRetireEdgeResolvesConflict(t *testing.T) {
 	if err != nil || from == nil {
 		t.Fatalf("get node: %v", err)
 	}
-	currentEdges, err := store.EdgesForNode(ctx, pool, from.ID, false, 50)
+	currentEdges, err := store.EdgesForNode(ctx, pool, from.ID, false, 50, store.NoWall())
 	if err != nil {
 		t.Fatalf("current edges: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestRetireEdgeResolvesConflict(t *testing.T) {
 			t.Fatalf("retired edge %s still current", conf.EdgeB)
 		}
 	}
-	histEdges, err := store.EdgesForNode(ctx, pool, from.ID, true, 50)
+	histEdges, err := store.EdgesForNode(ctx, pool, from.ID, true, 50, store.NoWall())
 	if err != nil {
 		t.Fatalf("edges incl history: %v", err)
 	}

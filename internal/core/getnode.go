@@ -25,15 +25,22 @@ func (c *Core) GetNode(ctx context.Context, id, name, project string) (*NodeDeta
 		node *model.Node
 		err  error
 	)
+	_, wall := c.readScope(ctx, project)
 	switch {
 	case id != "":
 		node, err = store.GetNodeByID(ctx, c.pool, id)
 	case name != "":
-		scopeKey := model.ScopeKey(discFromProject(project))
-		node, err = store.GetNodeByCanonicalNameScoped(ctx, c.pool, name, scopeKey)
-		if err == nil && node == nil && scopeKey != "" {
-			// A project name lookup falls back to the global entity of that name.
-			node, err = store.GetNodeByCanonicalNameScoped(ctx, c.pool, name, "")
+		if PrincipalFrom(ctx) != nil {
+			// Under a principal a bare name resolves within the caller's readable
+			// namespace(s), not the global scope (#120).
+			node, err = store.GetNodeByNameWalled(ctx, c.pool, name, wall)
+		} else {
+			scopeKey := model.ScopeKey(discFromProject(project))
+			node, err = store.GetNodeByCanonicalNameScoped(ctx, c.pool, name, scopeKey)
+			if err == nil && node == nil && scopeKey != "" {
+				// A project name lookup falls back to the global entity of that name.
+				node, err = store.GetNodeByCanonicalNameScoped(ctx, c.pool, name, "")
+			}
 		}
 	default:
 		return nil, nil
@@ -44,8 +51,13 @@ func (c *Core) GetNode(ctx context.Context, id, name, project string) (*NodeDeta
 	if node == nil {
 		return nil, nil
 	}
+	// Withhold a node outside the caller's read wall — an id/name guess across the
+	// wall must read as "not found", never leak the row (#120).
+	if !c.visibleToPrincipal(ctx, node.Discriminators) {
+		return nil, nil
+	}
 
-	edges, err := store.EdgesForNode(ctx, c.pool, node.ID, true, maxEdgesPerNode)
+	edges, err := store.EdgesForNode(ctx, c.pool, node.ID, true, maxEdgesPerNode, wall)
 	if err != nil {
 		return nil, fmt.Errorf("get node edges: %w", err)
 	}

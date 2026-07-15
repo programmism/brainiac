@@ -47,7 +47,7 @@ func TestExtractProposesThenApprove(t *testing.T) {
 	}
 
 	// Invisible to the live graph while proposed.
-	gn, ge, err := store.GraphSnapshot(ctx, pool, 100)
+	gn, ge, err := store.GraphSnapshot(ctx, pool, 100, store.NoWall())
 	if err != nil {
 		t.Fatalf("graph snapshot: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestExtractProposesThenApprove(t *testing.T) {
 	if err := c.ApproveEdge(ctx, q.Edges[0].ID); err != nil {
 		t.Fatalf("approve edge: %v", err)
 	}
-	gn, ge, err = store.GraphSnapshot(ctx, pool, 100)
+	gn, ge, err = store.GraphSnapshot(ctx, pool, 100, store.NoWall())
 	if err != nil {
 		t.Fatalf("graph snapshot 2: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestExtractReviewOffWritesLive(t *testing.T) {
 	if _, _, err := c.extractChunk(ctx, "OrderService writes to OrdersDB", "src://doc1", nil); err != nil {
 		t.Fatalf("extractChunk: %v", err)
 	}
-	gn, ge, err := store.GraphSnapshot(ctx, pool, 100)
+	gn, ge, err := store.GraphSnapshot(ctx, pool, 100, store.NoWall())
 	if err != nil {
 		t.Fatalf("graph snapshot: %v", err)
 	}

@@ -49,12 +49,42 @@ func run() error {
 
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
 	c := core.New(pool, embedder, density.New(), extractorOptions(cfg)...)
-	srv := mcpserver.New(c, importFunc(c, cfg))
+	principal, err := selectPrincipal(cfg)
+	if err != nil {
+		return err
+	}
+	if principal != nil {
+		log.Printf("hard isolation ON: this process runs as principal %q — reads walled, writes pinned to %q (#120)", principal.Name, principal.Write)
+	}
+	srv := mcpserver.New(c, importFunc(c, cfg), principal)
 
 	// stdio: logs must go to stderr so they don't corrupt the protocol stream.
 	log.SetOutput(os.Stderr)
 	log.Printf("brainiac-mcp %s: serving over stdio", core.Version)
 	return srv.Run(ctx, &mcp.StdioTransport{})
+}
+
+// selectPrincipal resolves which hard-isolation identity this stdio process runs
+// as (#120). No principals configured → nil (Layer 1). BRAINIAC_PRINCIPAL names
+// one explicitly; with exactly one configured it is used by default; with several
+// configured and no name set it is an error (the process must not guess which
+// namespace it speaks for).
+func selectPrincipal(cfg *config.Config) (*core.Principal, error) {
+	if !cfg.PrincipalsEnabled() {
+		return nil, nil
+	}
+	name := os.Getenv("BRAINIAC_PRINCIPAL")
+	if name == "" {
+		if len(cfg.Principals) == 1 {
+			return cfg.PrincipalByName(cfg.Principals[0].Name), nil
+		}
+		return nil, fmt.Errorf("BRAINIAC_PRINCIPAL must name one of %d configured principals", len(cfg.Principals))
+	}
+	p := cfg.PrincipalByName(name)
+	if p == nil {
+		return nil, fmt.Errorf("BRAINIAC_PRINCIPAL=%q is not a configured principal", name)
+	}
+	return p, nil
 }
 
 // extractorOptions builds the optional local-LLM extractor wiring from config.

@@ -351,6 +351,28 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Layer 2 hard isolation — foundation (#185, part of #120).** Turned "hard isolation = a
+  separate stack per team" into **one server, many namespaces, per-token wall** — the only shape that adds
+  value over running a second stack (a shared graph + shared/global layer behind a per-caller wall). Model:
+  a bearer token → a `Principal{Read: []namespace, Write: namespace}`; namespace = the `project`
+  discriminator value (**no migration** — reuses the Layer 1 identity columns). Decisions: (1) enforcement
+  lives in the **core**, not an HTTP filter — a `Principal` rides on `context.Context` (`core.WithPrincipal`,
+  set by HTTP `principalAuth` per request and by the MCP process from config), and `readScope`/`pinWrite` are
+  the single choke points; a compiler-forced `store.Wall` on every multi-row read (`SearchChunks`,
+  `FindNodesByMention`, `FindSimilarNodes`, `EdgesForNode`, `GraphSnapshot`, `GetChunksBySourceURI`) means a
+  future read can't silently skip the wall. (2) Wall predicate is on `discriminators->>'project'` (not the
+  exact `scope_key`) so it walls multi-axis rows (`project=A;env=prod`) correctly; `$wall IS NULL` is the
+  Layer-1 sentinel. (3) **Edges** have no scope column → an edge is visible only when **both** endpoints are
+  in the wall, so a cross-namespace edge is hidden. (4) Single-node `get_node` lookups post-filter in core
+  (row fetched but withheld) so an id/name guess across the wall reads as "not found", never a leak. (5)
+  **Secure global default** — a namespace-scoped principal sees global only if its read-set explicitly lists
+  it. (6) **Write-pin** — remember/link/ingest force the `project` axis to the principal's single write
+  target; a caller naming another namespace is rejected (`ErrForbiddenNamespace`), not silently redirected.
+  (7) Under isolation the HTTP surface requires a principal token for **reads too**, and the operator-only
+  id-based curation write group is not mounted (crosses namespaces; deferred to #188). Off by default: no
+  `principals:` configured ⇒ Layer 1, byte-identical (proven by `TestNilPrincipalIsLayer1`). DB-gated tests
+  in `internal/core/isolation_test.go`. Follow-ups: #186 quotas, #187 export, #188 delete/handoff, #189 WebUI
+  read-auth.
 - **2026-07-14** — **Persist node summary text (Tier 3 of #181 — closes it).** A node's description was
   embedded into `summary_embedding` and the prose thrown away, so "describe X" had no text to return and a
   node could not cite itself; the only human-readable fields were name/aliases/type. Fix: a `summary text`
@@ -916,5 +938,8 @@ Newest first.
     shipped), not a declared-upfront vocabulary. Descriptive **facets** are not identity.
   - **Visibility** (should you see across projects) — **soft by default**: one graph, a per-project recall/search
     lens over chunks + nodes that widens on demand (#119 shipped — pass `project` to scope, omit to span all).
-    **Hard** isolation (read-scope + security) stays a future, opt-in Layer 2 for privacy/compliance/multi-tenant
-    (#120); until then, hard isolation = a separate stack per team.
+    **Hard** isolation (read-scope + security) is now an opt-in Layer 2 for privacy/compliance/multi-tenant —
+    **foundation shipped** (#185, part of #120): one server serves many namespaces behind a **per-token
+    principal** wall, enforced in the core. Follow-ups tracked separately: per-namespace quotas (#186),
+    export/backup (#187), whole-namespace delete + handoff (#188), WebUI read-auth (#189). Off by default
+    (no principals ⇒ Layer 1, unchanged).

@@ -49,6 +49,11 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 	if err := model.ValidateDiscriminators(in.Discriminators); err != nil {
 		return nil, err
 	}
+	disc, err := c.pinWrite(ctx, in.Discriminators)
+	if err != nil {
+		return nil, err
+	}
+	in.Discriminators = disc
 	scope := model.ScopeKey(in.Discriminators)
 	existing, err := store.GetNodeByCanonicalNameScoped(ctx, c.pool, in.CanonicalName, scope)
 	if err != nil {
@@ -130,7 +135,7 @@ func (c *Core) findDuplicates(ctx context.Context, name, scope string, emb []flo
 	}
 
 	if emb != nil {
-		hits, err := store.FindSimilarNodes(ctx, c.pool, emb, 5, store.ExactScope(scope))
+		hits, err := store.FindSimilarNodes(ctx, c.pool, emb, 5, store.ExactScope(scope), store.NoWall())
 		if err != nil {
 			return nil, fmt.Errorf("semantic dedup: %w", err)
 		}

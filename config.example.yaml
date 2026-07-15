@@ -47,3 +47,18 @@ clients:
   mcp: true
   webui: read-only            # -> interactive later
   cli: true
+
+# principals — OPT-IN Layer 2 hard isolation (#120). Omit for Layer 1 (open
+# reads, single AUTH_TOKEN gates writes) — the default. When present, ONE server
+# serves many namespaces: every /api call needs a principal's bearer token, reads
+# are walled to its `read` namespaces, and writes are pinned to its single `write`
+# namespace. A namespace is a `project` value; "global" (or "") is shared data,
+# visible only to a principal that lists it in `read`.
+# principals:
+#   - name: team-a
+#     read:  [team-a]           # namespaces this token may read
+#     write: team-a             # single namespace its writes are pinned to
+#     # token: secret           # prefer PRINCIPAL_TOKEN_TEAM_A in the environment
+#   - name: platform
+#     read:  [team-a, team-b, global]   # an operator that reads several + global
+#     write: platform
