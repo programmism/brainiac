@@ -44,6 +44,7 @@ func newRootCmd() *cobra.Command {
 		supersedeCmd(),
 		importCmd(),
 		consolidateCmd(),
+		exportCmd(),
 		mergeCmd(),
 		splitCmd(),
 		retireEdgeCmd(),
