@@ -351,6 +351,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Per-namespace storage quotas (#186, part of #120).** A principal's namespace can cap
+  its row counts: `max_nodes` / `max_chunks` on the principal (0 = unlimited). Enforced in the core at write
+  time against the live count — `checkNodeQuota` before a *new* node in remember/link (so a link between two
+  existing nodes at cap still succeeds, only new endpoints count), `checkChunkQuota` in ingest *after* the
+  stale-chunk delete (a re-ingest that replaces content isn't wrongly rejected). Over-cap writes return
+  `ErrQuotaExceeded`. No principal or a 0 cap = unlimited (Layer 1 unchanged). **Rate limiting** (requests/s)
+  is deliberately out of scope here — it belongs at the proxy/middleware layer, orthogonal to the storage
+  quota; #186 covers the row-count half. DB-gated tests in `internal/core/quota_test.go`.
 - **2026-07-15** — **Per-namespace export (#187, part of #120).** A namespace backup/hand-off:
   `Core.ExportNamespace(project)` dumps all nodes + edges + chunks in one project as portable JSON, reusing
   the Layer 2 wall predicate as the `WHERE` (`store.Export{Nodes,Edges,Chunks}`). Edges follow the same

@@ -216,6 +216,11 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 			return err
 		}
 		deleted = d
+		// Enforce the namespace chunk quota after the stale-chunk delete, so a
+		// re-ingest that replaces content isn't wrongly rejected (#186).
+		if err := checkChunkQuota(ctx, db, len(inserts)); err != nil {
+			return err
+		}
 		for _, ch := range inserts {
 			if err := store.InsertChunk(ctx, db, ch); err != nil {
 				return err

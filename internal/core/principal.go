@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -20,11 +21,54 @@ type Principal struct {
 	Name  string
 	Read  []string // project namespaces this token may read ("" = global)
 	Write string   // single namespace all writes are pinned to
+	// MaxNodes / MaxChunks cap how many rows this principal's namespace may hold
+	// (#186). 0 = unlimited. Enforced at write time against the live row count.
+	MaxNodes  int
+	MaxChunks int
 }
 
 // ErrForbiddenNamespace is returned when a caller tries to write into a namespace
 // other than its principal's single write target.
 var ErrForbiddenNamespace = errors.New("write outside principal's namespace")
+
+// ErrQuotaExceeded is returned when a write would push a principal's namespace
+// past its configured row quota (#186).
+var ErrQuotaExceeded = errors.New("namespace quota exceeded")
+
+// checkNodeQuota rejects a new-node write that would exceed the principal's node
+// quota. No principal or a zero cap means unlimited. Counting uses the given db so
+// it sees uncommitted rows inside a link transaction.
+func checkNodeQuota(ctx context.Context, db store.DBTX) error {
+	p := PrincipalFrom(ctx)
+	if p == nil || p.MaxNodes == 0 {
+		return nil
+	}
+	n, err := store.CountNodes(ctx, db, store.Namespaces([]string{p.Write}))
+	if err != nil {
+		return fmt.Errorf("node quota check: %w", err)
+	}
+	if n >= p.MaxNodes {
+		return fmt.Errorf("%w: %s at %d/%d nodes", ErrQuotaExceeded, p.Write, n, p.MaxNodes)
+	}
+	return nil
+}
+
+// checkChunkQuota rejects an ingest that would push the principal's namespace past
+// its chunk quota. adding is how many new chunks the caller is about to insert.
+func checkChunkQuota(ctx context.Context, db store.DBTX, adding int) error {
+	p := PrincipalFrom(ctx)
+	if p == nil || p.MaxChunks == 0 {
+		return nil
+	}
+	n, err := store.CountChunks(ctx, db, store.Namespaces([]string{p.Write}))
+	if err != nil {
+		return fmt.Errorf("chunk quota check: %w", err)
+	}
+	if n+adding > p.MaxChunks {
+		return fmt.Errorf("%w: %s would reach %d/%d chunks", ErrQuotaExceeded, p.Write, n+adding, p.MaxChunks)
+	}
+	return nil
+}
 
 type principalKey struct{}
 

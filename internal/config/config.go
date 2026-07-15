@@ -44,6 +44,9 @@ type PrincipalConfig struct {
 	Read  []string `yaml:"read"`  // project namespaces; "" or "global" = shared/global
 	Write string   `yaml:"write"` // single write target namespace
 	Token string   `yaml:"token,omitempty"`
+	// MaxNodes / MaxChunks cap the namespace's row counts (#186). 0 = unlimited.
+	MaxNodes  int `yaml:"max_nodes,omitempty"`
+	MaxChunks int `yaml:"max_chunks,omitempty"`
 }
 
 // PrincipalsEnabled reports whether hard isolation (Layer 2) is configured.
@@ -57,7 +60,7 @@ func (c *Config) BuildPrincipals() map[string]*core.Principal {
 	}
 	m := make(map[string]*core.Principal, len(c.Principals))
 	for _, p := range c.Principals {
-		m[p.Token] = &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write}
+		m[p.Token] = &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write, MaxNodes: p.MaxNodes, MaxChunks: p.MaxChunks}
 	}
 	return m
 }
@@ -67,7 +70,7 @@ func (c *Config) BuildPrincipals() map[string]*core.Principal {
 func (c *Config) PrincipalByName(name string) *core.Principal {
 	for _, p := range c.Principals {
 		if p.Name == name {
-			return &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write}
+			return &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write, MaxNodes: p.MaxNodes, MaxChunks: p.MaxChunks}
 		}
 	}
 	return nil

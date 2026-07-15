@@ -75,6 +75,11 @@ func ensureNode(ctx context.Context, db store.DBTX, name string, disc map[string
 	if n != nil {
 		return n, nil
 	}
+	// A new endpoint counts against the namespace node quota (#186); count within
+	// the tx so the two endpoints of one link see each other.
+	if err := checkNodeQuota(ctx, db); err != nil {
+		return nil, err
+	}
 	n = &model.Node{CanonicalName: name, Discriminators: disc}
 	if err := store.InsertNode(ctx, db, n); err != nil {
 		return nil, err

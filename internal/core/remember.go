@@ -94,6 +94,9 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 		return nil, err
 	}
 
+	if err := checkNodeQuota(ctx, c.pool); err != nil {
+		return nil, err
+	}
 	node := &model.Node{
 		CanonicalName:    in.CanonicalName,
 		Type:             normalizeType(in.Type), // canonicalize separator/case variants (#156)
