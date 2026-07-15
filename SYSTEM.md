@@ -351,6 +351,13 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **WebUI auth under hard isolation (#189, part of #120).** With principals on, every
+  `/api` read is walled, but the WebUI only sent its token on *writes* — so the search/graph tabs 401'd and
+  the token bar only appeared in write mode. Fix: `getJSON` now sends `Authorization: Bearer <token>` on
+  reads too (a harmless ignored header in Layer 1); `/api/capabilities` stays **public** even under isolation
+  (booleans only, no memory data — `principalAuth` allow-lists it) and gained `auth_required`, so the WebUI
+  shows the token bar and prompts for a token before it has one, then refreshes the active tab once saved.
+  Thin-adapter change only.
 - **2026-07-15** — **Migration numbering convention: next number = highest existing prefix + 1; never
   reuse a prefix.** `0006_node_summary.sql` shipped alongside the pre-existing `0006_proposed_status.sql`
   — two `0006_*` files. It *runs* (Migrate keys `schema_migrations` by full filename, and the two alter

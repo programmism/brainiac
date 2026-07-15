@@ -54,7 +54,9 @@ type Options struct {
 // New builds the HTTP handler:
 //   - GET /healthz — liveness.
 //   - GET /readyz  — readiness (DB-gated; embedder reported, not fatal — §11).
-//   - GET /api/capabilities — {writable}, so the WebUI can gate its controls.
+//   - GET /api/capabilities — {writable, auth_required}, so the WebUI can gate
+//     its controls and learn whether a token is required (public even under
+//     hard isolation).
 //   - GET /api/health, /api/system, /api/search, /api/recall, /api/graph,
 //     /api/consolidate, /api/proposals — read REST.
 //   - GET /api/logs — recent app + access logs, only when a log sink is set (#166).
@@ -118,9 +120,11 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			})
 
 			// Capabilities: what the current deployment allows, so the UI can gate
-			// its controls. No DB, always available.
+			// its controls. No DB; kept PUBLIC even under hard isolation (booleans
+			// only, no memory data) so the WebUI can learn a token is required and
+			// prompt for one — principalAuth allow-lists this path.
 			r.Get("/capabilities", func(w http.ResponseWriter, _ *http.Request) {
-				writeJSON(w, http.StatusOK, map[string]bool{"writable": writeEnabled})
+				writeJSON(w, http.StatusOK, map[string]bool{"writable": writeEnabled, "auth_required": hardIso})
 			})
 
 			r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
@@ -403,6 +407,12 @@ func principalAuth(principals map[string]*core.Principal) func(http.Handler) htt
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Capabilities stays public so the WebUI can discover that a token is
+			// required before it has one (booleans only, no memory data).
+			if r.Method == http.MethodGet && r.URL.Path == "/api/capabilities" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			got := []byte(r.Header.Get("Authorization"))
 			var match *core.Principal
 			for _, e := range entries {

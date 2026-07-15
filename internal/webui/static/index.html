@@ -69,7 +69,7 @@
       <div class="tab" data-tab="logs">Logs</div>
     </div>
     <div class="auth" id="auth-bar">
-      <input type="password" id="auth-token" placeholder="AUTH_TOKEN (for write actions)" autocomplete="off" />
+      <input type="password" id="auth-token" placeholder="access token (writes; also reads under isolation)" autocomplete="off" />
       <button onclick="saveToken()">Save</button>
       <span id="auth-status" class="help" style="margin:0"></span>
     </div>
@@ -140,21 +140,36 @@
     // unless the server runs interactive with a token AND the operator pastes that
     // token here; it is kept in localStorage and sent as a Bearer header, never
     // embedded in the served page (#168).
-    let CAPS = { writable: false };
+    let CAPS = { writable: false, authRequired: false };
     const authToken = () => localStorage.getItem('brainiac_token') || '';
     function saveToken() {
       localStorage.setItem('brainiac_token', $('auth-token').value.trim());
-      updateAuthBar();
+      // Re-learn capabilities with the new token (under isolation this is what
+      // unlocks reads) and refresh the active tab.
+      loadCapabilities().then(refreshActiveTab);
+    }
+    function refreshActiveTab() {
+      const active = document.querySelector('.tab.active');
+      if (active) active.onclick();
     }
     async function loadCapabilities() {
-      try { const c = await getJSON('/api/capabilities'); CAPS.writable = !!c.writable; } catch { CAPS.writable = false; }
+      try {
+        const c = await getJSON('/api/capabilities');
+        CAPS.writable = !!c.writable; CAPS.authRequired = !!c.auth_required;
+      } catch { CAPS.writable = false; CAPS.authRequired = false; }
       updateAuthBar();
     }
     function updateAuthBar() {
       const bar = $('auth-bar'), st = $('auth-status');
-      if (!CAPS.writable) { bar.classList.add('hidden'); return; }
+      // Under hard isolation (#120) a token is needed for READS too, so show the
+      // bar whenever auth is required, not just when writes are enabled.
+      if (!CAPS.writable && !CAPS.authRequired) { bar.classList.add('hidden'); return; }
       bar.classList.remove('hidden');
-      st.textContent = authToken() ? 'token set — write actions enabled' : 'paste AUTH_TOKEN to enable write actions';
+      if (CAPS.authRequired) {
+        st.textContent = authToken() ? 'token set — reads and writes use it' : 'paste your namespace token to view and edit memory';
+      } else {
+        st.textContent = authToken() ? 'token set — write actions enabled' : 'paste AUTH_TOKEN to enable write actions';
+      }
     }
     // writeGate returns a banner for action tabs when writes can't work, so buttons
     // don't silently fail; '' when writes are usable.
@@ -177,7 +192,11 @@
     });
 
     async function getJSON(url) {
-      const r = await fetch(url);
+      // Send the token on reads too: under hard isolation (#120) the server walls
+      // every /api call, and in Layer 1 an ignored header is harmless.
+      const tok = authToken();
+      const r = await fetch(url, tok ? { headers: { 'Authorization': 'Bearer ' + tok } } : undefined);
+      if (r.status === 401) throw new Error('unauthorized — paste your token in the field above');
       if (!r.ok) throw new Error((await r.json()).error || r.statusText);
       return r.json();
     }
