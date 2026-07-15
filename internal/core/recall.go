@@ -83,7 +83,7 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 	//    aliases are not embedded), then summary-embedding neighbors that pass the
 	//    relevance cutoffs. Lexical hits rank highest, so their edges are traversed
 	//    first under the budget below.
-	lens := store.LensFor(project)
+	scope, wall := c.readScope(ctx, project)
 	names := make(map[string]string)
 	seenNode := make(map[string]bool)
 	addNode := func(n model.Node) {
@@ -96,7 +96,7 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 	}
 
 	// 2a. Lexical mentions — distance-independent, highest priority.
-	mentioned, err := store.FindNodesByMention(ctx, c.pool, query, minMentionLen, lens)
+	mentioned, err := store.FindNodesByMention(ctx, c.pool, query, minMentionLen, scope, wall)
 	if err != nil {
 		return nil, fmt.Errorf("find nodes by mention: %w", err)
 	}
@@ -111,7 +111,7 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, lens)
+	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, scope, wall)
 	if err != nil {
 		return nil, fmt.Errorf("find nodes: %w", err)
 	}
@@ -134,7 +134,7 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 		if len(res.Edges) >= maxRecallEdges {
 			break
 		}
-		edges, err := store.EdgesForNode(ctx, c.pool, n.ID, true, maxEdgesPerNode)
+		edges, err := store.EdgesForNode(ctx, c.pool, n.ID, true, maxEdgesPerNode, wall)
 		if err != nil {
 			return nil, fmt.Errorf("traverse edges: %w", err)
 		}
@@ -150,7 +150,7 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 			})
 			if e.SourceURI != "" && !seenURI[e.SourceURI] && len(res.EvidenceChunks) < maxRecallEvidence {
 				seenURI[e.SourceURI] = true
-				evidence, err := store.GetChunksBySourceURI(ctx, c.pool, e.SourceURI, evidenceChunksPerEdge)
+				evidence, err := store.GetChunksBySourceURI(ctx, c.pool, e.SourceURI, evidenceChunksPerEdge, wall)
 				if err != nil {
 					return nil, fmt.Errorf("join evidence: %w", err)
 				}

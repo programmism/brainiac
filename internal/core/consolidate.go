@@ -96,7 +96,7 @@ func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
 		if node == nil {
 			continue
 		}
-		edges, err := store.EdgesForNode(ctx, c.pool, id, false, maxEdgesPerNode)
+		edges, err := store.EdgesForNode(ctx, c.pool, id, false, maxEdgesPerNode, store.NoWall())
 		if err != nil {
 			return nil, fmt.Errorf("load split edges: %w", err)
 		}

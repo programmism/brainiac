@@ -170,7 +170,7 @@ func normalizeMention(s string) string {
 // anywhere (only a node's Summary is), so a query that literally names an entity
 // — e.g. "who is <nickname>?" where the nickname is an alias — has no vector path
 // to it and must be reached lexically (recall precision fix).
-func FindNodesByMention(ctx context.Context, db DBTX, query string, minLen int, scope ScopeFilter) ([]model.Node, error) {
+func FindNodesByMention(ctx context.Context, db DBTX, query string, minLen int, scope ScopeFilter, wall Wall) ([]model.Node, error) {
 	norm := normalizeMention(query)
 	if norm == "" {
 		return nil, nil
@@ -181,6 +181,7 @@ func FindNodesByMention(ctx context.Context, db DBTX, query string, minLen int, 
 		FROM nodes
 		WHERE status = 'current'
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
+		  AND `+projectClause("", 4)+`
 		  AND (
 		        ( length(regexp_replace(lower(canonical_name), '[^a-z0-9]', '', 'g')) >= $2
 		          AND position(' ' || btrim(regexp_replace(lower(canonical_name), '[^a-z0-9]+', ' ', 'g')) || ' ' IN $1) > 0 )
@@ -189,7 +190,7 @@ func FindNodesByMention(ctx context.Context, db DBTX, query string, minLen int, 
 		          WHERE length(regexp_replace(lower(a), '[^a-z0-9]', '', 'g')) >= $2
 		            AND position(' ' || btrim(regexp_replace(lower(a), '[^a-z0-9]+', ' ', 'g')) || ' ' IN $1) > 0 )
 		  )
-		LIMIT 32`, padded, minLen, scope.arg())
+		LIMIT 32`, padded, minLen, scope.arg(), wall.arg())
 	if err != nil {
 		return nil, err
 	}
@@ -215,15 +216,16 @@ type NodeHit struct {
 // FindSimilarNodes returns the k current nodes whose summary_embedding is
 // nearest to emb by cosine distance, restricted to the given scope filter (an
 // empty filter spans all scopes).
-func FindSimilarNodes(ctx context.Context, db DBTX, emb []float32, k int, scope ScopeFilter) ([]NodeHit, error) {
+func FindSimilarNodes(ctx context.Context, db DBTX, emb []float32, k int, scope ScopeFilter, wall Wall) ([]NodeHit, error) {
 	vec := pgvector.NewHalfVector(emb).String()
 	rows, err := db.Query(ctx, `
 		SELECT `+nodeCols+`, (summary_embedding <=> $1::halfvec)::float8 AS distance
 		FROM nodes
 		WHERE status = 'current' AND summary_embedding IS NOT NULL
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
+		  AND `+projectClause("", 4)+`
 		ORDER BY summary_embedding <=> $1::halfvec
-		LIMIT $2`, vec, k, scope.arg())
+		LIMIT $2`, vec, k, scope.arg(), wall.arg())
 	if err != nil {
 		return nil, err
 	}

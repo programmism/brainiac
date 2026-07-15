@@ -75,7 +75,7 @@ func ChunkExistsByHash(ctx context.Context, db DBTX, hash string) (bool, error) 
 
 // SearchChunks returns the k nearest hot-tier chunks to embedding by cosine
 // distance, with provenance.
-func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scope ScopeFilter) ([]model.ChunkHit, error) {
+func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scope ScopeFilter, wall Wall) ([]model.ChunkHit, error) {
 	vec := pgvector.NewHalfVector(embedding).String()
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
@@ -84,8 +84,9 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 		FROM chunks
 		WHERE tier = 'hot' AND embedding IS NOT NULL
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
+		  AND `+projectClause("", 4)+`
 		ORDER BY embedding <=> $1::halfvec
-		LIMIT $2`, vec, k, scope.arg())
+		LIMIT $2`, vec, k, scope.arg(), wall.arg())
 	if err != nil {
 		return nil, err
 	}
@@ -174,6 +175,27 @@ func GetNodeByCanonicalNameScoped(ctx context.Context, db DBTX, name, scopeKey s
 		WHERE canonical_name = $1 AND scope_key = $2 AND status = 'current'
 		ORDER BY created_at DESC
 		LIMIT 1`, name, scopeKey))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &n, nil
+}
+
+// GetNodeByNameWalled returns the most recent current node with the given name
+// whose project namespace is inside the wall, or (nil, nil) if none. Used by the
+// by-name get_node path under a principal, where the caller's own namespace — not
+// the global scope — is what a bare name should resolve within (#120).
+func GetNodeByNameWalled(ctx context.Context, db DBTX, name string, wall Wall) (*model.Node, error) {
+	n, err := scanNode(db.QueryRow(ctx, `
+		SELECT `+nodeCols+`
+		FROM nodes
+		WHERE canonical_name = $1 AND status = 'current'
+		  AND `+projectClause("", 2)+`
+		ORDER BY created_at DESC
+		LIMIT 1`, name, wall.arg()))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

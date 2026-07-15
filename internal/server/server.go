@@ -40,6 +40,11 @@ type Checker func(ctx context.Context) error
 type Options struct {
 	Writable  bool
 	AuthToken string
+	// Principals, when non-empty, turns on Layer 2 hard isolation (#120): every
+	// /api call requires one of these principals' bearer tokens, and the core
+	// walls reads / pins writes to that principal's namespaces. Keyed by token.
+	// Empty = Layer 1 (open reads, single AuthToken gates writes) — unchanged.
+	Principals map[string]*core.Principal
 	// Logs, when set, is the in-memory log sink the access logger tees into and
 	// GET /api/logs reads from (the WebUI Logs tab, #166). Nil keeps the default
 	// access logger and mounts no logs endpoint.
@@ -87,10 +92,19 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	// Writes are live only when explicitly enabled AND a token is set (secure by
 	// default). The WebUI reads this via /api/capabilities to gate its action
 	// buttons instead of firing them at unmounted routes.
-	writeEnabled := opts.Writable && opts.AuthToken != ""
+	//
+	// Under Layer 2 hard isolation (principals configured), the whole /api surface
+	// requires a principal token — reads included — and the operator-only curation
+	// write group is not mounted (id-based curation crosses namespaces; deferred to
+	// #188). Writes into an isolated namespace flow through MCP, pinned per-token.
+	hardIso := len(opts.Principals) > 0
+	writeEnabled := opts.Writable && opts.AuthToken != "" && !hardIso
 
 	if c != nil {
 		r.Route("/api", func(r chi.Router) {
+			if hardIso {
+				r.Use(principalAuth(opts.Principals))
+			}
 			// API errors are always JSON, even for unmatched routes/methods, so a
 			// client (the WebUI) never gets a plain-text body it then fails to parse
 			// as JSON (#168). Without this, a write button in read-only mode POSTs to
@@ -370,6 +384,37 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 				return
 			}
 			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// principalAuth (Layer 2, #120) requires a bearer token matching one configured
+// principal and binds that principal to the request context for core enforcement.
+// Comparison is constant-time against every entry so a response's timing never
+// reveals which token, if any, was close.
+func principalAuth(principals map[string]*core.Principal) func(http.Handler) http.Handler {
+	type entry struct {
+		want []byte
+		p    *core.Principal
+	}
+	entries := make([]entry, 0, len(principals))
+	for tok, p := range principals {
+		entries = append(entries, entry{want: []byte("Bearer " + tok), p: p})
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			got := []byte(r.Header.Get("Authorization"))
+			var match *core.Principal
+			for _, e := range entries {
+				if subtle.ConstantTimeCompare(got, e.want) == 1 {
+					match = e.p
+				}
+			}
+			if match == nil {
+				writeError(w, http.StatusUnauthorized, errUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r.WithContext(core.WithPrincipal(r.Context(), match)))
 		})
 	}
 }

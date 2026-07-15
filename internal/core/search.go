@@ -39,7 +39,8 @@ func (c *Core) Search(ctx context.Context, query string, k int, project string) 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	hits, err := store.SearchChunks(ctx, c.pool, emb, k, store.LensFor(project))
+	scope, wall := c.readScope(ctx, project)
+	hits, err := store.SearchChunks(ctx, c.pool, emb, k, scope, wall)
 	if err != nil {
 		return nil, err
 	}

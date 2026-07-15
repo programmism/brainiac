@@ -49,6 +49,44 @@ func bytesContains(b []byte, s string) bool {
 	return len(b) > 0 && strings.Contains(string(b), s)
 }
 
+// Under Layer 2 hard isolation every /api call — reads included — needs a valid
+// principal token; the 401 short-circuits in middleware before any handler/DB, so
+// this needs no database (#120).
+func TestHardIsolationGatesReads(t *testing.T) {
+	c := core.New(nil, nil, nil)
+	principals := map[string]*core.Principal{"good": {Name: "a", Read: []string{"a"}, Write: "a"}}
+	h := New(fakePinger{}, nil, c, Options{Principals: principals})
+
+	for _, tc := range []struct {
+		name, path, auth string
+	}{
+		{"read no token", "/api/search?q=x", ""},
+		{"read wrong token", "/api/search?q=x", "Bearer nope"},
+		{"capabilities no token", "/api/capabilities", ""},
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		if tc.auth != "" {
+			req.Header.Set("Authorization", tc.auth)
+		}
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: got %d, want 401", tc.name, rec.Code)
+		}
+	}
+}
+
+// With no principals configured, reads stay open (Layer 1 unchanged).
+func TestLayer1ReadsStayOpen(t *testing.T) {
+	c := core.New(nil, nil, nil)
+	h := New(fakePinger{}, nil, c, Options{})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("Layer 1 capabilities = %d, want 200 (open)", rec.Code)
+	}
+}
+
 func do(t *testing.T, h http.Handler, path string) (int, map[string]string) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)

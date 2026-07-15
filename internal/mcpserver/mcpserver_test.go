@@ -64,7 +64,7 @@ func TestMCPRoundTrip(t *testing.T) {
 		t.Fatalf("truncate: %v", err)
 	}
 
-	server := New(core.New(pool, fakeEmbedder{}, density.New()), nil)
+	server := New(core.New(pool, fakeEmbedder{}, density.New()), nil, nil)
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		t.Fatalf("server connect: %v", err)
@@ -185,7 +185,7 @@ func TestIngestToolCallsImporter(t *testing.T) {
 		return core.IngestStats{Docs: 1, Kept: 3}, nil
 	}
 	// core is unused by the ingest tool, so nil is fine here.
-	server := New(nil, importFn)
+	server := New(nil, importFn, nil)
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		t.Fatalf("server connect: %v", err)

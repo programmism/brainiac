@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/model"
 
 	"gopkg.in/yaml.v3"
@@ -28,6 +29,61 @@ type Config struct {
 	Sources       []SourceConfig      `yaml:"sources"`
 	Clients       ClientsConfig       `yaml:"clients"`
 	Ingest        IngestConfig        `yaml:"ingest"`
+	// Principals is the opt-in Layer 2 hard-isolation roster (#120). Empty =
+	// Layer 1 (open reads, single AUTH_TOKEN gates writes) — unchanged. When set,
+	// every /api call requires a principal's bearer token, reads are walled to its
+	// namespaces, and writes are pinned to its single target.
+	Principals []PrincipalConfig `yaml:"principals,omitempty"`
+}
+
+// PrincipalConfig maps one bearer token to a hard-isolation identity (#120): the
+// project namespaces it may read and the single namespace its writes are pinned
+// to. Token is a secret — prefer PRINCIPAL_TOKEN_<NAME> in the environment.
+type PrincipalConfig struct {
+	Name  string   `yaml:"name"`
+	Read  []string `yaml:"read"`  // project namespaces; "" or "global" = shared/global
+	Write string   `yaml:"write"` // single write target namespace
+	Token string   `yaml:"token,omitempty"`
+}
+
+// PrincipalsEnabled reports whether hard isolation (Layer 2) is configured.
+func (c *Config) PrincipalsEnabled() bool { return len(c.Principals) > 0 }
+
+// BuildPrincipals maps the roster to core principals keyed by bearer token, for
+// the HTTP server's per-request auth. Empty when hard isolation is off.
+func (c *Config) BuildPrincipals() map[string]*core.Principal {
+	if !c.PrincipalsEnabled() {
+		return nil
+	}
+	m := make(map[string]*core.Principal, len(c.Principals))
+	for _, p := range c.Principals {
+		m[p.Token] = &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write}
+	}
+	return m
+}
+
+// PrincipalByName returns the configured principal with the given name as a core
+// principal, or nil. Used by MCP to bind its single process-wide principal.
+func (c *Config) PrincipalByName(name string) *core.Principal {
+	for _, p := range c.Principals {
+		if p.Name == name {
+			return &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write}
+		}
+	}
+	return nil
+}
+
+// ReadNamespaces returns the principal's read set with the "global" alias
+// normalized to "" (the empty-discriminator scope the core matches on).
+func (p PrincipalConfig) ReadNamespaces() []string {
+	out := make([]string, 0, len(p.Read))
+	for _, ns := range p.Read {
+		if ns == "global" {
+			ns = ""
+		}
+		out = append(out, ns)
+	}
+	return out
 }
 
 // IngestConfig controls optional background auto-import.
@@ -223,6 +279,13 @@ func (c *Config) applyEnvOverrides() {
 			c.Extraction.Review = b
 		}
 	}
+	// Per-principal bearer tokens (#120), secret — env wins over file. Keyed
+	// PRINCIPAL_TOKEN_<NAME> with NAME uppercased and non-alphanumerics → '_'.
+	for i := range c.Principals {
+		if v := os.Getenv("PRINCIPAL_TOKEN_" + envKey(c.Principals[i].Name)); v != "" {
+			c.Principals[i].Token = v
+		}
+	}
 	if v := os.Getenv("NOTION_TOKEN"); v != "" {
 		found := false
 		for i := range c.Sources {
@@ -255,7 +318,61 @@ func (c *Config) Validate() error {
 	if c.LocalExtractionEnabled() && c.Extraction.Model == "" {
 		return errors.New("extraction.model must be set when extraction.default is 'local-llm' (set it or EXTRACTION_MODEL)")
 	}
+	if err := c.validatePrincipals(); err != nil {
+		return err
+	}
 	return nil
+}
+
+// validatePrincipals enforces the Layer 2 roster invariants: every principal
+// needs a unique name, a single write target, and a resolved bearer token
+// (unique across principals), so a misconfigured token can never silently widen
+// or collide access (#120).
+func (c *Config) validatePrincipals() error {
+	names := map[string]bool{}
+	tokens := map[string]bool{}
+	for _, p := range c.Principals {
+		if p.Name == "" {
+			return errors.New("each principal needs a name")
+		}
+		if names[p.Name] {
+			return fmt.Errorf("duplicate principal name %q", p.Name)
+		}
+		names[p.Name] = true
+		if p.Write == "" {
+			return fmt.Errorf("principal %q needs a write namespace", p.Name)
+		}
+		if p.Token == "" {
+			return fmt.Errorf("principal %q has no token (set PRINCIPAL_TOKEN_%s)", p.Name, envKey(p.Name))
+		}
+		if tokens[p.Token] {
+			return fmt.Errorf("principal %q reuses another principal's token", p.Name)
+		}
+		tokens[p.Token] = true
+	}
+	return nil
+}
+
+// envKey maps a principal name to its env-var suffix: uppercased, every
+// non-alphanumeric run collapsed to a single '_'.
+func envKey(name string) string {
+	var b []byte
+	prevUnderscore := false
+	for i := 0; i < len(name); i++ {
+		ch := name[i]
+		switch {
+		case ch >= 'a' && ch <= 'z':
+			b = append(b, ch-32)
+			prevUnderscore = false
+		case (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9'):
+			b = append(b, ch)
+			prevUnderscore = false
+		case !prevUnderscore:
+			b = append(b, '_')
+			prevUnderscore = true
+		}
+	}
+	return string(b)
 }
 
 // RedactedDSN masks the password in a DSN for safe logging.

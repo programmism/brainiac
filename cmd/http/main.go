@@ -76,10 +76,15 @@ func run() error {
 	if writable && cfg.HTTP.AuthToken == "" {
 		log.Printf("warning: clients.webui=interactive but AUTH_TOKEN is unset — write endpoints stay DISABLED")
 	}
+	principals := cfg.BuildPrincipals()
+	if len(principals) > 0 {
+		log.Printf("hard isolation ON: %d principal(s) — /api requires a principal token, reads walled per namespace (#120)", len(principals))
+	}
 	handler := server.New(pool, ollamaChecker(cfg.Embedding.BaseURL), c, server.Options{
-		Writable:  writable,
-		AuthToken: cfg.HTTP.AuthToken,
-		Logs:      logs,
+		Writable:   writable,
+		AuthToken:  cfg.HTTP.AuthToken,
+		Principals: principals,
+		Logs:       logs,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,
