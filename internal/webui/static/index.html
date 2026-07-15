@@ -221,7 +221,8 @@
           const type = n.type ? ` <span class="meta">[${esc(n.type)}]</span>` : '';
           const aka = (n.aliases && n.aliases.length) ? ` <span class="meta">(aka: ${esc(n.aliases.join(', '))})</span>` : '';
           const summary = n.summary ? `<div class="meta">${esc(n.summary)}</div>` : '';
-          return `<div class="edge"><span class="name">${esc(n.canonical_name)}</span>${type}${aka}${summary}</div>`;
+          const rollup = n.rollup ? `<div class="meta">📋 ${esc(n.rollup)}</div>` : '';
+          return `<div class="edge"><span class="name">${esc(n.canonical_name)}</span>${type}${aka}${summary}${rollup}</div>`;
         }).join('') || '<div class="empty">no entities</div>';
         const edges = (r.Edges || []).map(e =>
           `<div class="edge"><span class="name">${esc(e.FromName)}</span> —${esc(e.Edge.type)}→ <span class="name">${esc(e.ToName)}</span>` +

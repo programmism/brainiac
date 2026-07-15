@@ -71,11 +71,14 @@ type Node struct {
 	// Summary is the node's human-readable description. It is the text the
 	// SummaryEmbedding is derived from; unlike the vector it is returned to
 	// clients, so a recalled/looked-up entity can describe and cite itself (#181).
-	Summary          string     `json:"summary,omitempty"`
-	SummaryEmbedding []float32  `json:"-"`
-	Status           Status     `json:"status"`
-	CreatedAt        time.Time  `json:"created_at"`
-	LastConfirmedAt  *time.Time `json:"last_confirmed_at,omitempty"`
+	Summary          string    `json:"summary,omitempty"`
+	SummaryEmbedding []float32 `json:"-"`
+	// Rollup is a curated "current state of X" synthesis over a hub node's detailed
+	// edge history (#198). Descriptive prose, not identity — never affects dedup.
+	Rollup          string     `json:"rollup,omitempty"`
+	Status          Status     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastConfirmedAt *time.Time `json:"last_confirmed_at,omitempty"`
 }
 
 // ValidateDiscriminators rejects discriminator sets that would corrupt the

@@ -155,7 +155,9 @@ Three tables; vectors and graph in the same Postgres. Full DDL in `migrations/` 
   - *Raw text is mandatory:* needed to answer, and to **re-embed on model change without re-reading
     sources** (§7 optimization).
 - **`nodes` (Layer 2)** — `id, canonical_name, aliases[], type, summary text, summary_embedding halfvec(768),
-  status(current|historical), discriminators jsonb, scope_key text, created_at, last_confirmed_at`.
+  rollup text, status(current|historical), discriminators jsonb, scope_key text, created_at, last_confirmed_at`.
+  `rollup` is a curated "current state of X" synthesis over a hub node's edge history (#198) — descriptive
+  prose, not identity, so it never affects dedup.
   `summary` is the human-readable description; `summary_embedding` is derived from it and powers semantic
   dedup. Unlike the vector, the text is returned to clients so a recalled/looked-up entity can describe and
   cite itself (#181, Tier 3); pre-Tier-3 nodes stay NULL until re-remembered. **Node identity = `canonical_name` + `discriminators`**
@@ -351,6 +353,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Rollups: "current state of X" on hub nodes (#198).** Rollup *candidates* (hub nodes with
+  many edges) were already surfaced in the Consolidate tab; this adds the rollup itself — a `rollup text`
+  column on nodes (migration `0007`), set via `Core.Rollup(nodeID, text)`, distinct from the identity
+  `summary` and never touching dedup. A principal may roll up only a node in its own namespace. Surfaced on
+  `get_node`, recall node objects, MCP (`nodeDTO.rollup` + a `rollup` tool), CLI (`brainiac rollup <name>
+  --text …` and shown in `brainiac node`), and the WebUI entities card. DB-gated tests in
+  `internal/core/rollup_test.go`. (Migration numbered `0007` per the convention — one past the highest
+  existing prefix.)
 - **2026-07-15** — **Namespace import/restore (#196).** Completes the #187 export round-trip: load a
   `brainiac export` JSON bundle back into a namespace. Nodes are upserted via `Remember` (a same-name entity
   already in the target is reused — no forked identity — and summaries are re-embedded); edges reconnect by
