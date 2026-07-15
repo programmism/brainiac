@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/programmism/brainiac/internal/model"
@@ -82,6 +83,10 @@ func ensureNode(ctx context.Context, db store.DBTX, name string, disc map[string
 	}
 	n = &model.Node{CanonicalName: name, Discriminators: disc}
 	if err := store.InsertNode(ctx, db, n); err != nil {
+		if errors.Is(err, store.ErrNodeExists) {
+			// Concurrent create won the race — reuse the existing node (#220).
+			return store.GetNodeByCanonicalNameScoped(ctx, db, name, model.ScopeKey(disc))
+		}
 		return nil, err
 	}
 	return n, nil
