@@ -170,7 +170,7 @@ func recallCmd() *cobra.Command {
 }
 
 func nodeCmd() *cobra.Command {
-	var project, id string
+	var project, id, asOf string
 	cmd := &cobra.Command{
 		Use:   "node [canonical-name]",
 		Short: "Look up one entity by name or id: its full record (aliases, type) + edges",
@@ -190,7 +190,20 @@ func nodeCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			det, err := buildCore(cfg, pool).GetNode(ctx, id, name, project)
+			kb := buildCore(cfg, pool)
+			var det *core.NodeDetail
+			if asOf != "" {
+				t, perr := time.Parse("2006-01-02", asOf)
+				if perr != nil {
+					t, perr = time.Parse(time.RFC3339, asOf)
+				}
+				if perr != nil {
+					return fmt.Errorf("--as-of must be YYYY-MM-DD or RFC3339")
+				}
+				det, err = kb.GetNodeAsOf(ctx, id, name, project, t)
+			} else {
+				det, err = kb.GetNode(ctx, id, name, project)
+			}
 			if err != nil {
 				return err
 			}
@@ -228,6 +241,7 @@ func nodeCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&project, "project", "", "scope the name lookup to this project, then global")
 	cmd.Flags().StringVar(&id, "id", "", "look up by node id instead of name")
+	cmd.Flags().StringVar(&asOf, "as-of", "", "show relationships as they stood at a past date (YYYY-MM-DD or RFC3339)")
 	return cmd
 }
 

@@ -7,12 +7,25 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/model"
 )
+
+// parseAsOf accepts an RFC3339 timestamp or a bare YYYY-MM-DD date (interpreted at
+// UTC midnight) for the get_node as-of lens (#200).
+func parseAsOf(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.Parse("2006-01-02", s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("as_of %q must be RFC3339 or YYYY-MM-DD", s)
+}
 
 // ImportFunc runs an ingest for a source ("notion"|"markdown"), optional target
 // (a Notion page URL/id or a path), and optional project (scopes the imported
@@ -368,6 +381,7 @@ type getNodeIn struct {
 	Name    string `json:"name,omitempty" jsonschema:"the entity's canonical name (optionally scoped by project); or pass id instead"`
 	ID      string `json:"id,omitempty" jsonschema:"the entity's node id (alternative to name)"`
 	Project string `json:"project,omitempty" jsonschema:"scope a name lookup to this project, then fall back to global"`
+	AsOf    string `json:"as_of,omitempty" jsonschema:"answer as of a past instant (RFC3339 or YYYY-MM-DD): only relationships live at that time — 'what did we think about X on date Y'"`
 }
 type getNodeOut struct {
 	Found bool      `json:"found"`
@@ -377,7 +391,17 @@ type getNodeOut struct {
 
 func getNodeTool(c *core.Core) mcp.ToolHandlerFor[getNodeIn, getNodeOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in getNodeIn) (*mcp.CallToolResult, getNodeOut, error) {
-		det, err := c.GetNode(ctx, in.ID, in.Name, in.Project)
+		var det *core.NodeDetail
+		var err error
+		if in.AsOf != "" {
+			asOf, perr := parseAsOf(in.AsOf)
+			if perr != nil {
+				return nil, getNodeOut{}, perr
+			}
+			det, err = c.GetNodeAsOf(ctx, in.ID, in.Name, in.Project, asOf)
+		} else {
+			det, err = c.GetNode(ctx, in.ID, in.Name, in.Project)
+		}
 		if err != nil {
 			return nil, getNodeOut{}, err
 		}

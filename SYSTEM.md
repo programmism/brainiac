@@ -165,7 +165,10 @@ Three tables; vectors and graph in the same Postgres. Full DDL in `migrations/` 
   serialization (sorted `k=v;` pairs, written by the app) and keys idempotent upsert + dedup, so same-named
   entities in different projects stay distinct while universal ones accrue globally (#117, §12).
 - **`edges` (Layer 2)** — `id, from_id, to_id, type, why, source_uri, source_locator, author, status,
-  created_at, last_confirmed_at`. FK indexes on `from_id`/`to_id`.
+  superseded_at, created_at, last_confirmed_at`. FK indexes on `from_id`/`to_id`. `superseded_at` (and the
+  matching column on `nodes`) is the **valid-time** stamp — set when the row flips to historical — that lets
+  memory be queried *as of* a past date (#200); NULL for current rows and for rows retired before valid-time
+  existed.
 
 **Design rule:** every edge carries **`why` + provenance + author**. That triple is what makes this a
 memory of *decisions*, not a fact dump.
@@ -353,6 +356,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Temporal recall — "what did we think about X on date Y" (#200).** Added **valid-time**:
+  a `superseded_at timestamptz` on nodes + edges (migration `0008`), stamped `now()` on the flip to
+  historical and cleared on a flip back to current — done inside `UpdateNodeStatus`/`UpdateEdgeStatus`, so
+  **every** retire path (supersede, merge, split, retire-edge, extractor reject) records when, with no
+  per-call-site change. `Core.GetNodeAsOf(id|name, asOf)` returns the entity (nil if it didn't exist by
+  asOf) with only edges live at that instant — `created_at <= asOf AND (superseded_at IS NULL OR
+  superseded_at > asOf)`, excluding legacy rows retired before valid-time existed (superseded_at NULL +
+  historical). The column lives only in WHERE clauses — **not** on the model/DTO — so no scan ripple.
+  Surfaced: MCP `get_node` `as_of` (RFC3339 or YYYY-MM-DD), CLI `brainiac node --as-of DATE`. DB-gated test
+  in `internal/core/temporal_test.go`. Caveat documented: pre-migration historical rows are invisible to
+  as-of views.
 - **2026-07-15** — **Rollups: "current state of X" on hub nodes (#198).** Rollup *candidates* (hub nodes with
   many edges) were already surfaced in the Consolidate tab; this adds the rollup itself — a `rollup text`
   column on nodes (migration `0007`), set via `Core.Rollup(nodeID, text)`, distinct from the identity
