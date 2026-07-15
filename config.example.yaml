@@ -58,6 +58,8 @@ clients:
 #   - name: team-a
 #     read:  [team-a]           # namespaces this token may read
 #     write: team-a             # single namespace its writes are pinned to
+#     max_nodes: 10000          # per-namespace row caps (#186); 0/omitted = unlimited
+#     max_chunks: 50000
 #     # token: secret           # prefer PRINCIPAL_TOKEN_TEAM_A in the environment
 #   - name: platform
 #     read:  [team-a, team-b, global]   # an operator that reads several + global
