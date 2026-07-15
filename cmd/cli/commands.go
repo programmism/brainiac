@@ -228,6 +228,59 @@ func nodeCmd() *cobra.Command {
 	return cmd
 }
 
+func exportCmd() *cobra.Command {
+	var project, outPath string
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export one project namespace (nodes + edges + chunks) as portable JSON for backup or hand-off",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if project == "" {
+				return fmt.Errorf("--project is required")
+			}
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			exp, err := buildCore(cfg, pool).ExportNamespace(ctx, project)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			var file *os.File
+			if outPath != "" {
+				f, err := os.Create(outPath)
+				if err != nil {
+					return err
+				}
+				file, out = f, f
+			}
+			enc := json.NewEncoder(out)
+			enc.SetIndent("", "  ")
+			encErr := enc.Encode(exp)
+			if file != nil {
+				// Surface a close error — for a write, a failed flush loses data.
+				if cerr := file.Close(); cerr != nil && encErr == nil {
+					encErr = cerr
+				}
+			}
+			if encErr != nil {
+				return encErr
+			}
+			if outPath != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "exported %s: %d node(s), %d edge(s), %d chunk(s) -> %s\n",
+					project, len(exp.Nodes), len(exp.Edges), len(exp.Chunks), outPath)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "the project namespace to export")
+	cmd.Flags().StringVar(&outPath, "out", "", "write JSON to this file instead of stdout")
+	return cmd
+}
+
 func rememberCmd() *cobra.Command {
 	var typ, summary, project string
 	var aliases, discs []string

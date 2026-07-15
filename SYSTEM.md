@@ -351,6 +351,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Per-namespace export (#187, part of #120).** A namespace backup/hand-off:
+  `Core.ExportNamespace(project)` dumps all nodes + edges + chunks in one project as portable JSON, reusing
+  the Layer 2 wall predicate as the `WHERE` (`store.Export{Nodes,Edges,Chunks}`). Edges follow the same
+  **both-endpoints** rule as reads, so an export never carries a dangling reference outside the namespace.
+  Embeddings are omitted — recomputable from the retained raw text on import (§7), keeping the JSON small and
+  model-agnostic. Access: an operator (Layer 1) exports any namespace by name; a principal only one in its
+  read-set (a foreign name → `ErrForbiddenNamespace`, never a silent empty). Surfaced as CLI
+  `brainiac export --project X [--out FILE]`. Import/restore is a separate follow-up.
 - **2026-07-15** — **WebUI auth under hard isolation (#189, part of #120).** With principals on, every
   `/api` read is walled, but the WebUI only sent its token on *writes* — so the search/graph tabs 401'd and
   the token bar only appeared in write mode. Fix: `getJSON` now sends `Authorization: Bearer <token>` on
