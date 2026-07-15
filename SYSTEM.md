@@ -351,6 +351,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Whole-namespace delete + handoff (#188, part of #120 — last follow-up).**
+  `DeleteNamespace(project)` removes a namespace's nodes + edges + chunks in one tx (edges touching a
+  namespace node go first, to satisfy the FK and because a half-namespace edge is meaningless). An operator
+  deletes any namespace; a principal only its own write namespace. `HandoffNamespace(from, to)` re-scopes
+  every node + chunk from one project to another (a rename / ownership transfer) — edges follow their
+  endpoints by id, untouched, mirroring `UpdateNodeScope`/new `UpdateChunkScope`. Handoff is **operator-only**
+  (a principal renaming its own namespace would lock itself out) and **requires an empty target**, so it
+  never silently collides two same-named entities into one identity. This avoided the "principal-scoped
+  id-based curation" prerequisite by operating at namespace granularity, not per-id — merge/split/supersede
+  stay operator-only. CLI `brainiac namespace delete --project X --yes` / `namespace handoff --from X --to Y`.
+  DB-gated tests in `internal/core/namespace_test.go`. **Completes the #120 follow-up set** (#186 quotas,
+  #187 export, #188 delete/handoff, #189 WebUI auth).
 - **2026-07-15** — **Per-namespace storage quotas (#186, part of #120).** A principal's namespace can cap
   its row counts: `max_nodes` / `max_chunks` on the principal (0 = unlimited). Enforced in the core at write
   time against the live count — `checkNodeQuota` before a *new* node in remember/link (so a link between two

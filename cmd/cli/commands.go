@@ -228,6 +228,79 @@ func nodeCmd() *cobra.Command {
 	return cmd
 }
 
+func namespaceCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "namespace",
+		Short: "Manage whole namespaces (delete, handoff)",
+	}
+	cmd.AddCommand(namespaceDeleteCmd(), namespaceHandoffCmd())
+	return cmd
+}
+
+func namespaceDeleteCmd() *cobra.Command {
+	var project string
+	var yes bool
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete an entire namespace: its nodes, edges, and chunks (irreversible)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if project == "" {
+				return fmt.Errorf("--project is required")
+			}
+			if !yes {
+				return fmt.Errorf("refusing to delete namespace %q without --yes (this is irreversible)", project)
+			}
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			counts, err := buildCore(cfg, pool).DeleteNamespace(ctx, project)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "deleted namespace %q: %d node(s), %d edge(s), %d chunk(s)\n",
+				project, counts.Nodes, counts.Edges, counts.Chunks)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&project, "project", "", "the project namespace to delete")
+	cmd.Flags().BoolVar(&yes, "yes", false, "confirm the irreversible delete")
+	return cmd
+}
+
+func namespaceHandoffCmd() *cobra.Command {
+	var from, to string
+	cmd := &cobra.Command{
+		Use:   "handoff",
+		Short: "Move a namespace's nodes and chunks to another (rename / ownership transfer); target must be empty",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if from == "" || to == "" {
+				return fmt.Errorf("--from and --to are required")
+			}
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			counts, err := buildCore(cfg, pool).HandoffNamespace(ctx, from, to)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "handed off %q -> %q: %d node(s), %d chunk(s) moved\n",
+				from, to, counts.Nodes, counts.Chunks)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&from, "from", "", "the source namespace to move")
+	cmd.Flags().StringVar(&to, "to", "", "the (empty) target namespace")
+	return cmd
+}
+
 func exportCmd() *cobra.Command {
 	var project, outPath string
 	cmd := &cobra.Command{
