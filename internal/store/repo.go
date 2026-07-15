@@ -140,14 +140,26 @@ func InsertNode(ctx context.Context, db DBTX, n *model.Node) error {
 	if err != nil {
 		return err
 	}
-	return db.QueryRow(ctx, `
+	err = db.QueryRow(ctx, `
 		INSERT INTO nodes (canonical_name, aliases, type, summary, summary_embedding, status, discriminators, scope_key)
 		VALUES ($1, $2, $3, $4, $5::halfvec, $6, $7::jsonb, $8)
+		ON CONFLICT (scope_key, canonical_name) WHERE status = 'current' DO NOTHING
 		RETURNING id, created_at`,
 		n.CanonicalName, aliases, nullStr(n.Type), nullStr(n.Summary), encodeVec(n.SummaryEmbedding), string(status),
 		discJSON, model.ScopeKey(n.Discriminators),
 	).Scan(&n.ID, &n.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A concurrent writer already created the current node with this identity;
+		// the caller re-reads and reuses it, keeping remember/link idempotent (#220).
+		return ErrNodeExists
+	}
+	return err
 }
+
+// ErrNodeExists is returned by InsertNode when a current node with the same
+// identity (scope_key, canonical_name) already exists — a concurrent create lost
+// the race. Callers re-read the existing node instead of failing.
+var ErrNodeExists = errors.New("node with this identity already exists")
 
 // UpdateNodeSummary replaces a node's summary text and its derived embedding
 // together, so the prose and the vector never drift apart. Used when an entity is

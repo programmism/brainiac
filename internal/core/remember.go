@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/programmism/brainiac/internal/model"
@@ -106,6 +107,17 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 		SummaryEmbedding: emb,
 	}
 	if err := store.InsertNode(ctx, c.pool, node); err != nil {
+		if errors.Is(err, store.ErrNodeExists) {
+			// Lost a create race with a concurrent writer — reuse the winner,
+			// keeping remember idempotent (#220).
+			existing, gerr := store.GetNodeByCanonicalNameScoped(ctx, c.pool, in.CanonicalName, scope)
+			if gerr != nil {
+				return nil, fmt.Errorf("lookup after conflict: %w", gerr)
+			}
+			if existing != nil {
+				return &RememberResult{Node: existing, Created: false}, nil
+			}
+		}
 		return nil, fmt.Errorf("insert node: %w", err)
 	}
 	return &RememberResult{Node: node, Created: true, Duplicates: dups}, nil
