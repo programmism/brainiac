@@ -69,7 +69,8 @@ Brainiac never writes prose; it retrieves, the agent synthesizes.
 - 🕸️ **Knowledge graph** — every edge records the rationale, source, and author.
 - 💬 **Chat-driven capture** — tell your agent "save this" and it lands with its links.
 - 🔌 **MCP server** — plug into any MCP agent; tools: `search`, `recall`, `remember`,
-  `link`, `disambiguate`, `supersede`, `add_document`, `ingest`.
+  `link`, `get_node`, `rollup`, `disambiguate`, `supersede`, `add_document`, `ingest`,
+  `proposals`, `review_proposal`.
 - 🗂️ **Multi-project memory** — one instance, many projects; same-named entities stay
   distinct, recall focuses on the project you're in. See [multi-project](#multi-project-memory).
 - 📥 **Connectors** — Markdown folders (auto-imported) and Notion, sharing one corpus.
@@ -261,12 +262,12 @@ proposes separating a node whose facts contradict. Need enforced isolation
 New to the verbs? **[Concepts & Workflows](docs/concepts-and-workflows.md)** explains the mental model
 and what each does / when to use it.
 
-- **MCP tools:** `search` · `recall` · `remember` · `link` · `disambiguate` ·
-  `supersede` · `add_document` · `ingest`
-- **CLI (`kb` / `./brainiac`):** `search` · `recall` · `remember` · `link` ·
-  `disambiguate` · `supersede` · `import` · `consolidate` · `merge` · `split` ·
-  `retire-edge` · `reembed` · `health`
-- **HTTP API:** `GET /api/{health,system,search,recall,graph,consolidate}`,
+- **MCP tools:** `search` · `recall` · `remember` · `link` · `get_node` · `rollup` ·
+  `disambiguate` · `supersede` · `add_document` · `ingest` · `proposals` · `review_proposal`
+- **CLI (`kb` / `./brainiac`):** `search` · `recall` · `remember` · `link` · `node` ·
+  `rollup` · `disambiguate` · `supersede` · `import` · `consolidate` · `merge` · `split` ·
+  `retire-edge` · `export` · `namespace` · `reembed` · `eval` · `migrate` · `health`
+- **HTTP API:** `GET /api/{health,system,search,recall,node,graph,consolidate,capabilities,logs}`,
   `POST /api/{merge,split}` and edge confirm/flag-stale/retire (writes are auth-gated & off by default).
 
 ---

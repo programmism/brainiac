@@ -25,9 +25,12 @@ servers:
 (Everything runs in-container, so no Go and no exposed ports. A network/HTTP MCP
 transport for remote agents is a future addition; today it's stdio.)
 
-Tools exposed: `recall`, `search`, `remember`, `link`, `supersede`, `disambiguate`
+Tools exposed: `recall`, `search`, `remember`, `link`, `get_node` (fetch one entity's
+full record + relationships, incl. an `as_of` date for its past state), `rollup`
+(record a "current state of X" summary on a hub entity), `supersede`, `disambiguate`
 (re-scope an entity when it conflates two things), `add_document` (store text the
-agent read elsewhere), and `ingest` (bulk import via a connector).
+agent read elsewhere), `ingest` (bulk import via a connector), and `proposals`/
+`review_proposal` (review the local-extractor queue, when enabled).
 
 ## 2. The memory instruction (paste into the agent's system prompt / rules)
 Use it **globally** (applies to every conversation) or per-project:
@@ -46,6 +49,9 @@ fact about our systems, projects, or past choices), first call `recall` (or
 source_uri of each claim. If nothing relevant is found, say so briefly, then answer.
 When you're working within a project, pass its name as `project` to `recall`/`search`
 so results focus on that project plus universal facts; omit it to look across everything.
+When recall surfaces an entity and you need its full record (aliases, type, summary,
+and every relationship), call `get_node`; for a hub entity with a long history, read
+its `rollup` for the current-state summary before replaying every edge.
 
 Whenever we learn or decide something worth keeping — a finding from a document, a
 conclusion from our discussion, a decision and its rationale, "X works like Y",

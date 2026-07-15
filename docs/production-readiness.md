@@ -1,14 +1,18 @@
-# Production-readiness audit
+# Production-readiness audit — RESOLVED (M5 complete)
 
-A code-grounded audit of the post-roadmap build (v1.3.0), across five dimensions: security & auth, data
-integrity, reliability, retrieval quality, and observability/ops. Findings are tracked as GitHub issues
-under milestone **M5 — Production Readiness**.
+> **Status:** this was the M5 hardening audit of the v1.3.0 build. **Every gap below (#68–#87) has since
+> shipped** and M5 is complete (current release ≥ v1.35.0). It is kept as a hardening history, not a live
+> blocker list. For the *current* forward-looking assessment and roadmap, see the product-evaluation epics
+> (#202–#209) and the roadmap tracking issue (#283).
 
-**Bottom line:** the M0–M4 roadmap is functionally complete and CI-green, but it is **not yet safe to
-point at real data / a real network**. The blockers are concentrated in data actualization, security
-defaults, retrieval relevance, and ingest resilience.
+A code-grounded audit (as of v1.3.0) across five dimensions: security & auth, data integrity, reliability,
+retrieval quality, and observability/ops.
 
-## P0 — blocks production
+**Historical bottom line (v1.3.0):** the M0–M4 roadmap was functionally complete and CI-green but not yet
+safe to point at real data — blockers were concentrated in data actualization, security defaults, retrieval
+relevance, and ingest resilience. **All were resolved in M5; the tables below are the record of that work.**
+
+## P0 — blocked production *(all resolved in M5)*
 
 | # | Gap | Why it matters |
 |---|---|---|
@@ -48,7 +52,8 @@ Five independent reviewers each audited one dimension against the actual code (f
 the findings were de-duplicated and prioritized. This document is the synthesis; the issues carry the
 detail and the fix sketch.
 
-## Order of work
-P0 first, roughly in this order: **#68 actualization → #72 ingest resilience** (they share the per-doc
-transaction) → **#71 edge uniqueness → #70 relevance floor → #69 secure-by-default**. Then P1, then P2.
-Re-run `kb eval` (#29) after the relevance-floor change to confirm no recall regression.
+## Order of work *(completed)*
+P0 first, in this order: **#68 actualization → #72 ingest resilience** (they shared the per-doc
+transaction) → **#71 edge uniqueness → #70 relevance floor → #69 secure-by-default**, then P1, then P2 —
+all shipped. The *next* generation of hardening (retrieval quality, scale indexing, connector breadth,
+security identity/audit, observability) is tracked in the product-evaluation epics #202–#209.
