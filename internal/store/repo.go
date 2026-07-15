@@ -120,6 +120,54 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 	return hits, rows.Err()
 }
 
+// SearchChunksLexical returns up to k hot-tier chunks whose full-text index
+// matches the query, ranked by ts_rank — the lexical/keyword half of hybrid
+// retrieval (#211), which catches exact tokens (error codes, IDs, config keys)
+// that dense vectors miss. Same scope + wall as the vector path. Distance is left
+// 0 (not a cosine distance); fusion ranks by list position.
+func SearchChunksLexical(ctx context.Context, db DBTX, query string, k int, scope ScopeFilter, wall Wall) ([]model.ChunkHit, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
+		       content_hash, created_at, source_modified_at, discriminators
+		FROM chunks
+		WHERE tier = 'hot' AND tsv @@ plainto_tsquery('english', $1)
+		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
+		  AND `+projectClause(4)+`
+		ORDER BY ts_rank(tsv, plainto_tsquery('english', $1)) DESC
+		LIMIT $2`, query, k, scope.arg(), wall.arg())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hits []model.ChunkHit
+	for rows.Next() {
+		var (
+			h           model.ChunkHit
+			locator     []byte
+			tier        string
+			contentHash *string
+			disc        []byte
+		)
+		if err := rows.Scan(&h.ID, &h.Text, &h.SourceURI, &locator, &h.QualityScore, &tier,
+			&contentHash, &h.CreatedAt, &h.SourceModifiedAt, &disc); err != nil {
+			return nil, err
+		}
+		h.Tier = model.Tier(tier)
+		h.Scope = model.ScopeLabel(decodeDiscriminators(disc))
+		if contentHash != nil {
+			h.ContentHash = *contentHash
+		}
+		if len(locator) > 0 {
+			if err := json.Unmarshal(locator, &h.SourceLocator); err != nil {
+				return nil, err
+			}
+		}
+		hits = append(hits, h)
+	}
+	return hits, rows.Err()
+}
+
 // InsertNode inserts a node and fills in its generated ID and CreatedAt. The
 // node's discriminators (identity axes; empty = global) are stored alongside a
 // canonical scope_key so identity lookups never have to recompute it (#117).
