@@ -233,7 +233,55 @@ func namespaceCmd() *cobra.Command {
 		Use:   "namespace",
 		Short: "Manage whole namespaces (delete, handoff)",
 	}
-	cmd.AddCommand(namespaceDeleteCmd(), namespaceHandoffCmd())
+	cmd.AddCommand(namespaceDeleteCmd(), namespaceHandoffCmd(), namespaceImportCmd())
+	return cmd
+}
+
+func namespaceImportCmd() *cobra.Command {
+	var inPath, project string
+	cmd := &cobra.Command{
+		Use:   "import",
+		Short: "Restore a `brainiac export` JSON bundle into a namespace (nodes + edges + chunks)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if inPath == "" {
+				return fmt.Errorf("--in is required")
+			}
+			data, err := os.ReadFile(inPath)
+			if err != nil {
+				return err
+			}
+			var exp core.NamespaceExport
+			if err := json.Unmarshal(data, &exp); err != nil {
+				return fmt.Errorf("parse export bundle: %w", err)
+			}
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+
+			counts, err := buildCore(cfg, pool).ImportNamespace(ctx, &exp, project)
+			if err != nil {
+				return err
+			}
+			target := project
+			if target == "" {
+				target = exp.Namespace
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "imported into %q: %d node(s), %d edge(s), %d chunk(s)%s\n",
+				target, counts.Nodes, counts.Edges, counts.Chunks,
+				func() string {
+					if counts.EdgesSkipped > 0 {
+						return fmt.Sprintf(" (%d edge(s) skipped — endpoint not in bundle)", counts.EdgesSkipped)
+					}
+					return ""
+				}())
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&inPath, "in", "", "path to the export JSON bundle")
+	cmd.Flags().StringVar(&project, "project", "", "target namespace (default: the bundle's own)")
 	return cmd
 }
 

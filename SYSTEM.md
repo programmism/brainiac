@@ -351,6 +351,13 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **Namespace import/restore (#196).** Completes the #187 export round-trip: load a
+  `brainiac export` JSON bundle back into a namespace. Nodes are upserted via `Remember` (a same-name entity
+  already in the target is reused — no forked identity — and summaries are re-embedded); edges reconnect by
+  remapping endpoint ids old→new (an edge whose endpoint left the bundle is skipped and counted); chunks are
+  re-embedded from their retained text. Target defaults to the bundle's own namespace; a principal may import
+  only into its own write namespace. CLI `brainiac namespace import --in FILE [--project X]`. DB-gated tests
+  in `internal/core/import_test.go`.
 - **2026-07-15** — **Whole-namespace delete + handoff (#188, part of #120 — last follow-up).**
   `DeleteNamespace(project)` removes a namespace's nodes + edges + chunks in one tx (edges touching a
   namespace node go first, to satisfy the FK and because a half-namespace edge is meaningless). An operator
