@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -49,9 +50,16 @@ func GetNodeByID(ctx context.Context, db DBTX, id string) (*model.Node, error) {
 	return &n, nil
 }
 
-// UpdateNodeStatus sets a node's status (e.g. to historical on supersession).
+// UpdateNodeStatus sets a node's status (e.g. to historical on supersession). It
+// also stamps superseded_at = now() on the flip to historical (cleared on a flip
+// back to current), so the node's valid-time window is recorded for as-of queries
+// (#200) — covering every path that retires a node (supersede, merge, split).
 func UpdateNodeStatus(ctx context.Context, db DBTX, id string, status model.Status) error {
-	_, err := db.Exec(ctx, `UPDATE nodes SET status = $2 WHERE id = $1`, id, string(status))
+	_, err := db.Exec(ctx, `
+		UPDATE nodes
+		SET status = $2,
+		    superseded_at = CASE WHEN $2 = 'historical' THEN now() ELSE NULL END
+		WHERE id = $1`, id, string(status))
 	return err
 }
 
@@ -69,7 +77,11 @@ func UpdateNodeRollup(ctx context.Context, db DBTX, id, rollup string) (int64, e
 // losing side of a conflict — the edge-level mirror of node supersession, #148).
 // Returns how many rows changed so callers can detect a missing edge id.
 func UpdateEdgeStatus(ctx context.Context, db DBTX, id string, status model.Status) (int64, error) {
-	tag, err := db.Exec(ctx, `UPDATE edges SET status = $2 WHERE id = $1`, id, string(status))
+	tag, err := db.Exec(ctx, `
+		UPDATE edges
+		SET status = $2,
+		    superseded_at = CASE WHEN $2 = 'historical' THEN now() ELSE NULL END
+		WHERE id = $1`, id, string(status))
 	if err != nil {
 		return 0, err
 	}
@@ -93,6 +105,35 @@ func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical
 	}
 	defer rows.Close()
 
+	var edges []model.Edge
+	for rows.Next() {
+		e, err := scanEdge(rows)
+		if err != nil {
+			return nil, err
+		}
+		edges = append(edges, e)
+	}
+	return edges, rows.Err()
+}
+
+// EdgesForNodeAsOf returns the edges touching nodeID that were live at the given
+// instant — created by then and not yet superseded (#200). A row already
+// historical before valid-time was recorded (superseded_at NULL) is excluded: its
+// window is unknown, so it can't be placed in time. Same both-endpoints wall as
+// the live read.
+func EdgesForNodeAsOf(ctx context.Context, db DBTX, nodeID string, asOf time.Time, limit int, wall Wall) ([]model.Edge, error) {
+	rows, err := db.Query(ctx, `
+		SELECT `+edgeCols+` FROM edges e
+		WHERE (from_id = $1 OR to_id = $1)
+		  AND created_at <= $2
+		  AND (superseded_at IS NULL OR superseded_at > $2)
+		  AND NOT (status = 'historical' AND superseded_at IS NULL)
+		  AND `+edgeEndpointsClause(4)+`
+		ORDER BY created_at DESC LIMIT $3`, nodeID, asOf, limit, wall.arg())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 	var edges []model.Edge
 	for rows.Next() {
 		e, err := scanEdge(rows)
