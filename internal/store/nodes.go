@@ -11,7 +11,7 @@ import (
 )
 
 // nodeCols is the shared node column list (without embedding).
-const nodeCols = "id, canonical_name, aliases, type, status, discriminators, summary, created_at, last_confirmed_at"
+const nodeCols = "id, canonical_name, aliases, type, status, discriminators, summary, rollup, created_at, last_confirmed_at"
 
 // ScopeFilter is the set of identity scope_keys a read spans. An empty filter
 // spans ALL scopes (no lens); otherwise a row matches if its scope_key is in the
@@ -59,14 +59,16 @@ func scanNode(s rowScanner) (model.Node, error) {
 		status  string
 		disc    []byte
 		summary *string
+		rollup  *string
 	)
-	if err := s.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &disc, &summary, &n.CreatedAt, &n.LastConfirmedAt); err != nil {
+	if err := s.Scan(&n.ID, &n.CanonicalName, &n.Aliases, &typ, &status, &disc, &summary, &rollup, &n.CreatedAt, &n.LastConfirmedAt); err != nil {
 		return n, err
 	}
 	if typ != nil {
 		n.Type = *typ
 	}
 	n.Summary = deref(summary)
+	n.Rollup = deref(rollup)
 	n.Status = model.Status(status)
 	n.Discriminators = decodeDiscriminators(disc)
 	return n, nil
@@ -239,15 +241,17 @@ func FindSimilarNodes(ctx context.Context, db DBTX, emb []float32, k int, scope 
 			status  string
 			disc    []byte
 			summary *string
+			rollup  *string
 		)
 		if err := rows.Scan(&h.Node.ID, &h.Node.CanonicalName, &h.Node.Aliases, &typ, &status,
-			&disc, &summary, &h.Node.CreatedAt, &h.Node.LastConfirmedAt, &h.Distance); err != nil {
+			&disc, &summary, &rollup, &h.Node.CreatedAt, &h.Node.LastConfirmedAt, &h.Distance); err != nil {
 			return nil, err
 		}
 		if typ != nil {
 			h.Node.Type = *typ
 		}
 		h.Node.Summary = deref(summary)
+		h.Node.Rollup = deref(rollup)
 		h.Node.Status = model.Status(status)
 		h.Node.Discriminators = decodeDiscriminators(disc)
 		hits = append(hits, h)

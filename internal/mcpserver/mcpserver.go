@@ -62,6 +62,11 @@ func New(c *core.Core, importFn ImportFunc, principal *core.Principal) *mcp.Serv
 	}, getNodeTool(c))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "rollup",
+		Description: "Record a 'current state of X' summary on a hub entity — a synthesis over its detailed edge history. Use on entities with many relationships to give a quick current-state answer without replaying every edge. Look up the node id first (recall/get_node).",
+	}, rollupTool(c))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "supersede",
 		Description: "Record that a new entity replaces an old one: adds a supersedes link and marks the old one historical (kept, not deleted).",
 	}, supersedeTool(c))
@@ -167,16 +172,17 @@ type nodeDTO struct {
 	Aliases        []string          `json:"aliases,omitempty"`
 	Type           string            `json:"type,omitempty"`
 	Summary        string            `json:"summary,omitempty"`
+	Rollup         string            `json:"rollup,omitempty"`
 	Discriminators map[string]string `json:"discriminators,omitempty"`
 	Status         string            `json:"status,omitempty"`
 }
 
-// toNodeDTO flattens a model.Node into the client-facing DTO (identity + summary,
-// without the embedding).
+// toNodeDTO flattens a model.Node into the client-facing DTO (identity + summary +
+// rollup, without the embedding).
 func toNodeDTO(n model.Node) nodeDTO {
 	return nodeDTO{
 		ID: n.ID, CanonicalName: n.CanonicalName, Aliases: n.Aliases, Type: n.Type,
-		Summary: n.Summary, Discriminators: n.Discriminators, Status: string(n.Status),
+		Summary: n.Summary, Rollup: n.Rollup, Discriminators: n.Discriminators, Status: string(n.Status),
 	}
 }
 
@@ -396,6 +402,27 @@ func getNodeTool(c *core.Core) mcp.ToolHandlerFor[getNodeIn, getNodeOut] {
 			})
 		}
 		return text(fmt.Sprintf("%s [%s]: %d alias(es), %d edge(s)", n.CanonicalName, n.Type, len(n.Aliases), len(out.Edges))), out, nil
+	}
+}
+
+type rollupIn struct {
+	NodeID string `json:"node_id" jsonschema:"the hub entity's node id (from recall/get_node)"`
+	Text   string `json:"text" jsonschema:"the 'current state of X' synthesis to record"`
+}
+type rollupOut struct {
+	NodeID        string `json:"node_id"`
+	CanonicalName string `json:"canonical_name"`
+	Rollup        string `json:"rollup"`
+}
+
+func rollupTool(c *core.Core) mcp.ToolHandlerFor[rollupIn, rollupOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in rollupIn) (*mcp.CallToolResult, rollupOut, error) {
+		node, err := c.Rollup(ctx, in.NodeID, in.Text)
+		if err != nil {
+			return nil, rollupOut{}, err
+		}
+		return text(fmt.Sprintf("rolled up %s", node.CanonicalName)),
+			rollupOut{NodeID: node.ID, CanonicalName: node.CanonicalName, Rollup: node.Rollup}, nil
 	}
 }
 

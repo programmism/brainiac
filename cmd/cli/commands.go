@@ -211,6 +211,9 @@ func nodeCmd() *cobra.Command {
 			if n.Summary != "" {
 				fmt.Fprintf(out, "  summary: %s\n", n.Summary)
 			}
+			if n.Rollup != "" {
+				fmt.Fprintf(out, "  rollup:  %s\n", n.Rollup)
+			}
 			fmt.Fprintf(out, "  id: %s  status: %s\n", n.ID, n.Status)
 			fmt.Fprintln(out, "edges:")
 			for _, e := range det.Edges {
@@ -346,6 +349,54 @@ func namespaceHandoffCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&from, "from", "", "the source namespace to move")
 	cmd.Flags().StringVar(&to, "to", "", "the (empty) target namespace")
+	return cmd
+}
+
+func rollupCmd() *cobra.Command {
+	var id, name, textFlag, project string
+	cmd := &cobra.Command{
+		Use:   "rollup [canonical-name]",
+		Short: "Record a 'current state of X' summary on a hub entity (by name or --id)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				name = args[0]
+			}
+			if name == "" && id == "" {
+				return fmt.Errorf("provide an entity name or --id")
+			}
+			if textFlag == "" {
+				return fmt.Errorf("--text is required")
+			}
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			kb := buildCore(cfg, pool)
+
+			if id == "" {
+				det, err := kb.GetNode(ctx, "", name, project)
+				if err != nil {
+					return err
+				}
+				if det == nil {
+					return fmt.Errorf("no entity %q", name)
+				}
+				id = det.Node.ID
+			}
+			node, err := kb.Rollup(ctx, id, textFlag)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "rolled up %s\n", node.CanonicalName)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&id, "id", "", "the entity's node id (alternative to name)")
+	cmd.Flags().StringVar(&textFlag, "text", "", "the current-state synthesis to record")
+	cmd.Flags().StringVar(&project, "project", "", "scope the name lookup to this project, then global")
 	return cmd
 }
 

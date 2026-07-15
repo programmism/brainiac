@@ -55,6 +55,16 @@ func UpdateNodeStatus(ctx context.Context, db DBTX, id string, status model.Stat
 	return err
 }
 
+// UpdateNodeRollup sets a node's "current state of X" rollup text; returns how
+// many rows changed so a caller can detect a missing node id (#198).
+func UpdateNodeRollup(ctx context.Context, db DBTX, id, rollup string) (int64, error) {
+	tag, err := db.Exec(ctx, `UPDATE nodes SET rollup = $2 WHERE id = $1`, id, nullStr(rollup))
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // UpdateEdgeStatus sets an edge's status (e.g. to historical when retiring the
 // losing side of a conflict — the edge-level mirror of node supersession, #148).
 // Returns how many rows changed so callers can detect a missing edge id.
