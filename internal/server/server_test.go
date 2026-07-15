@@ -62,7 +62,7 @@ func TestHardIsolationGatesReads(t *testing.T) {
 	}{
 		{"read no token", "/api/search?q=x", ""},
 		{"read wrong token", "/api/search?q=x", "Bearer nope"},
-		{"capabilities no token", "/api/capabilities", ""},
+		{"graph no token", "/api/graph", ""},
 	} {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
@@ -73,6 +73,21 @@ func TestHardIsolationGatesReads(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("%s: got %d, want 401", tc.name, rec.Code)
 		}
+	}
+
+	// Capabilities stays public under isolation and advertises that auth is
+	// required, so the WebUI can prompt for a token before it has one.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("capabilities must stay public: got %d", rec.Code)
+	}
+	var caps map[string]bool
+	if err := json.Unmarshal(rec.Body.Bytes(), &caps); err != nil {
+		t.Fatalf("caps decode: %v", err)
+	}
+	if !caps["auth_required"] {
+		t.Fatalf("capabilities should report auth_required under isolation: %v", caps)
 	}
 }
 
