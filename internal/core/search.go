@@ -33,12 +33,19 @@ func (c *Core) Search(ctx context.Context, query string, k int, project string) 
 	if query == "" {
 		return nil, nil
 	}
-	if k <= 0 {
-		k = DefaultSearchK
-	}
 	emb, err := c.embedQuery(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
+	}
+	return c.searchByEmbedding(ctx, emb, k, project)
+}
+
+// searchByEmbedding runs the vector search for an already-computed query
+// embedding, so a caller that also needs the vector elsewhere (recall) embeds the
+// query only once (#221).
+func (c *Core) searchByEmbedding(ctx context.Context, emb []float32, k int, project string) ([]model.ChunkHit, error) {
+	if k <= 0 {
+		k = DefaultSearchK
 	}
 	scope, wall := c.readScope(ctx, project)
 	hits, err := store.SearchChunks(ctx, c.pool, emb, k, scope, wall)

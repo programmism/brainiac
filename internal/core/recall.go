@@ -71,8 +71,16 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 		return res, nil
 	}
 
+	// Embed the query ONCE and reuse the vector for both chunk and node search — a
+	// recall previously paid two Ollama round-trips for the same query (#221).
+	emb, err := c.embedQuery(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
+	}
+	scope, wall := c.readScope(ctx, project)
+
 	// 1. Vector search over chunks (scoped to the lens).
-	chunks, err := c.Search(ctx, query, DefaultRecallChunks, project)
+	chunks, err := c.searchByEmbedding(ctx, emb, DefaultRecallChunks, project)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +91,6 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 	//    aliases are not embedded), then summary-embedding neighbors that pass the
 	//    relevance cutoffs. Lexical hits rank highest, so their edges are traversed
 	//    first under the budget below.
-	scope, wall := c.readScope(ctx, project)
 	names := make(map[string]string)
 	seenNode := make(map[string]bool)
 	addNode := func(n model.Node) {
@@ -106,11 +113,8 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 
 	// 2b. Vector neighbors, admitted by an absolute cutoff and a relative gap from
 	//     the best hit, so a single strong match isn't diluted by a weakly-similar
-	//     tail (recall precision fix). Hits are sorted nearest-first.
-	emb, err := c.embedQuery(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
-	}
+	//     tail (recall precision fix). Hits are sorted nearest-first. Reuses the
+	//     query embedding computed above.
 	nodeHits, err := store.FindSimilarNodes(ctx, c.pool, emb, DefaultRecallNodes, scope, wall)
 	if err != nil {
 		return nil, fmt.Errorf("find nodes: %w", err)
@@ -127,11 +131,13 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 
 	// 3. Traverse edges (incl. supersedes history) for the admitted nodes, in
 	//    priority order, and join raw chunks by URI — bounded so a hub node can't
-	//    flood the evidence bundle (#73).
+	//    flood the evidence bundle (#73). Endpoint names are resolved in one batch
+	//    after traversal, not per edge (#221).
 	seenEdge := make(map[string]bool)
 	seenURI := make(map[string]bool)
+	var collected []model.Edge
 	for _, n := range res.Nodes {
-		if len(res.Edges) >= maxRecallEdges {
+		if len(collected) >= maxRecallEdges {
 			break
 		}
 		edges, err := store.EdgesForNode(ctx, c.pool, n.ID, true, maxEdgesPerNode, wall)
@@ -139,15 +145,11 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 			return nil, fmt.Errorf("traverse edges: %w", err)
 		}
 		for _, e := range edges {
-			if seenEdge[e.ID] || len(res.Edges) >= maxRecallEdges {
+			if seenEdge[e.ID] || len(collected) >= maxRecallEdges {
 				continue
 			}
 			seenEdge[e.ID] = true
-			res.Edges = append(res.Edges, EdgeView{
-				Edge:     e,
-				FromName: c.nodeName(ctx, names, e.FromID),
-				ToName:   c.nodeName(ctx, names, e.ToID),
-			})
+			collected = append(collected, e)
 			if e.SourceURI != "" && !seenURI[e.SourceURI] && len(res.EvidenceChunks) < maxRecallEvidence {
 				seenURI[e.SourceURI] = true
 				evidence, err := store.GetChunksBySourceURI(ctx, c.pool, e.SourceURI, evidenceChunksPerEdge, wall)
@@ -157,6 +159,29 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 				res.EvidenceChunks = append(res.EvidenceChunks, evidence...)
 			}
 		}
+	}
+
+	// Batch-resolve any endpoint names not already known from the admitted nodes.
+	var missing []string
+	for _, e := range collected {
+		if _, ok := names[e.FromID]; !ok {
+			missing = append(missing, e.FromID)
+		}
+		if _, ok := names[e.ToID]; !ok {
+			missing = append(missing, e.ToID)
+		}
+	}
+	if len(missing) > 0 {
+		resolved, err := store.NodeNamesByIDs(ctx, c.pool, missing)
+		if err != nil {
+			return nil, fmt.Errorf("resolve edge endpoints: %w", err)
+		}
+		for id, name := range resolved {
+			names[id] = name
+		}
+	}
+	for _, e := range collected {
+		res.Edges = append(res.Edges, EdgeView{Edge: e, FromName: names[e.FromID], ToName: names[e.ToID]})
 	}
 
 	// A scoped query that surfaced only global results is a silent fallback: the

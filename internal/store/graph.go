@@ -38,6 +38,29 @@ func scanEdge(s rowScanner) (model.Edge, error) {
 	return e, nil
 }
 
+// NodeNamesByIDs resolves many node ids to canonical names in one query — the
+// batch replacement for per-edge-endpoint GetNodeByID lookups on the recall hot
+// path (#221). Missing ids are simply absent from the map.
+func NodeNamesByIDs(ctx context.Context, db DBTX, ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := db.Query(ctx, `SELECT id, canonical_name FROM nodes WHERE id = ANY($1::uuid[])`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		out[id] = name
+	}
+	return out, rows.Err()
+}
+
 // GetNodeByID returns the node with the given id, or (nil, nil) if none.
 func GetNodeByID(ctx context.Context, db DBTX, id string) (*model.Node, error) {
 	n, err := scanNode(db.QueryRow(ctx, `SELECT `+nodeCols+` FROM nodes WHERE id = $1`, id))
