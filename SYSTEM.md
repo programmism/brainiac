@@ -4,8 +4,10 @@
 > you add, change, or remove a feature, or discover a constraint/edge case. Every "why" that matters
 > lives here — code says *what*, SYSTEM.md says *why it is this way*.
 
-**Status:** M0–M4 roadmap complete; now hardening for real production use (**M5**, see
-[docs/production-readiness.md](docs/production-readiness.md)).
+**Status:** M0–M5 complete (roadmap + production-readiness hardening; see
+[docs/production-readiness.md](docs/production-readiness.md), now a resolved history). Next-generation
+work — retrieval quality, scale indexing, connector breadth, security identity/audit, observability — is
+tracked in the product-evaluation epics (#202–#209, roadmap #283).
 
 **M0–M4 complete — the full roadmap is done.** capture→recall core (MCP + CLI), ingestion +
 density selection, Notion **and** Markdown connectors (plugin seams frozen), read-only + interactive
