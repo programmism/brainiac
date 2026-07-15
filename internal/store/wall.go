@@ -43,14 +43,13 @@ func (w Wall) arg() any {
 	return w.ns
 }
 
-// projectClause is the wall predicate for a table whose discriminators jsonb is
-// reachable via the given alias prefix (e.g. "" for the base table, "n." for a
-// join). paramIdx is the $n position of the wall text[] argument. A NULL argument
-// (Layer 1) disables the clause.
-func projectClause(alias string, paramIdx int) string {
+// projectClause is the wall predicate for a base table with a discriminators
+// jsonb column. paramIdx is the $n position of the wall text[] argument; a NULL
+// argument (Layer 1) disables the clause.
+func projectClause(paramIdx int) string {
 	return fmt.Sprintf(
-		`($%d::text[] IS NULL OR COALESCE(NULLIF(%sdiscriminators->>'project',''),'') = ANY($%d::text[]))`,
-		paramIdx, alias, paramIdx,
+		`($%d::text[] IS NULL OR COALESCE(NULLIF(discriminators->>'project',''),'') = ANY($%d::text[]))`,
+		paramIdx, paramIdx,
 	)
 }
 

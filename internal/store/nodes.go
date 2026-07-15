@@ -181,7 +181,7 @@ func FindNodesByMention(ctx context.Context, db DBTX, query string, minLen int, 
 		FROM nodes
 		WHERE status = 'current'
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
-		  AND `+projectClause("", 4)+`
+		  AND `+projectClause(4)+`
 		  AND (
 		        ( length(regexp_replace(lower(canonical_name), '[^a-z0-9]', '', 'g')) >= $2
 		          AND position(' ' || btrim(regexp_replace(lower(canonical_name), '[^a-z0-9]+', ' ', 'g')) || ' ' IN $1) > 0 )
@@ -223,7 +223,7 @@ func FindSimilarNodes(ctx context.Context, db DBTX, emb []float32, k int, scope 
 		FROM nodes
 		WHERE status = 'current' AND summary_embedding IS NOT NULL
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
-		  AND `+projectClause("", 4)+`
+		  AND `+projectClause(4)+`
 		ORDER BY summary_embedding <=> $1::halfvec
 		LIMIT $2`, vec, k, scope.arg(), wall.arg())
 	if err != nil {

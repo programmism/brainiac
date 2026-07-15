@@ -84,7 +84,7 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 		FROM chunks
 		WHERE tier = 'hot' AND embedding IS NOT NULL
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
-		  AND `+projectClause("", 4)+`
+		  AND `+projectClause(4)+`
 		ORDER BY embedding <=> $1::halfvec
 		LIMIT $2`, vec, k, scope.arg(), wall.arg())
 	if err != nil {
@@ -193,7 +193,7 @@ func GetNodeByNameWalled(ctx context.Context, db DBTX, name string, wall Wall) (
 		SELECT `+nodeCols+`
 		FROM nodes
 		WHERE canonical_name = $1 AND status = 'current'
-		  AND `+projectClause("", 2)+`
+		  AND `+projectClause(2)+`
 		ORDER BY created_at DESC
 		LIMIT 1`, name, wall.arg()))
 	if errors.Is(err, pgx.ErrNoRows) {

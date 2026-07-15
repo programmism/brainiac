@@ -187,7 +187,7 @@ func TestHardIsolationWritePin(t *testing.T) {
 func TestNilPrincipalIsLayer1(t *testing.T) {
 	c, pool := newTestCore(t)
 	defer pool.Close()
-	isoFixture(t, c, pool)
+	ids := isoFixture(t, c, pool)
 
 	// With no principal in context, reads are open (Layer 1) across all namespaces.
 	if hits, _ := c.Search(context.Background(), "gamma grape jam", 10, ""); len(hits) == 0 {
@@ -196,8 +196,13 @@ func TestNilPrincipalIsLayer1(t *testing.T) {
 	if hits, _ := c.Search(context.Background(), "shared global note text", 10, ""); len(hits) == 0 {
 		t.Fatalf("Layer 1 must see global chunk")
 	}
-	if det, err := c.GetNode(context.Background(), "", "Gamma", ""); err != nil || det == nil {
-		t.Fatalf("Layer 1 must resolve any node: det=%v err=%v", det, err)
+	// A B-scoped node resolves by id (a bare name resolves only the global scope in
+	// Layer 1, unchanged) and by its explicit project.
+	if det, err := c.GetNode(context.Background(), ids["Gamma"], "", ""); err != nil || det == nil {
+		t.Fatalf("Layer 1 must resolve any node by id: det=%v err=%v", det, err)
+	}
+	if det, err := c.GetNode(context.Background(), "", "Gamma", "B"); err != nil || det == nil {
+		t.Fatalf("Layer 1 must resolve a scoped node by project: det=%v err=%v", det, err)
 	}
 	g, err := c.Graph(context.Background(), 200)
 	if err != nil {

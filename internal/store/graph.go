@@ -97,7 +97,7 @@ func EdgesForNode(ctx context.Context, db DBTX, nodeID string, includeHistorical
 // GraphSnapshot returns up to limit current nodes and the current edges among
 // them, for visualization.
 func GraphSnapshot(ctx context.Context, db DBTX, limit int, wall Wall) ([]model.Node, []model.Edge, error) {
-	nrows, err := db.Query(ctx, `SELECT `+nodeCols+` FROM nodes WHERE status = 'current' AND `+projectClause("", 2)+` ORDER BY created_at LIMIT $1`, limit, wall.arg())
+	nrows, err := db.Query(ctx, `SELECT `+nodeCols+` FROM nodes WHERE status = 'current' AND `+projectClause(2)+` ORDER BY created_at LIMIT $1`, limit, wall.arg())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -137,7 +137,7 @@ func GetChunksBySourceURI(ctx context.Context, db DBTX, uri string, limit int, w
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier, content_hash, created_at, source_modified_at
 		FROM chunks
 		WHERE source_uri = $1 AND tier = 'hot'
-		  AND `+projectClause("", 3)+`
+		  AND `+projectClause(3)+`
 		ORDER BY created_at
 		LIMIT $2`, uri, limit, wall.arg())
 	if err != nil {
