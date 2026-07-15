@@ -17,7 +17,8 @@ func TestEmbed(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		if req.Model != "nomic-embed-text" || req.Prompt != "hello" {
+		// Documents get the nomic document task prefix (#210).
+		if req.Model != "nomic-embed-text" || req.Prompt != "search_document: hello" {
 			t.Errorf("bad request payload: %+v", req)
 		}
 		_ = json.NewEncoder(w).Encode(embedResponse{Embedding: []float64{0.1, 0.2, 0.3}})
@@ -40,6 +41,33 @@ func TestEmbed(t *testing.T) {
 		if vec[i] != want[i] {
 			t.Errorf("vec[%d] = %v, want %v", i, vec[i], want[i])
 		}
+	}
+}
+
+func TestEmbedQueryUsesQueryPrefix(t *testing.T) {
+	var gotPrompt string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req embedRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		gotPrompt = req.Prompt
+		_ = json.NewEncoder(w).Encode(embedResponse{Embedding: []float64{0.1}})
+	}))
+	defer srv.Close()
+
+	e := New(srv.URL, "nomic-embed-text", 1)
+	if _, err := e.EmbedQuery(context.Background(), "hello"); err != nil {
+		t.Fatalf("embed query: %v", err)
+	}
+	if gotPrompt != "search_query: hello" {
+		t.Errorf("query prompt = %q, want %q", gotPrompt, "search_query: hello")
+	}
+	// A non-nomic model stays symmetric (no prefix).
+	e2 := New(srv.URL, "some-symmetric-model", 1)
+	if _, err := e2.EmbedQuery(context.Background(), "hi"); err != nil {
+		t.Fatalf("embed: %v", err)
+	}
+	if gotPrompt != "hi" {
+		t.Errorf("symmetric model prompt = %q, want %q", gotPrompt, "hi")
 	}
 }
 

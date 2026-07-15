@@ -107,9 +107,21 @@ type Selector interface {
 }
 
 // Embedder turns text into a vector. Not bound to Ollama even though v1 uses it.
+// Embed is the DOCUMENT/storage path: what gets indexed (chunks, node summaries).
 type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 	Dims() int
+}
+
+// QueryEmbedder is an optional Embedder extension for asymmetric retrieval models
+// (e.g. nomic-embed-text) that embed a *query* differently from a *document* — for
+// nomic via `search_query:` vs `search_document:` task prefixes. Omitting the
+// prefixes measurably degrades recall and makes query/doc distances non-comparable.
+// Core uses EmbedQuery for search/recall when the embedder exposes it and falls
+// back to Embed otherwise, so a symmetric embedder needs no change.
+type QueryEmbedder interface {
+	Embedder
+	EmbedQuery(ctx context.Context, text string) ([]float32, error)
 }
 
 // BatchEmbedder is an optional Embedder extension: embed many texts in one shot.

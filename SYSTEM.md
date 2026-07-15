@@ -356,6 +356,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-15** — **nomic task-instruction prefixes (#210, retrieval P0).** `nomic-embed-text` is trained
+  for asymmetric retrieval and requires `search_query:` / `search_document:` prefixes; we were embedding
+  both queries and documents raw, silently degrading recall corpus-wide and making query/doc cosine
+  distances non-comparable. Fix: the Ollama embedder now prefixes documents (`Embed`/`EmbedBatch` →
+  `search_document:`) and exposes `EmbedQuery` (→ `search_query:`) via the new `plugins.QueryEmbedder` seam;
+  core's search/recall use `embedQuery`. Prefixes default on by model name (`nomic-embed`), overridable via
+  `WithTaskPrefixes`, and a symmetric model that doesn't implement `QueryEmbedder` is unaffected.
+  **Operational:** existing vectors were stored *without* the document prefix — after upgrading, run
+  `brainiac reembed` to rebuild them (raw text is retained, so no re-ingest). The tuned distance cutoffs
+  (`MaxRelevantDistance`, `MaxNodeDistance`, `SemanticDupThreshold`) were measured in the un-prefixed regime
+  and should be re-calibrated against a real golden set (tracked in #216).
 - **2026-07-15** — **Temporal recall — "what did we think about X on date Y" (#200).** Added **valid-time**:
   a `superseded_at timestamptz` on nodes + edges (migration `0008`), stamped `now()` on the flip to
   historical and cleared on a flip back to current — done inside `UpdateNodeStatus`/`UpdateEdgeStatus`, so
