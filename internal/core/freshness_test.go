@@ -29,10 +29,12 @@ func TestFreshnessBreaksTies(t *testing.T) {
 	}
 
 	hits, err := c.Search(ctx, text, 10, "")
-	if err != nil || len(hits) < 2 {
+	if err != nil || len(hits) < 1 {
 		t.Fatalf("search: hits=%d err=%v", len(hits), err)
 	}
+	// The two are near-duplicates, so collapse keeps one — and the recency prior
+	// makes it the fresher of the pair (#217, #218).
 	if hits[0].SourceURI != "doc://fresh" {
-		t.Fatalf("fresher chunk should rank first, got %q", hits[0].SourceURI)
+		t.Fatalf("fresher chunk should be the survivor, got %q", hits[0].SourceURI)
 	}
 }
