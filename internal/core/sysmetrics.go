@@ -18,6 +18,11 @@ const (
 	memCritPercent  = 95.0
 	connWarnPercent = 80.0
 	poolWarnPercent = 80.0
+	// The hot vector index must fit in RAM with headroom (SYSTEM.md §9 — the
+	// binding scaling constraint). Warn when it passes half the container memory
+	// limit (time to plan tiering/scale-up), critical at three-quarters.
+	indexRAMWarnFraction = 0.50
+	indexRAMCritFraction = 0.75
 )
 
 // PoolStats mirrors the pgx pool's saturation — how many connections are checked
@@ -91,6 +96,16 @@ func (m *SystemMetrics) deriveStatus() {
 			m.raise("critical", fmt.Sprintf("container memory at %.0f%% of its limit", m.Container.UsedPercent))
 		case m.Container.UsedPercent >= memWarnPercent:
 			m.raise("warn", fmt.Sprintf("container memory at %.0f%% of its limit", m.Container.UsedPercent))
+		}
+	}
+	// The ★ scaling signal: hot vector index size vs the container memory ceiling.
+	if m.Container.Available && m.Container.MemLimitBytes > 0 && m.DB.VectorIndexBytes > 0 {
+		frac := float64(m.DB.VectorIndexBytes) / float64(m.Container.MemLimitBytes)
+		switch {
+		case frac >= indexRAMCritFraction:
+			m.raise("critical", fmt.Sprintf("hot vector index is %.0f%% of the memory limit — tier or scale up now", frac*100))
+		case frac >= indexRAMWarnFraction:
+			m.raise("warn", fmt.Sprintf("hot vector index is %.0f%% of the memory limit — plan tiering/scale-up", frac*100))
 		}
 	}
 	if m.DB.MaxConnections > 0 {
