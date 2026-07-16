@@ -58,7 +58,9 @@ services:
       OLLAMA_HOST: http://ollama:11434
     entrypoint: ["/bin/sh", "-c", "ollama pull ${EMBEDDING_MODEL:-nomic-embed-text}"]
     logging: *logging
-    restart: "no"
+    # Retry a transient pull failure instead of leaving the model permanently
+    # un-pulled after one network blip (#250).
+    restart: on-failure
 
   app:
     # Pulls a prebuilt multi-arch image from GHCR (#248) — no compile on the target
