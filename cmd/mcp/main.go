@@ -73,16 +73,16 @@ func selectPrincipal(cfg *config.Config) (*core.Principal, error) {
 	if !cfg.PrincipalsEnabled() {
 		return nil, nil
 	}
-	name := os.Getenv("BRAINIAC_PRINCIPAL")
-	if name == "" {
-		if len(cfg.Principals) == 1 {
-			return cfg.PrincipalByName(cfg.Principals[0].Name), nil
-		}
-		return nil, fmt.Errorf("BRAINIAC_PRINCIPAL must name one of %d configured principals", len(cfg.Principals))
+	// Under isolation, MCP is the write path — bind it to a principal by its SECRET
+	// token, not just a name, so exec-ing the binary with a known name isn't enough
+	// to assume that namespace's identity (#266).
+	tok := os.Getenv("BRAINIAC_PRINCIPAL_TOKEN")
+	if tok == "" {
+		return nil, fmt.Errorf("BRAINIAC_PRINCIPAL_TOKEN is required when principals are configured")
 	}
-	p := cfg.PrincipalByName(name)
+	p := cfg.PrincipalByToken(tok)
 	if p == nil {
-		return nil, fmt.Errorf("BRAINIAC_PRINCIPAL=%q is not a configured principal", name)
+		return nil, fmt.Errorf("BRAINIAC_PRINCIPAL_TOKEN does not match any configured principal")
 	}
 	return p, nil
 }

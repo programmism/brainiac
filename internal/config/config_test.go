@@ -69,6 +69,23 @@ func TestPrincipalValidationAndMapping(t *testing.T) {
 	}
 }
 
+func TestPrincipalByToken(t *testing.T) {
+	c := Default()
+	c.Principals = []PrincipalConfig{
+		{Name: "team-a", Read: []string{"team-a"}, Write: "team-a", Token: "tok-a"},
+		{Name: "team-b", Read: []string{"team-b"}, Write: "team-b", Token: "tok-b"},
+	}
+	if p := c.PrincipalByToken("tok-b"); p == nil || p.Name != "team-b" || p.Write != "team-b" {
+		t.Fatalf("token should select team-b, got %+v", p)
+	}
+	if p := c.PrincipalByToken("nope"); p != nil {
+		t.Fatalf("unknown token must not match, got %+v", p)
+	}
+	if p := c.PrincipalByToken(""); p != nil {
+		t.Fatalf("empty token must not match, got %+v", p)
+	}
+}
+
 func TestEnvKey(t *testing.T) {
 	cases := map[string]string{"team-a": "TEAM_A", "Platform": "PLATFORM", "a.b c": "A_B_C"}
 	for in, want := range cases {
