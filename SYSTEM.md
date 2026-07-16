@@ -358,6 +358,12 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-16** — **Right-size compose memory to a real 4 GB (#249).** The `mem_limit` caps summed to
+  ~4.25 GB (Ollama alone at 3 GB) against the advertised "4 GB box", so the proxy/backup profiles or a
+  model pull could OOM. Ollama is sized for the default embedder (nomic, ~1.5 GB peak) at `1536m`; the core
+  stack (db 768m + ollama 1536m + app 256m) is now ~2.5 GB, ~2.7 GB with proxy+backup — the "4 GB box" claim
+  is honest with headroom. Turning on the local-LLM extractor loads a chat model into the same Ollama and
+  needs the cap raised (documented in the compose comment).
 - **2026-07-16** — **Health metrics on `/metrics` + index-vs-RAM alert (#255, #256).** The corpus/graph
   health signals (node/edge/chunk counts, edges-per-node, historical/stale %) existed only as on-demand
   JSON on `/api/health`, so Prometheus saw almost nothing alertable. Registered them as gauges
