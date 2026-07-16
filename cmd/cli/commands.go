@@ -800,6 +800,48 @@ func retireEdgeCmd() *cobra.Command {
 	}
 }
 
+func confirmCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "confirm [edge-id]",
+		Short: "Confirm an edge is still valid: clears its stale flag and refreshes last_confirmed_at",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			if err := buildCore(cfg, pool).Confirm(ctx, args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "confirmed edge %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func flagStaleCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "flag-stale [edge-id]",
+		Short: "Flag an edge as possibly stale, for review (reversible via confirm)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			if err := buildCore(cfg, pool).FlagStale(ctx, args[0]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "flagged edge %s stale\n", args[0])
+			return nil
+		},
+	}
+}
+
 func splitCmd() *cobra.Command {
 	var node, axis string
 	var routes []string
