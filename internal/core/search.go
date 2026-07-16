@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
@@ -105,6 +106,11 @@ func rrfFuse(dense, lexical []model.ChunkHit, k int) []model.ChunkHit {
 	}
 	add(dense)
 	add(lexical)
+	// Freshness prior (#218): a small recency bonus nudges up-to-date content above
+	// stale content on near-ties, without overriding a clearly-more-relevant hit.
+	for id := range score {
+		score[id] += freshnessBonus(rec[id].SourceModifiedAt)
+	}
 	sort.SliceStable(order, func(i, j int) bool { return score[order[i]] > score[order[j]] })
 	if len(order) > k {
 		order = order[:k]
@@ -114,6 +120,26 @@ func rrfFuse(dense, lexical []model.ChunkHit, k int) []model.ChunkHit {
 		out = append(out, rec[id])
 	}
 	return out
+}
+
+// freshnessWeight is the max recency bonus; ~a third of one RRF rank step
+// (1/(rrfK+1)), so it only breaks near-ties, never overriding relevance.
+const freshnessWeight = 0.006
+
+// freshnessHalfLifeDays: content this old gets half the max bonus.
+const freshnessHalfLifeDays = 90.0
+
+// freshnessBonus returns a small recency prior in [0, freshnessWeight]; 0 when the
+// source modification time is unknown (#218).
+func freshnessBonus(modified *time.Time) float64 {
+	if modified == nil {
+		return 0
+	}
+	ageDays := time.Since(*modified).Hours() / 24
+	if ageDays < 0 {
+		ageDays = 0
+	}
+	return freshnessWeight * (freshnessHalfLifeDays / (freshnessHalfLifeDays + ageDays))
 }
 
 // embedQuery embeds a search query, using the embedder's asymmetric query path
