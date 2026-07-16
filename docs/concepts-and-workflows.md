@@ -7,6 +7,15 @@ healthy.
 
 > This is a *how/when* guide. For *why the system is built this way*, see [SYSTEM.md](../SYSTEM.md).
 
+> **One word for scoping: "project".** As a user you only need **project** — the
+> `--project` / `project` you pass to scope a memory to a team or repo (empty =
+> global/shared). The other words are internals you'll rarely touch:
+> *namespace* = a project as an isolation boundary; *scope* = the provenance label
+> on a recall result (`global` / `project:X`); *discriminator* = the identity axis
+> a project is one value of (advanced: `env`, `client`, …); *principal* = a bearer
+> token bound to namespaces under hard isolation ([security.md](security.md)). If
+> in doubt, think "project".
+
 ---
 
 ## The mental model: two layers

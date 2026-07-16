@@ -291,7 +291,7 @@ sources ──connectors──▶ core (chunk · select · embed · store · gra
 
 **More docs:** [concepts & workflows](docs/concepts-and-workflows.md) · [laptop](docs/laptop.md) ·
 [agent memory](docs/agent-memory.md) · [operations](docs/operations.md) · [deployment](docs/deployment.md) ·
-[security & threat model](docs/security.md) · [production readiness](docs/production-readiness.md) ·
+[security & threat model](docs/security.md) · [API reference](docs/api.md) · [production readiness](docs/production-readiness.md) ·
 [decision records](docs/decisions/).
 
 ## Stack
