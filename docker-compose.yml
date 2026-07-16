@@ -40,7 +40,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 12
-    mem_limit: 3g
+    # Sized for the default embedder (nomic-embed-text, ~1.5 GB peak). If you turn
+    # on the optional local-LLM extractor (EXTRACTOR=local-llm), it loads a chat
+    # model into this same Ollama — raise this to fit it (a beefy box, per README).
+    mem_limit: 1536m
     cpus: 2.0
     logging: *logging
     restart: unless-stopped
