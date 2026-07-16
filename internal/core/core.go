@@ -30,6 +30,9 @@ type Core struct {
 	// extractReview routes extracted nodes/edges to the review queue (status
 	// 'proposed') instead of writing them live ('current'). Default true.
 	extractReview bool
+	// reranker is the optional cross-encoder that reorders retrieved chunks by
+	// relevance (SYSTEM.md §7, #213). Nil = the RRF-fused order is returned as is.
+	reranker plugins.Reranker
 }
 
 // Option customizes a Core at construction.
@@ -43,6 +46,11 @@ func WithExtractor(ext plugins.Extractor, review bool) Option {
 		c.extractor = ext
 		c.extractReview = review
 	}
+}
+
+// WithReranker enables an optional reranker over retrieved chunks (#213).
+func WithReranker(r plugins.Reranker) Option {
+	return func(c *Core) { c.reranker = r }
 }
 
 // New constructs a Core over a database pool, an embedder, and a selector.

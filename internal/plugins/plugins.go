@@ -15,7 +15,18 @@ import (
 	"context"
 	"iter"
 	"time"
+
+	"github.com/programmism/brainiac/internal/model"
 )
+
+// Reranker reorders retrieved chunks by relevance to the query — the precision
+// lever a dense+lexical retriever lacks (#213). Optional: when unset, retrieval
+// returns the RRF-fused order. A typical implementation is a local cross-encoder
+// scoring each (query, chunk) pair. It receives the fused candidate pool and
+// returns it reordered (it must not add or drop hits).
+type Reranker interface {
+	Rerank(ctx context.Context, query string, hits []model.ChunkHit) ([]model.ChunkHit, error)
+}
 
 // RawDoc is a document produced by a connector, before selection and chunking.
 type RawDoc struct {
