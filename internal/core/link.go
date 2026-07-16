@@ -63,6 +63,7 @@ func (c *Core) Link(ctx context.Context, in LinkInput) (*model.Edge, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.audit(ctx, "link", in.From+" -"+in.Type+"-> "+in.To, in.Discriminators["project"])
 	return edge, nil
 }
 
