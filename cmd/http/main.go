@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -77,9 +78,13 @@ func run() error {
 	if writable && cfg.HTTP.AuthToken == "" {
 		log.Printf("warning: clients.webui=interactive but AUTH_TOKEN is unset — write endpoints stay DISABLED")
 	}
-	principals := cfg.BuildPrincipals()
-	if len(principals) > 0 {
-		log.Printf("hard isolation ON: %d principal(s) — /api requires a principal token, reads walled per namespace (#120)", len(principals))
+	var auth server.PrincipalMatcher
+	var reloadable *reloadableAuth
+	if a := cfg.BuildAuthenticator(); a != nil {
+		reloadable = &reloadableAuth{}
+		reloadable.store(a)
+		auth = reloadable
+		log.Printf("hard isolation ON: %d principal(s) — /api requires a principal token, reads walled per namespace (#120)", a.Len())
 	}
 	embedderCheck := ollamaChecker(cfg.Embedding.BaseURL, cfg.Embedding.Model)
 	if embedderCheck != nil {
@@ -94,10 +99,10 @@ func run() error {
 		ccancel()
 	}
 	handler := server.New(pool, embedderCheck, c, server.Options{
-		Writable:   writable,
-		AuthToken:  cfg.HTTP.AuthToken,
-		Principals: principals,
-		Logs:       logs,
+		Writable:  writable,
+		AuthToken: cfg.HTTP.AuthToken,
+		Auth:      auth,
+		Logs:      logs,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,
@@ -119,6 +124,14 @@ func run() error {
 		_ = srv.Shutdown(toCtx)
 	}()
 
+	// Hot principal reload on SIGHUP (#269): re-read config and swap the roster
+	// atomically, so a revocation, rotation, or expiry edit takes effect without a
+	// restart. Only wired under hard isolation. A config that no longer validates —
+	// or that dropped principals entirely — is rejected, keeping the live roster.
+	if reloadable != nil {
+		go watchReload(shutdownCtx, reloadable)
+	}
+
 	// Optional background auto-import: drop files in ./data/docs and they appear.
 	if d := cfg.AutoImportInterval(); d > 0 {
 		go autoImport(shutdownCtx, c, cfg, d)
@@ -129,6 +142,48 @@ func run() error {
 		return err
 	}
 	return nil
+}
+
+// reloadableAuth is a server.PrincipalMatcher backed by an atomically swappable
+// authenticator, so SIGHUP can install a new roster while requests are in flight
+// (#269).
+type reloadableAuth struct {
+	p atomic.Pointer[config.PrincipalAuthenticator]
+}
+
+func (r *reloadableAuth) store(a *config.PrincipalAuthenticator) { r.p.Store(a) }
+
+func (r *reloadableAuth) Match(token string, now time.Time) *core.Principal {
+	return r.p.Load().Match(token, now)
+}
+
+// watchReload swaps the live principal roster on each SIGHUP until ctx is done.
+// A config that fails to load/validate, or that removed every principal, is
+// rejected with a log line and the previous roster stays in force (isolation can
+// never silently turn off mid-flight).
+func watchReload(ctx context.Context, r *reloadableAuth) {
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-hup:
+			ncfg, err := config.Load(configPath())
+			if err != nil {
+				log.Printf("SIGHUP reload rejected (config invalid, keeping current roster): %v", err)
+				continue
+			}
+			na := ncfg.BuildAuthenticator()
+			if na == nil {
+				log.Printf("SIGHUP reload rejected: roster is now empty; keeping current one (restart to disable isolation)")
+				continue
+			}
+			r.store(na)
+			log.Printf("SIGHUP: reloaded %d principal(s) — revocations/rotations/expiry now live", na.Len())
+		}
+	}
 }
 
 // autoImport re-ingests the conventional /data/docs folder plus any configured

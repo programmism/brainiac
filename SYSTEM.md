@@ -358,6 +358,25 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-16** — **Token lifecycle: entropy floor, hash-at-rest, expiry, hot revocation (#269, security P1).**
+  Principal bearer tokens were free-form and long-lived; revocation meant editing config and restarting the
+  whole stack (which also kills the MCP server). Five changes, all at the config/auth layer (no DB — tokens
+  live in config, not a table): **(1) Entropy floor** — a plaintext principal token must be ≥ `MinTokenLen`
+  (32 chars = 128 bits); **(2) `brainiac token gen`** — prints a 256-bit random hex token; **(3) Hash-at-rest**
+  — a principal may set `token_sha256:` (the SHA-256 of its token) instead of the secret, so a leaked
+  config.yaml holds no live credential; the presented bearer token is hashed and constant-time compared.
+  `brainiac token hash` produces the value. Exactly one of `token` / `token_sha256` is required; uniqueness is
+  checked on the *hash* so a plaintext token and another's hash of it still collide. **(4) Per-token expiry**
+  — an optional RFC3339 `expires:`, enforced per request against the wall clock, so expiry is "hot" (no
+  restart). **(5) Hot revocation/rotation** — a `revoked: true` flag plus a `SIGHUP` handler in the HTTP
+  server that reloads config and atomically swaps the principal roster (`config.PrincipalAuthenticator`,
+  behind an `atomic.Pointer`); a reload that fails validation or empties the roster is rejected, so isolation
+  never silently drops. Auth moved from a `map[token]→Principal` matched at boot to a
+  `server.PrincipalMatcher` resolving `(token, now)→Principal` per request — the seam that makes expiry and
+  hot reload possible. MCP resolves its process principal through the same authenticator (honors
+  hash/expiry/revoked at start-up). Unit tests (no DB) in `internal/config/config_test.go`; the entropy floor
+  is the only breaking change for existing configs with short tokens. Closes the "token lifecycle" roadmap
+  item flagged in [security.md](docs/security.md).
 - **2026-07-16** — **Write audit log (#267, security P0).** A company memory of sensitive data must answer
   "who created/changed/deleted X" for compliance and insider-threat review. Added an append-only `audit_log`
   table (migration `0013`) and a best-effort `c.audit(ctx, op, target, namespace)` (swallows its own errors

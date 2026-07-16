@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -363,6 +367,51 @@ func namespaceHandoffCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&from, "from", "", "the source namespace to move")
 	cmd.Flags().StringVar(&to, "to", "", "the (empty) target namespace")
+	return cmd
+}
+
+func tokenCmd() *cobra.Command {
+	cmd := &cobra.Command{Use: "token", Short: "Bearer-token helpers"}
+	cmd.AddCommand(&cobra.Command{
+		Use:   "gen",
+		Short: "Generate a strong random bearer token (256-bit hex) for AUTH_TOKEN / a principal",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err != nil {
+				return err
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), hex.EncodeToString(b))
+			return nil
+		},
+	})
+	cmd.AddCommand(&cobra.Command{
+		Use:   "hash [token]",
+		Short: "Print SHA-256(token) for a principal's `token_sha256:` (hash-at-rest, #269)",
+		Long: "Print the SHA-256 (hex) of a bearer token, for storing under a principal's\n" +
+			"`token_sha256:` so config.yaml never holds the live secret. Reads the token\n" +
+			"from the argument, or from stdin when no argument is given (keeps it out of\n" +
+			"shell history):\n\n    brainiac token gen | brainiac token hash",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var tok string
+			if len(args) == 1 {
+				tok = args[0]
+			} else {
+				b, err := io.ReadAll(cmd.InOrStdin())
+				if err != nil {
+					return err
+				}
+				tok = string(b)
+			}
+			tok = strings.TrimSpace(tok)
+			if tok == "" {
+				return fmt.Errorf("no token provided (pass it as an argument or on stdin)")
+			}
+			sum := sha256.Sum256([]byte(tok))
+			fmt.Fprintln(cmd.OutOrStdout(), hex.EncodeToString(sum[:]))
+			return nil
+		},
+	})
 	return cmd
 }
 
