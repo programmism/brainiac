@@ -265,7 +265,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 							return
 						}
 						if err := c.ApplyMerge(req.Context(), body.Keep, body.Drop); err != nil {
-							writeError(w, http.StatusInternalServerError, err)
+							handleCoreErr(w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -282,28 +282,28 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 						}
 						res, err := c.Split(req.Context(), body.NodeID, body.Axis, body.Routes)
 						if err != nil {
-							writeError(w, http.StatusInternalServerError, err)
+							handleCoreErr(w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, res)
 					})
 					r.Post("/edges/{id}/confirm", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.Confirm(req.Context(), chi.URLParam(req, "id")); err != nil {
-							writeError(w, http.StatusInternalServerError, err)
+							handleCoreErr(w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 					})
 					r.Post("/edges/{id}/flag-stale", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.FlagStale(req.Context(), chi.URLParam(req, "id")); err != nil {
-							writeError(w, http.StatusInternalServerError, err)
+							handleCoreErr(w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 					})
 					r.Post("/edges/{id}/retire", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.RetireEdge(req.Context(), chi.URLParam(req, "id")); err != nil {
-							writeError(w, http.StatusInternalServerError, err)
+							handleCoreErr(w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -497,11 +497,16 @@ type healthResponse struct {
 
 // handleCoreErr maps an embedder outage to 503 and everything else to 500.
 func handleCoreErr(w http.ResponseWriter, err error) {
-	if errors.Is(err, core.ErrEmbed) {
+	switch {
+	case errors.Is(err, core.ErrEmbed):
 		writeError(w, http.StatusServiceUnavailable, err)
-		return
+	case errors.Is(err, core.ErrForbiddenNamespace):
+		writeError(w, http.StatusForbidden, err)
+	case errors.Is(err, core.ErrQuotaExceeded):
+		writeError(w, http.StatusTooManyRequests, err)
+	default:
+		writeError(w, http.StatusInternalServerError, err)
 	}
-	writeError(w, http.StatusInternalServerError, err)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

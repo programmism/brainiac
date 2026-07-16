@@ -56,13 +56,20 @@ func InsertChunk(ctx context.Context, db DBTX, c *model.Chunk) error {
 	if err != nil {
 		return err
 	}
-	return db.QueryRow(ctx, `
+	err = db.QueryRow(ctx, `
 		INSERT INTO chunks (text, embedding, source_uri, source_locator, quality_score, tier, content_hash, source_modified_at, discriminators, scope_key)
 		VALUES ($1, $2::halfvec, $3, $4::jsonb, $5::real, $6, $7, $8, $9::jsonb, $10)
+		ON CONFLICT (source_uri, content_hash) WHERE content_hash IS NOT NULL DO NOTHING
 		RETURNING id, created_at`,
 		c.Text, encodeVec(c.Embedding), c.SourceURI, locator, c.QualityScore,
 		string(tier), nullStr(c.ContentHash), c.SourceModifiedAt, discJSON, model.ScopeKey(c.Discriminators),
 	).Scan(&c.ID, &c.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// A concurrent ingest already stored this exact (source_uri, content_hash);
+		// the chunk exists, so treat the insert as an idempotent no-op (#225).
+		return nil
+	}
+	return err
 }
 
 // ChunkExistsByHash reports whether a chunk with the given content hash is
