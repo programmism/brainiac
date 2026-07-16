@@ -215,7 +215,11 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			// Recent application + access logs (WebUI Logs tab, #166). Mounted only
 			// when a log sink is configured; secrets are redacted at capture time.
 			// Same open-read posture as /system — protect the surface via the proxy.
-			if opts.Logs != nil {
+			// NOT mounted under hard isolation: the log ring is process-global and
+			// its access lines include other tenants' ?q= search text and namespaces,
+			// which a per-token principal must not read (#268). Logs stay operator-
+			// only (docker logs / a Layer-1 deployment).
+			if opts.Logs != nil && !hardIso {
 				r.Get("/logs", func(w http.ResponseWriter, req *http.Request) {
 					limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 					writeJSON(w, http.StatusOK, map[string]any{"lines": opts.Logs.Lines(limit)})
