@@ -4,6 +4,7 @@
 package config
 
 import (
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -66,7 +67,7 @@ func (c *Config) BuildPrincipals() map[string]*core.Principal {
 }
 
 // PrincipalByName returns the configured principal with the given name as a core
-// principal, or nil. Used by MCP to bind its single process-wide principal.
+// principal, or nil.
 func (c *Config) PrincipalByName(name string) *core.Principal {
 	for _, p := range c.Principals {
 		if p.Name == name {
@@ -74,6 +75,23 @@ func (c *Config) PrincipalByName(name string) *core.Principal {
 		}
 	}
 	return nil
+}
+
+// PrincipalByToken returns the configured principal whose bearer token matches, or
+// nil. Used by MCP to bind its process-wide principal from a secret token — so
+// knowing a principal's NAME is not enough to assume its identity (#266).
+// Comparison is constant-time against every entry.
+func (c *Config) PrincipalByToken(token string) *core.Principal {
+	var match *PrincipalConfig
+	for i := range c.Principals {
+		if token != "" && subtle.ConstantTimeCompare([]byte(c.Principals[i].Token), []byte(token)) == 1 {
+			match = &c.Principals[i]
+		}
+	}
+	if match == nil {
+		return nil
+	}
+	return &core.Principal{Name: match.Name, Read: match.ReadNamespaces(), Write: match.Write, MaxNodes: match.MaxNodes, MaxChunks: match.MaxChunks}
 }
 
 // ReadNamespaces returns the principal's read set with the "global" alias
