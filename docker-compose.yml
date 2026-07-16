@@ -127,9 +127,12 @@ services:
 
   # Scheduled daily backups. Enable with: docker compose --profile backup up -d
   # Writes gzipped pg_dumps to ./backups and keeps the newest 14.
+  # On by default: a company memory should never boot without backups. The daily
+  # dump covers graph + vectors + provenance in one consistent file (#257). Point
+  # ./backups at off-box storage for real durability. To run without it, start the
+  # other services explicitly (e.g. `docker compose up db app`).
   backup:
     image: pgvector/pgvector:pg16
-    profiles: ["backup"]
     depends_on:
       db:
         condition: service_healthy
@@ -148,6 +151,13 @@ services:
           ls -1t /backups/brainiac-*.sql.gz | tail -n +15 | xargs -r rm -f;
           sleep 86400;
         done
+    healthcheck:
+      # Healthy once a recent dump exists (the loop writes one immediately on boot).
+      test: ["CMD-SHELL", "test -n \"$$(find /backups -name 'brainiac-*.sql.gz' -mmin -1500)\""]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
     mem_limit: 128m
     logging: *logging
     restart: unless-stopped
