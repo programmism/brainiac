@@ -70,20 +70,80 @@ func (c *Core) hybridSearch(ctx context.Context, emb []float32, query string, k 
 	if err != nil {
 		return nil, err
 	}
-	// Fuse the two arms. With a reranker, fuse the whole candidate pool and let it
-	// reorder before we cut to k; without one, fuse straight to k.
-	if c.reranker == nil {
-		return rrfFuse(dense, lexical, k), nil
+	// Fuse the two arms over the whole pool, collapse near-duplicate chunks so
+	// redundancy doesn't eat the k budget (#217), optionally rerank, then cut to k.
+	fused := collapseNearDuplicates(rrfFuse(dense, lexical, pool))
+	if c.reranker != nil {
+		fused, err = c.reranker.Rerank(ctx, query, fused)
+		if err != nil {
+			return nil, fmt.Errorf("rerank: %w", err)
+		}
 	}
-	fused := rrfFuse(dense, lexical, pool)
-	reranked, err := c.reranker.Rerank(ctx, query, fused)
-	if err != nil {
-		return nil, fmt.Errorf("rerank: %w", err)
+	if len(fused) > k {
+		fused = fused[:k]
 	}
-	if len(reranked) > k {
-		reranked = reranked[:k]
+	return fused, nil
+}
+
+// nearDupJaccard is the word-set overlap above which two chunks are treated as
+// near-duplicates and the lower-ranked one is dropped (#217).
+const nearDupJaccard = 0.9
+
+// collapseNearDuplicates removes chunks whose text nearly duplicates an
+// already-kept, higher-ranked chunk (word-set Jaccard >= nearDupJaccard), so the
+// same content mirrored across sources doesn't crowd out diverse evidence. Order
+// is preserved.
+func collapseNearDuplicates(hits []model.ChunkHit) []model.ChunkHit {
+	type keptChunk struct {
+		set   map[string]struct{}
+		scope string
 	}
-	return reranked, nil
+	kept := make([]model.ChunkHit, 0, len(hits))
+	seen := make([]keptChunk, 0, len(hits))
+	for _, h := range hits {
+		set := wordSet(h.Text)
+		dup := false
+		for _, ks := range seen {
+			// Only within the same scope: identical content in different projects
+			// (e.g. alpha vs global) is legitimately distinct provenance (#217/#143).
+			if ks.scope == h.Scope && jaccard(set, ks.set) >= nearDupJaccard {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			kept = append(kept, h)
+			seen = append(seen, keptChunk{set: set, scope: h.Scope})
+		}
+	}
+	return kept
+}
+
+func wordSet(s string) map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+	}) {
+		set[w] = struct{}{}
+	}
+	return set
+}
+
+func jaccard(a, b map[string]struct{}) float64 {
+	if len(a) == 0 && len(b) == 0 {
+		return 1
+	}
+	inter := 0
+	for w := range a {
+		if _, ok := b[w]; ok {
+			inter++
+		}
+	}
+	union := len(a) + len(b) - inter
+	if union == 0 {
+		return 0
+	}
+	return float64(inter) / float64(union)
 }
 
 // rrfFuse merges two ranked chunk lists by reciprocal-rank fusion and returns the
