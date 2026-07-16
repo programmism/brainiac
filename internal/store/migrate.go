@@ -13,10 +13,29 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// migrateLockKey is the advisory-lock key that serializes Migrate across
+// processes (arbitrary constant). Two app instances or an overlapping rolling
+// update would otherwise race on schema_migrations / concurrent DDL (#251).
+const migrateLockKey int64 = 0x4272_6169_6E61_63 // "Brainac"
+
 // Migrate applies every embedded, not-yet-applied SQL migration in lexical
 // order, each wrapped in its own transaction, and records it in
-// schema_migrations. It is idempotent and safe to run on every boot.
+// schema_migrations. It is idempotent and safe to run on every boot; a
+// session-level advisory lock serializes concurrent runs across processes.
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	// Hold a session-level advisory lock on a dedicated connection for the whole
+	// run, so only one process migrates at a time; others block here, then re-check
+	// the applied set and no-op.
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migrate connection: %w", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1)", migrateLockKey); err != nil {
+		return fmt.Errorf("acquire migrate lock: %w", err)
+	}
+	defer func() { _, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", migrateLockKey) }()
+
 	if err := ensureVersionTable(ctx, pool); err != nil {
 		return fmt.Errorf("ensure schema_migrations: %w", err)
 	}
