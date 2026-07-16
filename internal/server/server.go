@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -21,6 +22,7 @@ import (
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
 	"github.com/programmism/brainiac/internal/metrics"
+	"github.com/programmism/brainiac/internal/sysstat"
 	"github.com/programmism/brainiac/internal/webui"
 )
 
@@ -89,6 +91,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			n, _ := c.IndexSizeBytes(ctx)
 			return float64(n)
 		})
+		registerHealthGauges(reg, c)
 	}
 
 	// Writes are live only when explicitly enabled AND a token is set (secure by
@@ -390,6 +393,53 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// registerHealthGauges exposes the corpus/graph health signals — collected only
+// as on-demand JSON before — as Prometheus gauges, so an operator can build a
+// panel or alert (#255). The counts come from one c.Health() query cached ~10s so
+// a scrape doesn't fan out into a query per gauge. Container memory is added too so
+// index-vs-RAM (the ★ scaling ratio, #256) is alertable externally.
+func registerHealthGauges(reg *metrics.Registry, c *core.Core) {
+	var (
+		mu       sync.Mutex
+		at       time.Time
+		snap     core.HealthMetrics
+		haveSnap bool
+	)
+	health := func() core.HealthMetrics {
+		mu.Lock()
+		defer mu.Unlock()
+		if haveSnap && time.Since(at) < 10*time.Second {
+			return snap
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if h, err := c.Health(ctx); err == nil {
+			snap, at, haveSnap = h, time.Now(), true
+		}
+		return snap
+	}
+	g := func(name, help string, f func(core.HealthMetrics) float64) {
+		reg.SetGauge(name, help, func() float64 { return f(health()) })
+	}
+	g("brainiac_nodes_current", "current nodes in the graph", func(h core.HealthMetrics) float64 { return float64(h.Nodes) })
+	g("brainiac_nodes_historical", "historical (superseded) nodes", func(h core.HealthMetrics) float64 { return float64(h.NodesHistorical) })
+	g("brainiac_edges_current", "current edges", func(h core.HealthMetrics) float64 { return float64(h.Edges) })
+	g("brainiac_edges_historical", "historical edges", func(h core.HealthMetrics) float64 { return float64(h.EdgesHistorical) })
+	g("brainiac_edges_stale", "edges flagged stale for review", func(h core.HealthMetrics) float64 { return float64(h.EdgesStale) })
+	g("brainiac_chunks_hot", "hot-tier chunks (searchable)", func(h core.HealthMetrics) float64 { return float64(h.ChunksHot) })
+	g("brainiac_chunks_cold", "cold-tier chunks (archived)", func(h core.HealthMetrics) float64 { return float64(h.ChunksCold) })
+	g("brainiac_edges_per_node", "average current edges per node", func(h core.HealthMetrics) float64 { return h.EdgesPerNode })
+	g("brainiac_percent_nodes_historical", "percent of nodes that are historical", func(h core.HealthMetrics) float64 { return h.PercentNodesHistory })
+	g("brainiac_percent_edges_stale", "percent of current edges flagged stale", func(h core.HealthMetrics) float64 { return h.PercentEdgesStale })
+
+	reg.SetGauge("brainiac_container_mem_limit_bytes", "container memory limit (cgroup), 0 if unset", func() float64 {
+		return float64(sysstat.ReadContainer().MemLimitBytes)
+	})
+	reg.SetGauge("brainiac_container_mem_used_bytes", "container memory in use (cgroup)", func() float64 {
+		return float64(sysstat.ReadContainer().MemUsedBytes)
+	})
 }
 
 // principalAuth (Layer 2, #120) requires a bearer token matching one configured

@@ -358,6 +358,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-16** — **Health metrics on `/metrics` + index-vs-RAM alert (#255, #256).** The corpus/graph
+  health signals (node/edge/chunk counts, edges-per-node, historical/stale %) existed only as on-demand
+  JSON on `/api/health`, so Prometheus saw almost nothing alertable. Registered them as gauges
+  (`brainiac_nodes_current`, `…_edges_stale`, `…_chunks_hot`, `…_percent_edges_stale`, …) via one
+  `c.Health()` query cached ~10s per scrape, plus `brainiac_container_mem_{limit,used}_bytes`. And the ★
+  scaling constraint — hot vector index vs RAM (§9) — is now thresholded in `deriveStatus`: warn at 50% of
+  the container memory limit, critical at 75%, so the system flags the wall before OOM instead of after.
+  Metric wiring lives in the server adapter (`registerHealthGauges`); the threshold lives in the core so
+  every client agrees.
 - **2026-07-15** — **Enforce the isolation wall on all by-id mutations (#265, security P0).** The Layer-2
   wall was enforced on reads and on name-scoped writes, but the by-id mutations — `Supersede`,
   `Disambiguate`, `Split`, `ApplyMerge`, and proposal `ApproveNode`/`RejectNode` — had **no** principal
