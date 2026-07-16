@@ -115,6 +115,98 @@ func FlagStaleBySource(ctx context.Context, db DBTX) (int64, error) {
 	return tag.RowsAffected(), nil
 }
 
+// ProposeSemanticMergeCandidates returns pairs of current same-scope nodes whose
+// summary embeddings are within maxDist cosine — likely duplicates the exact-name
+// pass misses ("Postgres" vs "PostgreSQL", typos, reworded aliases). Each node's
+// nearest same-scope neighbour is found via the HNSW index (LATERAL), then pairs
+// are de-duplicated (a.id < b.id). This is the semantic half of the librarian's
+// merge detection (#260); the exact-name half is ProposeNodeMerges.
+func ProposeSemanticMergeCandidates(ctx context.Context, db DBTX, maxDist float64) ([][2]model.Node, error) {
+	rows, err := db.Query(ctx, `
+		SELECT a.id, b.id
+		FROM nodes a
+		CROSS JOIN LATERAL (
+			SELECT n.id, (a.summary_embedding <=> n.summary_embedding)::float8 AS dist
+			FROM nodes n
+			WHERE n.status = 'current' AND n.summary_embedding IS NOT NULL
+			  AND n.scope_key = a.scope_key AND n.id <> a.id
+			ORDER BY a.summary_embedding <=> n.summary_embedding
+			LIMIT 1
+		) b
+		WHERE a.status = 'current' AND a.summary_embedding IS NOT NULL
+		  AND b.dist < $1`, maxDist)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	seen := make(map[string]bool)
+	var ids [][2]string
+	need := make(map[string]bool)
+	for rows.Next() {
+		var x, y string
+		if err := rows.Scan(&x, &y); err != nil {
+			return nil, err
+		}
+		lo, hi := x, y
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		key := lo + "\x00" + hi
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		ids = append(ids, [2]string{lo, hi})
+		need[lo], need[hi] = true, true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	idList := make([]string, 0, len(need))
+	for id := range need {
+		idList = append(idList, id)
+	}
+	byID, err := nodesByIDs(ctx, db, idList)
+	if err != nil {
+		return nil, err
+	}
+	pairs := make([][2]model.Node, 0, len(ids))
+	for _, p := range ids {
+		a, okA := byID[p[0]]
+		b, okB := byID[p[1]]
+		if okA && okB {
+			pairs = append(pairs, [2]model.Node{a, b})
+		}
+	}
+	return pairs, nil
+}
+
+// nodesByIDs loads full nodes for the given ids into a map.
+func nodesByIDs(ctx context.Context, db DBTX, ids []string) (map[string]model.Node, error) {
+	out := make(map[string]model.Node, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := db.Query(ctx, `SELECT `+nodeCols+` FROM nodes WHERE id = ANY($1::uuid[])`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[n.ID] = n
+	}
+	return out, rows.Err()
+}
+
 // ProposeNodeMerges returns groups of current nodes that share a normalized
 // name AND identity scope (likely duplicates), each group ordered oldest-first.
 // Scoping by scope_key means same-named entities in different projects are never

@@ -61,6 +61,25 @@ func (c *Core) Consolidate(ctx context.Context, refresh bool) (*ConsolidationRep
 	if err != nil {
 		return nil, fmt.Errorf("propose merges: %w", err)
 	}
+	// Semantic near-duplicates the exact-name pass misses ("Postgres" vs
+	// "PostgreSQL", typos): pairs within the dedup threshold by summary embedding
+	// (#260). Skip a pair already covered by a name group.
+	grouped := make(map[string]bool)
+	for _, g := range merges {
+		for _, n := range g {
+			grouped[n.ID] = true
+		}
+	}
+	semantic, err := store.ProposeSemanticMergeCandidates(ctx, c.pool, SemanticDupThreshold)
+	if err != nil {
+		return nil, fmt.Errorf("propose semantic merges: %w", err)
+	}
+	for _, p := range semantic {
+		if grouped[p[0].ID] && grouped[p[1].ID] {
+			continue
+		}
+		merges = append(merges, []model.Node{p[0], p[1]})
+	}
 	conflictRows, err := store.FindConflicts(ctx, c.pool)
 	if err != nil {
 		return nil, fmt.Errorf("find conflicts: %w", err)
