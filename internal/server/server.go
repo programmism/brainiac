@@ -229,7 +229,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 
 			// Consolidation queue (interactive).
 			r.Get("/consolidate", func(w http.ResponseWriter, req *http.Request) {
-				rep, err := c.Consolidate(req.Context())
+				rep, err := c.Consolidate(req.Context(), false)
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, err)
 					return

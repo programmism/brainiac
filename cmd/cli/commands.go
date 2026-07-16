@@ -681,7 +681,7 @@ func consolidateCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			rep, err := buildCore(cfg, pool).Consolidate(ctx)
+			rep, err := buildCore(cfg, pool).Consolidate(ctx, true)
 			if err != nil {
 				return err
 			}
