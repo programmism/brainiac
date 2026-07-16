@@ -266,7 +266,8 @@ and what each does / when to use it.
   `disambiguate` · `supersede` · `add_document` · `ingest` · `proposals` · `review_proposal`
 - **CLI (`kb` / `./brainiac`):** `search` · `recall` · `remember` · `link` · `node` ·
   `rollup` · `disambiguate` · `supersede` · `import` · `consolidate` · `merge` · `split` ·
-  `retire-edge` · `export` · `namespace` · `reembed` · `eval` · `migrate` · `health`
+  `retire-edge` · `confirm` · `flag-stale` · `export` · `namespace` · `audit` · `reembed` ·
+  `eval` · `migrate` · `health`
 - **HTTP API:** `GET /api/{health,system,search,recall,node,graph,consolidate,capabilities,logs}`,
   `POST /api/{merge,split}` and edge confirm/flag-stale/retire (writes are auth-gated & off by default).
 

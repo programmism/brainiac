@@ -51,6 +51,8 @@ func newRootCmd() *cobra.Command {
 		mergeCmd(),
 		splitCmd(),
 		retireEdgeCmd(),
+		confirmCmd(),
+		flagStaleCmd(),
 		evalCmd(),
 		reembedCmd(),
 		stubCmd("refresh", "#18 (connector actualization)"),
