@@ -91,6 +91,32 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  backup-restore:
+    name: backup-restore (DR round-trip)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dump -> drop -> restore -> verify (halfvec data survives)
+        run: |
+          set -euo pipefail
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=brainiac pgvector/pgvector:pg16
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres >/dev/null 2>&1 && break; sleep 2; done
+          # Seed a pgvector table like the real schema (halfvec).
+          docker exec pg psql -U postgres -d brainiac -c \
+            "CREATE EXTENSION IF NOT EXISTS vector; CREATE TABLE t(id int primary key, v halfvec(3)); INSERT INTO t VALUES (1,'[1,2,3]'),(2,'[4,5,6]');"
+          # Back up exactly as the sidecar does.
+          docker exec pg pg_dump -U postgres -d brainiac --clean --if-exists | gzip > dump.sql.gz
+          echo "dump size: $(du -h dump.sql.gz | cut -f1)"
+          # Destroy, then restore from the dump.
+          docker exec pg psql -U postgres -d brainiac -c "DROP TABLE t;"
+          gunzip -c dump.sql.gz | docker exec -i pg psql -U postgres -d brainiac
+          # Verify the rows (and their vectors) came back.
+          n=$(docker exec pg psql -U postgres -d brainiac -tAc "SELECT count(*) FROM t WHERE v IS NOT NULL;")
+          echo "rows after restore: $n"
+          [ "$n" = "2" ] || { echo "::error::restore lost data"; exit 1; }
+      - name: Teardown
+        if: always()
+        run: docker rm -f pg || true
+
   caddy:
     name: caddy (validate reverse proxy)
     runs-on: ubuntu-latest
