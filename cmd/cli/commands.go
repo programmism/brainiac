@@ -868,6 +868,7 @@ func reembedCmd() *cobra.Command {
 func evalCmd() *cobra.Command {
 	var goldenPath string
 	var k int
+	var minRecall float64
 	cmd := &cobra.Command{
 		Use:   "eval",
 		Short: "Run the golden query set and report recall@k",
@@ -901,11 +902,17 @@ func evalCmd() *cobra.Command {
 				}
 				fmt.Fprintf(out, "  [%s] %d/%d  %s\n", mark, q.Found, q.Expected, q.Query)
 			}
+			// --min-recall turns eval into a gate (CI regression guard, #216): a
+			// non-zero exit below the floor fails the job.
+			if minRecall > 0 && res.RecallAtK < minRecall {
+				return fmt.Errorf("recall@%d %.1f%% is below the floor %.1f%%", res.K, res.RecallAtK*100, minRecall*100)
+			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&goldenPath, "golden", "eval/golden.json", "path to the golden query set JSON")
 	cmd.Flags().IntVar(&k, "k", core.DefaultEvalK, "recall@k cutoff")
+	cmd.Flags().Float64Var(&minRecall, "min-recall", 0, "fail (non-zero exit) if recall@k is below this fraction (0 disables the gate)")
 	return cmd
 }
 

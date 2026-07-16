@@ -1,0 +1,12 @@
+[
+  { "query": "why does OrderService write to Postgres", "expected_sources": ["markdown://orders.md"] },
+  { "query": "where do order events get published for fulfillment", "expected_sources": ["markdown://orders.md"] },
+  { "query": "how is the payment retry backoff configured", "expected_sources": ["markdown://payments.md"] },
+  { "query": "how many times do we retry a failed payment", "expected_sources": ["markdown://payments.md"] },
+  { "query": "why was synchronous sync rejected", "expected_sources": ["markdown://sync.md"] },
+  { "query": "what replication approach did we choose for the search index", "expected_sources": ["markdown://sync.md"] },
+  { "query": "how do services authenticate to each other", "expected_sources": ["markdown://auth.md"] },
+  { "query": "why do we avoid long-lived API keys", "expected_sources": ["markdown://auth.md"] },
+  { "query": "how does the catalog cache product pages", "expected_sources": ["markdown://cache.md"] },
+  { "query": "what happens to rarely retrieved chunks", "expected_sources": ["markdown://tiering.md"] }
+]
