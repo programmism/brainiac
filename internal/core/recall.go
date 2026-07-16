@@ -79,8 +79,9 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 	}
 	scope, wall := c.readScope(ctx, project)
 
-	// 1. Vector search over chunks (scoped to the lens).
-	chunks, err := c.searchByEmbedding(ctx, emb, DefaultRecallChunks, project)
+	// 1. Hybrid search over chunks: dense vector + lexical FTS, fused (scoped to
+	//    the lens). Reuses the query embedding computed above (#211, #221).
+	chunks, err := c.hybridSearch(ctx, emb, query, DefaultRecallChunks, project)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/programmism/brainiac/internal/model"
@@ -37,22 +38,69 @@ func (c *Core) Search(ctx context.Context, query string, k int, project string) 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	return c.searchByEmbedding(ctx, emb, k, project)
+	return c.hybridSearch(ctx, emb, query, k, project)
 }
 
-// searchByEmbedding runs the vector search for an already-computed query
-// embedding, so a caller that also needs the vector elsewhere (recall) embeds the
-// query only once (#221).
-func (c *Core) searchByEmbedding(ctx context.Context, emb []float32, k int, project string) ([]model.ChunkHit, error) {
+// rrfK is the reciprocal-rank-fusion constant (the standard 60): a larger value
+// flattens the contribution of top ranks, blending the two lists more evenly.
+const rrfK = 60
+
+// hybridSearch fuses dense vector search with lexical full-text search over chunks
+// via reciprocal-rank fusion (#211), so exact-token queries (error codes, IDs,
+// config keys) that dense vectors miss are still surfaced. It embeds nothing — the
+// caller passes the precomputed query vector (so recall embeds once, #221) and the
+// raw query text for the FTS side.
+func (c *Core) hybridSearch(ctx context.Context, emb []float32, query string, k int, project string) ([]model.ChunkHit, error) {
 	if k <= 0 {
 		k = DefaultSearchK
 	}
 	scope, wall := c.readScope(ctx, project)
-	hits, err := store.SearchChunks(ctx, c.pool, emb, k, scope, wall)
+	// Over-fetch each arm so fusion has depth to work with.
+	pool := k * 4
+	if pool < 20 {
+		pool = 20
+	}
+	dense, err := store.SearchChunks(ctx, c.pool, emb, pool, scope, wall)
 	if err != nil {
 		return nil, err
 	}
-	return filterByDistance(hits), nil
+	dense = filterByDistance(dense)
+	lexical, err := store.SearchChunksLexical(ctx, c.pool, query, pool, scope, wall)
+	if err != nil {
+		return nil, err
+	}
+	return rrfFuse(dense, lexical, k), nil
+}
+
+// rrfFuse merges two ranked chunk lists by reciprocal-rank fusion and returns the
+// top k. A chunk in both arms accumulates both contributions; its returned record
+// prefers the dense hit (which carries the cosine distance).
+func rrfFuse(dense, lexical []model.ChunkHit, k int) []model.ChunkHit {
+	score := make(map[string]float64)
+	rec := make(map[string]model.ChunkHit)
+	order := make([]string, 0, len(dense)+len(lexical))
+	add := func(list []model.ChunkHit) {
+		for rank, h := range list {
+			if _, seen := score[h.ID]; !seen {
+				order = append(order, h.ID)
+			}
+			score[h.ID] += 1.0 / float64(rrfK+rank+1)
+			if _, ok := rec[h.ID]; !ok {
+				rec[h.ID] = h // first writer wins; dense is added first
+			}
+		}
+	}
+	add(dense)
+	add(lexical)
+	sort.SliceStable(order, func(i, j int) bool { return score[order[i]] > score[order[j]] })
+	if len(order) > k {
+		order = order[:k]
+	}
+	out := make([]model.ChunkHit, 0, len(order))
+	for _, id := range order {
+		out = append(out, rec[id])
+	}
+	return out
 }
 
 // embedQuery embeds a search query, using the embedder's asymmetric query path
