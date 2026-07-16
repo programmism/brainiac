@@ -1,0 +1,45 @@
+name: Eval
+
+# Retrieval-quality regression gate (#216): ingest a small golden corpus with the
+# real embedder and fail if recall@k drops below a floor. Runs weekly and on
+# demand rather than on every PR, because it brings up the full stack + Ollama and
+# pulls the embedding model (heavy); model/threshold changes should dispatch it.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+permissions:
+  contents: read
+
+env:
+  COMPOSE_FILE: docker-compose.yml:docker-compose.dev.yml
+  DATABASE_URL: postgres://brainiac:brainiac@localhost:5432/brainiac?sslmode=disable
+  OLLAMA_URL: http://localhost:11434
+
+jobs:
+  recall:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start db + ollama and pull the embedder
+        run: |
+          cp .env.example .env
+          docker compose up -d db ollama
+          docker compose up ollama-pull   # one-shot: pulls nomic-embed-text, then exits
+
+      - name: Migrate, ingest the golden corpus, and gate on recall@k
+        run: |
+          go run ./cmd/cli migrate
+          go run ./cmd/cli import --source markdown --path eval/corpus
+          go run ./cmd/cli eval --golden eval/golden.json --k 5 --min-recall 0.6
+
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
