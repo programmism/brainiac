@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -80,7 +81,19 @@ func run() error {
 	if len(principals) > 0 {
 		log.Printf("hard isolation ON: %d principal(s) — /api requires a principal token, reads walled per namespace (#120)", len(principals))
 	}
-	handler := server.New(pool, ollamaChecker(cfg.Embedding.BaseURL), c, server.Options{
+	embedderCheck := ollamaChecker(cfg.Embedding.BaseURL, cfg.Embedding.Model)
+	if embedderCheck != nil {
+		// Loud, one-shot boot warning so a still-downloading or failed model pull
+		// isn't a silent 503 later (#250).
+		cctx, ccancel := context.WithTimeout(ctx, 3*time.Second)
+		if err := embedderCheck(cctx); errors.Is(err, server.ErrEmbedderModelMissing) {
+			log.Printf("warning: embedder reachable but model %q not pulled yet — search/recall will 503 until the pull finishes", cfg.Embedding.Model)
+		} else if err != nil {
+			log.Printf("warning: embedder unreachable at %s (%v) — search/recall will 503 until it is up", cfg.Embedding.BaseURL, err)
+		}
+		ccancel()
+	}
+	handler := server.New(pool, embedderCheck, c, server.Options{
 		Writable:   writable,
 		AuthToken:  cfg.HTTP.AuthToken,
 		Principals: principals,
@@ -173,7 +186,7 @@ func extractorOptions(cfg *config.Config) []core.Option {
 	return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
 }
 
-func ollamaChecker(baseURL string) server.Checker {
+func ollamaChecker(baseURL, model string) server.Checker {
 	if baseURL == "" {
 		return nil
 	}
@@ -190,7 +203,24 @@ func ollamaChecker(baseURL string) server.Checker {
 		if resp.StatusCode != http.StatusOK {
 			return fmt.Errorf("ollama status %d", resp.StatusCode)
 		}
-		return nil
+		// Ollama is up — is the required model actually pulled? Distinguish
+		// "model-missing" from "unreachable" so a still-downloading model reads
+		// clearly (#250).
+		var tags struct {
+			Models []struct {
+				Name string `json:"name"`
+			} `json:"models"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+			return nil // reachable; if we can't parse tags, don't claim model-missing
+		}
+		base := strings.SplitN(model, ":", 2)[0]
+		for _, m := range tags.Models {
+			if strings.SplitN(m.Name, ":", 2)[0] == base {
+				return nil
+			}
+		}
+		return server.ErrEmbedderModelMissing
 	}
 }
 

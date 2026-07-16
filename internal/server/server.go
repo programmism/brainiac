@@ -35,6 +35,11 @@ type Pinger interface {
 // A nil Checker means "not configured".
 type Checker func(ctx context.Context) error
 
+// ErrEmbedderModelMissing is returned by a Checker when the embedder is reachable
+// but the required model hasn't been pulled yet — a distinct, actionable state
+// from "unreachable" (the model pull is still running or failed, #250).
+var ErrEmbedderModelMissing = errors.New("embedder model not pulled")
+
 // Options controls the writable surface. Secure by default: write endpoints are
 // mounted only when Writable is true AND an AuthToken is set, and then they
 // require `Authorization: Bearer <AuthToken>`. Read endpoints stay open (put the
@@ -360,7 +365,9 @@ func readyz(db Pinger, embedder Checker) http.HandlerFunc {
 		}
 		if embedder == nil {
 			resp["embedder"] = "not-configured"
-		} else if err := embedder(ctx); err != nil {
+		} else if err := embedder(ctx); errors.Is(err, ErrEmbedderModelMissing) {
+			resp["embedder"] = "model-missing" // reachable, but the model isn't pulled yet
+		} else if err != nil {
 			resp["embedder"] = "unreachable" // reported, not fatal
 		}
 		writeJSON(w, code, resp)
