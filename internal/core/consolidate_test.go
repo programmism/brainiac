@@ -35,7 +35,7 @@ func TestConsolidationFlow(t *testing.T) {
 	// Conflict: same source + type, two targets.
 	mustLink(ctx, t, c, "OrderService", "writes_to", "Kafka")
 	mustLink(ctx, t, c, "OrderService", "writes_to", "RabbitMQ")
-	report, err := c.Consolidate(ctx)
+	report, err := c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("consolidate: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestConsolidationFlow(t *testing.T) {
 	for i := 0; i < RollupMinEdges; i++ {
 		mustLink(ctx, t, c, "OrderService", "depends_on", fmt.Sprintf("Svc%d", i))
 	}
-	report, _ = c.Consolidate(ctx)
+	report, _ = c.Consolidate(ctx, true)
 	if !hasRollup(report.Rollups, "OrderService") {
 		t.Errorf("expected OrderService rollup: %+v", report.Rollups)
 	}
@@ -60,14 +60,14 @@ func TestConsolidationFlow(t *testing.T) {
 	if err := c.FlagStale(ctx, edges[0].ID); err != nil {
 		t.Fatalf("flag stale: %v", err)
 	}
-	report, _ = c.Consolidate(ctx)
+	report, _ = c.Consolidate(ctx, true)
 	if len(report.Stale) != 1 {
 		t.Fatalf("stale = %d, want 1", len(report.Stale))
 	}
 	if err := c.Confirm(ctx, edges[0].ID); err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
-	report, _ = c.Consolidate(ctx)
+	report, _ = c.Consolidate(ctx, true)
 	if len(report.Stale) != 0 {
 		t.Fatalf("stale after confirm = %d, want 0", len(report.Stale))
 	}
@@ -195,7 +195,7 @@ func TestSplitTangledNode(t *testing.T) {
 	}
 
 	// The detector flags Config as a split candidate with its edges.
-	rep, err := c.Consolidate(ctx)
+	rep, err := c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("consolidate: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestRetireEdgeResolvesConflict(t *testing.T) {
 	mustLink(ctx, t, c, "PaymentService", "charges_via", "Stripe")
 	mustLink(ctx, t, c, "PaymentService", "charges_via", "Adyen")
 
-	rep, err := c.Consolidate(ctx)
+	rep, err := c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("consolidate: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestRetireEdgeResolvesConflict(t *testing.T) {
 	if err := c.RetireEdge(ctx, conf.EdgeB); err != nil {
 		t.Fatalf("retire: %v", err)
 	}
-	rep2, err := c.Consolidate(ctx)
+	rep2, err := c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("re-consolidate: %v", err)
 	}
@@ -371,7 +371,7 @@ func TestTypeNormalizationEnablesConflictDetection(t *testing.T) {
 		t.Fatalf("edge type = %q, want normalized writes_to", e1.Type)
 	}
 
-	rep, err := c.Consolidate(ctx)
+	rep, err := c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("consolidate: %v", err)
 	}
@@ -413,7 +413,7 @@ func TestConsolidateFlagsStaleBySource(t *testing.T) {
 	}
 
 	// Consolidate auto-flags the edge as possibly stale (§8.3).
-	report, err := c.Consolidate(ctx)
+	report, err := c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("consolidate: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestConsolidateFlagsStaleBySource(t *testing.T) {
 	if err := c.Confirm(ctx, edge.ID); err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
-	report, err = c.Consolidate(ctx)
+	report, err = c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("re-consolidate: %v", err)
 	}
@@ -437,7 +437,7 @@ func TestConsolidateFlagsStaleBySource(t *testing.T) {
 	if _, err := pool.Exec(ctx, `UPDATE chunks SET source_modified_at = now() + interval '1 minute' WHERE source_uri=$1`, src); err != nil {
 		t.Fatalf("bump source: %v", err)
 	}
-	report, err = c.Consolidate(ctx)
+	report, err = c.Consolidate(ctx, true)
 	if err != nil {
 		t.Fatalf("consolidate after re-edit: %v", err)
 	}

@@ -42,11 +42,21 @@ type ConsolidationReport struct {
 }
 
 // Consolidate runs the librarian pass over the graph (small, not the corpus):
-// merge candidates, conflicts, staleness flags, and rollup candidates. It only
-// proposes; ApplyMerge/Supersede/Confirm apply the human decisions (§11). The
-// one write it makes is review-only: it auto-flags source-changed edges as
-// possibly stale (§8.3, #147) — reversible via Confirm, never altering meaning.
-func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
+// merge candidates, conflicts, staleness flags, split, and rollup candidates. It
+// only proposes; ApplyMerge/Supersede/Confirm apply the human decisions (§11).
+// With refresh=true it first re-flags edges whose source changed — the one WRITE
+// (§8.3, #147, review-only, reversible via Confirm) — so the read-only WebUI GET
+// passes false and only the operator path (CLI / scheduled pass) refreshes; the
+// report itself never mutates the graph (#262).
+func (c *Core) Consolidate(ctx context.Context, refresh bool) (*ConsolidationReport, error) {
+	if refresh {
+		// Auto-flag edges whose source changed since we last recorded/confirmed
+		// them (§8.3, #147) so they surface in the Stale list alongside manual
+		// flags. Flags for review only — never mutates the edge's meaning.
+		if _, err := store.FlagStaleBySource(ctx, c.pool); err != nil {
+			return nil, fmt.Errorf("flag stale by source: %w", err)
+		}
+	}
 	merges, err := store.ProposeNodeMerges(ctx, c.pool)
 	if err != nil {
 		return nil, fmt.Errorf("propose merges: %w", err)
@@ -54,12 +64,6 @@ func (c *Core) Consolidate(ctx context.Context) (*ConsolidationReport, error) {
 	conflictRows, err := store.FindConflicts(ctx, c.pool)
 	if err != nil {
 		return nil, fmt.Errorf("find conflicts: %w", err)
-	}
-	// Auto-flag edges whose source changed since we last recorded/confirmed them
-	// (§8.3, #147) so they surface in the Stale list below alongside manual flags.
-	// Flags for review only — never mutates the edge's meaning.
-	if _, err := store.FlagStaleBySource(ctx, c.pool); err != nil {
-		return nil, fmt.Errorf("flag stale by source: %w", err)
 	}
 	stale, err := store.FindStaleEdges(ctx, c.pool)
 	if err != nil {
