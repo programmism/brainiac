@@ -69,7 +69,20 @@ func (c *Core) hybridSearch(ctx context.Context, emb []float32, query string, k 
 	if err != nil {
 		return nil, err
 	}
-	return rrfFuse(dense, lexical, k), nil
+	// Fuse the two arms. With a reranker, fuse the whole candidate pool and let it
+	// reorder before we cut to k; without one, fuse straight to k.
+	if c.reranker == nil {
+		return rrfFuse(dense, lexical, k), nil
+	}
+	fused := rrfFuse(dense, lexical, pool)
+	reranked, err := c.reranker.Rerank(ctx, query, fused)
+	if err != nil {
+		return nil, fmt.Errorf("rerank: %w", err)
+	}
+	if len(reranked) > k {
+		reranked = reranked[:k]
+	}
+	return reranked, nil
 }
 
 // rrfFuse merges two ranked chunk lists by reciprocal-rank fusion and returns the
