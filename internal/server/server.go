@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,11 +48,13 @@ var ErrEmbedderModelMissing = errors.New("embedder model not pulled")
 type Options struct {
 	Writable  bool
 	AuthToken string
-	// Principals, when non-empty, turns on Layer 2 hard isolation (#120): every
-	// /api call requires one of these principals' bearer tokens, and the core
-	// walls reads / pins writes to that principal's namespaces. Keyed by token.
-	// Empty = Layer 1 (open reads, single AuthToken gates writes) — unchanged.
-	Principals map[string]*core.Principal
+	// Auth, when non-nil, turns on Layer 2 hard isolation (#120): every /api call
+	// must present a bearer token the matcher recognizes, and the core walls reads
+	// / pins writes to that token's principal. The matcher resolves tokens against
+	// the wall clock so expiry/revocation apply live (#269); a reloadable matcher
+	// swaps the roster on SIGHUP. Nil = Layer 1 (open reads, single AuthToken gates
+	// writes) — unchanged.
+	Auth PrincipalMatcher
 	// Logs, when set, is the in-memory log sink the access logger tees into and
 	// GET /api/logs reads from (the WebUI Logs tab, #166). Nil keeps the default
 	// access logger and mounts no logs endpoint.
@@ -107,13 +110,13 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	// requires a principal token — reads included — and the operator-only curation
 	// write group is not mounted (id-based curation crosses namespaces; deferred to
 	// #188). Writes into an isolated namespace flow through MCP, pinned per-token.
-	hardIso := len(opts.Principals) > 0
+	hardIso := opts.Auth != nil
 	writeEnabled := opts.Writable && opts.AuthToken != "" && !hardIso
 
 	if c != nil {
 		r.Route("/api", func(r chi.Router) {
 			if hardIso {
-				r.Use(principalAuth(opts.Principals))
+				r.Use(principalAuth(opts.Auth))
 			}
 			// API errors are always JSON, even for unmatched routes/methods, so a
 			// client (the WebUI) never gets a plain-text body it then fails to parse
@@ -453,19 +456,18 @@ func registerHealthGauges(reg *metrics.Registry, c *core.Core) {
 	})
 }
 
-// principalAuth (Layer 2, #120) requires a bearer token matching one configured
-// principal and binds that principal to the request context for core enforcement.
-// Comparison is constant-time against every entry so a response's timing never
-// reveals which token, if any, was close.
-func principalAuth(principals map[string]*core.Principal) func(http.Handler) http.Handler {
-	type entry struct {
-		want []byte
-		p    *core.Principal
-	}
-	entries := make([]entry, 0, len(principals))
-	for tok, p := range principals {
-		entries = append(entries, entry{want: []byte("Bearer " + tok), p: p})
-	}
+// PrincipalMatcher resolves a presented bearer token to its principal at a given
+// time, or nil. Implemented by config.PrincipalAuthenticator (and a reloadable
+// wrapper for hot revocation/rotation, #269). Passing now lets the matcher honor
+// per-token expiry against the wall clock.
+type PrincipalMatcher interface {
+	Match(token string, now time.Time) *core.Principal
+}
+
+// principalAuth (Layer 2, #120) requires a bearer token the matcher recognizes
+// and binds that principal to the request context for core enforcement. The
+// matcher's comparison is constant-time and honors expiry/revocation (#269).
+func principalAuth(m PrincipalMatcher) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Capabilities stays public so the WebUI can discover that a token is
@@ -474,13 +476,7 @@ func principalAuth(principals map[string]*core.Principal) func(http.Handler) htt
 				next.ServeHTTP(w, r)
 				return
 			}
-			got := []byte(r.Header.Get("Authorization"))
-			var match *core.Principal
-			for _, e := range entries {
-				if subtle.ConstantTimeCompare(got, e.want) == 1 {
-					match = e.p
-				}
-			}
+			match := m.Match(bearerToken(r.Header.Get("Authorization")), time.Now())
 			if match == nil {
 				writeError(w, http.StatusUnauthorized, errUnauthorized)
 				return
@@ -488,6 +484,18 @@ func principalAuth(principals map[string]*core.Principal) func(http.Handler) htt
 			next.ServeHTTP(w, r.WithContext(core.WithPrincipal(r.Context(), match)))
 		})
 	}
+}
+
+// bearerToken extracts the token from an "Authorization: Bearer <token>" header,
+// or "" if the scheme isn't Bearer. The scheme check isn't constant-time, but it
+// leaks only the scheme, never token bytes — the matcher compares the token in
+// constant time.
+func bearerToken(header string) string {
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return ""
+	}
+	return header[len(prefix):]
 }
 
 // healthResponse enriches the core metrics with operational fields.

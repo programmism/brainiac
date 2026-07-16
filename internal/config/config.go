@@ -4,7 +4,9 @@
 package config
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -45,25 +47,122 @@ type PrincipalConfig struct {
 	Read  []string `yaml:"read"`  // project namespaces; "" or "global" = shared/global
 	Write string   `yaml:"write"` // single write target namespace
 	Token string   `yaml:"token,omitempty"`
+	// TokenSHA256 is the hash-at-rest alternative to Token (#269): store the
+	// SHA-256 (hex) of the bearer token instead of the secret itself, so a leaked
+	// config.yaml never contains a live credential. Exactly one of Token /
+	// TokenSHA256 must be set. Generate with `brainiac token hash`.
+	TokenSHA256 string `yaml:"token_sha256,omitempty"`
+	// Expires is an optional RFC3339 timestamp after which the token stops
+	// authenticating (#269); empty = never. Enforced per request against the wall
+	// clock, so expiry is "hot" — no restart needed.
+	Expires string `yaml:"expires,omitempty"`
+	// Revoked, when true, hard-disables the token (#269). Combined with SIGHUP
+	// reload (HTTP) this is hot revocation without a restart.
+	Revoked bool `yaml:"revoked,omitempty"`
 	// MaxNodes / MaxChunks cap the namespace's row counts (#186). 0 = unlimited.
 	MaxNodes  int `yaml:"max_nodes,omitempty"`
 	MaxChunks int `yaml:"max_chunks,omitempty"`
 }
 
+// resolvedTokenHash returns the SHA-256 the presented bearer token is compared
+// against: the decoded token_sha256, or SHA-256(token). ok is false when neither
+// is set or token_sha256 is not 32 bytes of hex.
+func (p PrincipalConfig) resolvedTokenHash() (sum [32]byte, ok bool) {
+	switch {
+	case p.TokenSHA256 != "":
+		b, err := hex.DecodeString(p.TokenSHA256)
+		if err != nil || len(b) != len(sum) {
+			return sum, false
+		}
+		copy(sum[:], b)
+		return sum, true
+	case p.Token != "":
+		return sha256.Sum256([]byte(p.Token)), true
+	default:
+		return sum, false
+	}
+}
+
+// expiresAt parses the optional Expires timestamp; a zero time means "never".
+func (p PrincipalConfig) expiresAt() (time.Time, error) {
+	if p.Expires == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339, p.Expires)
+}
+
 // PrincipalsEnabled reports whether hard isolation (Layer 2) is configured.
 func (c *Config) PrincipalsEnabled() bool { return len(c.Principals) > 0 }
 
-// BuildPrincipals maps the roster to core principals keyed by bearer token, for
-// the HTTP server's per-request auth. Empty when hard isolation is off.
-func (c *Config) BuildPrincipals() map[string]*core.Principal {
+func (p PrincipalConfig) corePrincipal() *core.Principal {
+	return &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write, MaxNodes: p.MaxNodes, MaxChunks: p.MaxChunks}
+}
+
+// PrincipalAuthenticator resolves a presented bearer token to its principal,
+// honoring hash-at-rest, expiry and revocation (#269). It is immutable after
+// BuildAuthenticator and safe for concurrent use; hot reload swaps the whole
+// value (see the HTTP server's SIGHUP handler).
+type PrincipalAuthenticator struct {
+	entries []principalEntry
+}
+
+type principalEntry struct {
+	hash    [32]byte // SHA-256 the presented token is compared against
+	p       *core.Principal
+	expires time.Time // zero = never
+	revoked bool
+}
+
+// BuildAuthenticator compiles the roster into a matcher for per-request auth, or
+// nil when hard isolation is off. It assumes the config already passed Validate,
+// so token hashes resolve and timestamps parse; anything malformed is skipped
+// defensively (it can then never authenticate).
+func (c *Config) BuildAuthenticator() *PrincipalAuthenticator {
 	if !c.PrincipalsEnabled() {
 		return nil
 	}
-	m := make(map[string]*core.Principal, len(c.Principals))
+	a := &PrincipalAuthenticator{entries: make([]principalEntry, 0, len(c.Principals))}
 	for _, p := range c.Principals {
-		m[p.Token] = &core.Principal{Name: p.Name, Read: p.ReadNamespaces(), Write: p.Write, MaxNodes: p.MaxNodes, MaxChunks: p.MaxChunks}
+		sum, ok := p.resolvedTokenHash()
+		if !ok {
+			continue
+		}
+		exp, err := p.expiresAt()
+		if err != nil {
+			continue
+		}
+		a.entries = append(a.entries, principalEntry{hash: sum, p: p.corePrincipal(), expires: exp, revoked: p.Revoked})
 	}
-	return m
+	return a
+}
+
+// Match returns the principal for a presented bearer token at time now, or nil
+// if no token matches or the match is revoked/expired. Comparison is
+// constant-time over the whole roster so timing never reveals which token, if
+// any, was close.
+func (a *PrincipalAuthenticator) Match(token string, now time.Time) *core.Principal {
+	if a == nil || token == "" {
+		return nil
+	}
+	sum := sha256.Sum256([]byte(token))
+	var match *core.Principal
+	for i := range a.entries {
+		e := &a.entries[i]
+		hit := subtle.ConstantTimeCompare(e.hash[:], sum[:]) == 1
+		if hit && !e.revoked && (e.expires.IsZero() || now.Before(e.expires)) {
+			match = e.p
+		}
+	}
+	return match
+}
+
+// Len reports how many principals the matcher holds (0 after a reload emptied the
+// roster).
+func (a *PrincipalAuthenticator) Len() int {
+	if a == nil {
+		return 0
+	}
+	return len(a.entries)
 }
 
 // PrincipalByName returns the configured principal with the given name as a core
@@ -79,19 +178,10 @@ func (c *Config) PrincipalByName(name string) *core.Principal {
 
 // PrincipalByToken returns the configured principal whose bearer token matches, or
 // nil. Used by MCP to bind its process-wide principal from a secret token — so
-// knowing a principal's NAME is not enough to assume its identity (#266).
-// Comparison is constant-time against every entry.
+// knowing a principal's NAME is not enough to assume its identity (#266). Honors
+// hash-at-rest, expiry and revocation (#269), evaluated once at process start.
 func (c *Config) PrincipalByToken(token string) *core.Principal {
-	var match *PrincipalConfig
-	for i := range c.Principals {
-		if token != "" && subtle.ConstantTimeCompare([]byte(c.Principals[i].Token), []byte(token)) == 1 {
-			match = &c.Principals[i]
-		}
-	}
-	if match == nil {
-		return nil
-	}
-	return &core.Principal{Name: match.Name, Read: match.ReadNamespaces(), Write: match.Write, MaxNodes: match.MaxNodes, MaxChunks: match.MaxChunks}
+	return c.BuildAuthenticator().Match(token, time.Now())
 }
 
 // ReadNamespaces returns the principal's read set with the "global" alias
@@ -345,13 +435,19 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+// MinTokenLen is the minimum length for a plaintext principal bearer token — a
+// weak token is easy to guess and slow to fully retire, so require entropy up
+// front. 32 hex chars = 128 bits (#269). Does not apply to token_sha256, whose
+// pre-image entropy the operator owns.
+const MinTokenLen = 32
+
 // validatePrincipals enforces the Layer 2 roster invariants: every principal
 // needs a unique name, a single write target, and a resolved bearer token
 // (unique across principals), so a misconfigured token can never silently widen
 // or collide access (#120).
 func (c *Config) validatePrincipals() error {
 	names := map[string]bool{}
-	tokens := map[string]bool{}
+	hashes := map[string]bool{}
 	for _, p := range c.Principals {
 		if p.Name == "" {
 			return errors.New("each principal needs a name")
@@ -363,13 +459,27 @@ func (c *Config) validatePrincipals() error {
 		if p.Write == "" {
 			return fmt.Errorf("principal %q needs a write namespace", p.Name)
 		}
-		if p.Token == "" {
-			return fmt.Errorf("principal %q has no token (set PRINCIPAL_TOKEN_%s)", p.Name, envKey(p.Name))
+		if p.Token == "" && p.TokenSHA256 == "" {
+			return fmt.Errorf("principal %q has no token (set PRINCIPAL_TOKEN_%s, or token_sha256 for hash-at-rest)", p.Name, envKey(p.Name))
 		}
-		if tokens[p.Token] {
+		if p.Token != "" && p.TokenSHA256 != "" {
+			return fmt.Errorf("principal %q sets both token and token_sha256 — use exactly one", p.Name)
+		}
+		if p.Token != "" && len(p.Token) < MinTokenLen {
+			return fmt.Errorf("principal %q token is too short (%d chars, need >= %d) — generate one with `brainiac token gen`", p.Name, len(p.Token), MinTokenLen)
+		}
+		sum, ok := p.resolvedTokenHash()
+		if !ok {
+			return fmt.Errorf("principal %q token_sha256 must be 64 hex chars (SHA-256) — produce one with `brainiac token hash`", p.Name)
+		}
+		if _, err := p.expiresAt(); err != nil {
+			return fmt.Errorf("principal %q has invalid expires %q (want RFC3339, e.g. 2026-12-31T00:00:00Z): %w", p.Name, p.Expires, err)
+		}
+		h := hex.EncodeToString(sum[:])
+		if hashes[h] {
 			return fmt.Errorf("principal %q reuses another principal's token", p.Name)
 		}
-		tokens[p.Token] = true
+		hashes[h] = true
 	}
 	return nil
 }

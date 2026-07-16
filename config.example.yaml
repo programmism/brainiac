@@ -54,6 +54,12 @@ clients:
 # are walled to its `read` namespaces, and writes are pinned to its single `write`
 # namespace. A namespace is a `project` value; "global" (or "") is shared data,
 # visible only to a principal that lists it in `read`.
+# Token lifecycle (#269): generate tokens with `brainiac token gen` (≥ 32 chars).
+# Prefer hash-at-rest — `brainiac token gen | brainiac token hash` → put the hash
+# in `token_sha256:` and give the plaintext to the client, so config holds no live
+# secret. Set `expires:` (RFC3339) for an automatic cutoff, `revoked: true` to
+# disable. To apply a revocation/rotation without a restart, edit this file and run
+# `docker compose kill -s HUP app` (the HTTP server hot-swaps the roster).
 # principals:
 #   - name: team-a
 #     read:  [team-a]           # namespaces this token may read
@@ -61,6 +67,9 @@ clients:
 #     max_nodes: 10000          # per-namespace row caps (#186); 0/omitted = unlimited
 #     max_chunks: 50000
 #     # token: secret           # prefer PRINCIPAL_TOKEN_TEAM_A in the environment
+#     # token_sha256: <hex>     # hash-at-rest alternative to token (no plaintext at rest)
+#     # expires: 2026-12-31T00:00:00Z   # optional per-token expiry (RFC3339)
+#     # revoked: true           # hard-disable this token
 #   - name: platform
 #     read:  [team-a, team-b, global]   # an operator that reads several + global
 #     write: platform

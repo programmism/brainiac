@@ -40,10 +40,19 @@ pointing it at real data or a network.
 2. **Cleartext tokens over `:80`.** If `SITE_ADDRESS=:80`, bearer/basic-auth
    credentials cross the wire in cleartext. **Require TLS in production** — use a
    real domain (auto-HTTPS) or `:443` with `tls internal`; never `:80` off-box.
-3. **Token lifecycle.** Tokens are long-lived operator strings with no rotation or
-   expiry; revocation = edit config + restart. Use **long, random** tokens
-   (`openssl rand -hex 32`), store them only in `.env` / a secrets manager, and
-   rotate on suspected compromise.
+3. **Token lifecycle (#269).** Principal tokens support entropy floors,
+   hash-at-rest, expiry, and hot revocation. Generate a strong token with
+   `brainiac token gen` (256-bit hex; a plaintext principal token must be ≥ 32
+   chars). To keep the live secret out of `config.yaml`, store its hash instead:
+   `brainiac token gen | brainiac token hash` → put the result under the
+   principal's `token_sha256:` and hand the plaintext to the client. Set an
+   optional `expires:` (RFC3339) for an automatic, restart-free cutoff. To
+   **revoke or rotate without downtime**, edit `config.yaml` (`revoked: true`, a
+   new `token_sha256`, or remove/re-add the principal) and reload the app:
+   `docker compose kill -s HUP app` — the HTTP server swaps the roster atomically
+   (a config that no longer validates is rejected and the old roster stays).
+   Store secrets only in `.env` / a secrets manager. *The single Layer-1
+   `AUTH_TOKEN` has no such lifecycle — rotate it by restart.*
 4. **Prompt-injection into memory.** Memory is agent-writable and recalled content
    is fed back to agents. A poisoned ingested document can steer a downstream
    agent, and (with `EXTRACTION_REVIEW=false`) the local extractor. **Keep
@@ -62,8 +71,9 @@ pointing it at real data or a network.
 - [ ] App bound to `127.0.0.1` (default); never publish `:8080` to the network.
 - [ ] Caddy proxy profile on, with **TLS** (domain or `:443`) and a strong
       `BASIC_AUTH_HASH`.
-- [ ] `AUTH_TOKEN` (and any `PRINCIPAL_TOKEN_*`) are long and random; in `.env`
-      only.
+- [ ] `AUTH_TOKEN` (and any `PRINCIPAL_TOKEN_*`) are long and random
+      (`brainiac token gen`); in `.env` only. Prefer `token_sha256:` (hash-at-rest)
+      for principals, and set `expires:` where a cutoff applies.
 - [ ] `WEBUI_MODE` left unset (read-only) unless you need interactive writes.
 - [ ] For multi-team sensitive data: `principals:` configured (Layer 2), one
       namespace per team; the MCP process runs with `BRAINIAC_PRINCIPAL_TOKEN`.
@@ -74,4 +84,4 @@ pointing it at real data or a network.
 
 See also: [deployment.md](deployment.md) (proxy/TLS setup), [operations.md](operations.md)
 (backups), and the roadmap epics for the security follow-ups (audit reads,
-per-human identity, token lifecycle, encryption at rest, per-fact erasure).
+per-human identity, encryption at rest, per-fact erasure).

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
@@ -16,6 +17,12 @@ import (
 type fakePinger struct{ err error }
 
 func (f fakePinger) Ping(context.Context) error { return f.err }
+
+// staticMatcher is a test PrincipalMatcher: it resolves a token to a principal by
+// exact match, ignoring the clock (expiry/revocation are covered in config tests).
+type staticMatcher map[string]*core.Principal
+
+func (m staticMatcher) Match(token string, _ time.Time) *core.Principal { return m[token] }
 
 func TestMetricsAndVersion(t *testing.T) {
 	h := New(fakePinger{}, nil, nil, Options{})
@@ -54,8 +61,8 @@ func bytesContains(b []byte, s string) bool {
 // this needs no database (#120).
 func TestHardIsolationGatesReads(t *testing.T) {
 	c := core.New(nil, nil, nil)
-	principals := map[string]*core.Principal{"good": {Name: "a", Read: []string{"a"}, Write: "a"}}
-	h := New(fakePinger{}, nil, c, Options{Principals: principals})
+	matcher := staticMatcher{"good": {Name: "a", Read: []string{"a"}, Write: "a"}}
+	h := New(fakePinger{}, nil, c, Options{Auth: matcher})
 
 	for _, tc := range []struct {
 		name, path, auth string

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,24 +48,30 @@ func TestPrincipalValidationAndMapping(t *testing.T) {
 		t.Fatal("principal with no token should fail validation")
 	}
 
-	// A well-formed roster validates and maps to core principals keyed by token,
-	// with the "global" read alias normalized to "".
-	c.Principals[0].Token = "tok-a"
-	c.Principals = append(c.Principals, PrincipalConfig{Name: "platform", Read: []string{"team-a", "global"}, Write: "platform", Token: "tok-p"})
+	// A well-formed roster validates and the authenticator resolves each token to
+	// its principal, with the "global" read alias normalized to "".
+	c.Principals[0].Token = "team-a-token-000000000000000000000000"
+	c.Principals = append(c.Principals, PrincipalConfig{Name: "platform", Read: []string{"team-a", "global"}, Write: "platform", Token: "platform-token-00000000000000000000"})
 	if err := c.Validate(); err != nil {
 		t.Fatalf("valid roster rejected: %v", err)
 	}
-	m := c.BuildPrincipals()
-	if len(m) != 2 || m["tok-a"] == nil || m["tok-p"] == nil {
-		t.Fatalf("principal map wrong: %+v", m)
+	a := c.BuildAuthenticator()
+	if a.Len() != 2 {
+		t.Fatalf("authenticator len = %d, want 2", a.Len())
 	}
-	got := m["tok-p"].Read
-	if len(got) != 2 || got[0] != "team-a" || got[1] != "" {
+	if p := a.Match("team-a-token-000000000000000000000000", time.Now()); p == nil || p.Name != "team-a" {
+		t.Fatalf("team-a token did not resolve: %+v", p)
+	}
+	pl := a.Match("platform-token-00000000000000000000", time.Now())
+	if pl == nil {
+		t.Fatal("platform token did not resolve")
+	}
+	if got := pl.Read; len(got) != 2 || got[0] != "team-a" || got[1] != "" {
 		t.Fatalf("global alias not normalized to \"\": %+v", got)
 	}
 
 	// A reused token is rejected (would conflate two identities).
-	c.Principals[1].Token = "tok-a"
+	c.Principals[1].Token = "team-a-token-000000000000000000000000"
 	if err := c.Validate(); err == nil {
 		t.Fatal("duplicate token should fail validation")
 	}
@@ -83,6 +91,96 @@ func TestPrincipalByToken(t *testing.T) {
 	}
 	if p := c.PrincipalByToken(""); p != nil {
 		t.Fatalf("empty token must not match, got %+v", p)
+	}
+}
+
+func TestPrincipalTokenEntropyFloor(t *testing.T) {
+	c := Default()
+	c.Storage.DSN = "postgres://x"
+	c.Principals = []PrincipalConfig{{Name: "a", Read: []string{"a"}, Write: "a", Token: "short"}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("a too-short principal token must fail validation")
+	}
+}
+
+// sha256Hex mirrors what `brainiac token hash` prints for a token.
+func sha256Hex(tok string) string {
+	sum := sha256.Sum256([]byte(tok))
+	return hex.EncodeToString(sum[:])
+}
+
+func TestPrincipalHashAtRest(t *testing.T) {
+	const secret = "team-a-token-000000000000000000000000"
+	c := Default()
+	c.Storage.DSN = "postgres://x"
+	c.Principals = []PrincipalConfig{{Name: "a", Read: []string{"a"}, Write: "a", TokenSHA256: sha256Hex(secret)}}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("hash-at-rest roster rejected: %v", err)
+	}
+	// The presented plaintext token resolves against the stored hash; the hash
+	// itself must not authenticate.
+	if p := c.PrincipalByToken(secret); p == nil || p.Name != "a" {
+		t.Fatalf("plaintext token did not resolve against token_sha256: %+v", p)
+	}
+	if p := c.PrincipalByToken(c.Principals[0].TokenSHA256); p != nil {
+		t.Fatal("the hash must not authenticate as if it were the token")
+	}
+
+	// Setting both token and token_sha256 is a misconfiguration.
+	c.Principals[0].Token = secret
+	if err := c.Validate(); err == nil {
+		t.Fatal("token + token_sha256 together must fail validation")
+	}
+
+	// A malformed hash (not 64 hex chars) is rejected.
+	c.Principals[0] = PrincipalConfig{Name: "a", Read: []string{"a"}, Write: "a", TokenSHA256: "nothex"}
+	if err := c.Validate(); err == nil {
+		t.Fatal("malformed token_sha256 must fail validation")
+	}
+
+	// A plaintext token and another principal's hash of the same secret collide.
+	c.Principals = []PrincipalConfig{
+		{Name: "a", Read: []string{"a"}, Write: "a", Token: secret},
+		{Name: "b", Read: []string{"b"}, Write: "b", TokenSHA256: sha256Hex(secret)},
+	}
+	if err := c.Validate(); err == nil {
+		t.Fatal("a plaintext token colliding with another's hash must fail validation")
+	}
+}
+
+func TestPrincipalExpiryAndRevocation(t *testing.T) {
+	const secret = "team-a-token-000000000000000000000000"
+	c := Default()
+	c.Storage.DSN = "postgres://x"
+
+	// An invalid timestamp is rejected up front.
+	c.Principals = []PrincipalConfig{{Name: "a", Read: []string{"a"}, Write: "a", Token: secret, Expires: "not-a-time"}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("invalid expires must fail validation")
+	}
+
+	// A valid future expiry authenticates now but not after it lapses.
+	c.Principals[0].Expires = "2030-01-01T00:00:00Z"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("valid expires rejected: %v", err)
+	}
+	a := c.BuildAuthenticator()
+	before, _ := time.Parse(time.RFC3339, "2029-01-01T00:00:00Z")
+	after, _ := time.Parse(time.RFC3339, "2031-01-01T00:00:00Z")
+	if p := a.Match(secret, before); p == nil {
+		t.Fatal("token should authenticate before it expires")
+	}
+	if p := a.Match(secret, after); p != nil {
+		t.Fatal("token must not authenticate after it expires")
+	}
+
+	// A revoked principal never authenticates, even with the right token.
+	c.Principals[0].Revoked = true
+	if err := c.Validate(); err != nil {
+		t.Fatalf("revoked principal should still validate: %v", err)
+	}
+	if p := c.BuildAuthenticator().Match(secret, before); p != nil {
+		t.Fatal("a revoked token must not authenticate")
 	}
 }
 
