@@ -358,6 +358,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-16** — **Publish prebuilt images to GHCR (#248).** The app image was compiled from source on the
+  target box on every `docker compose up` and every `brainiac update` (pull golang, download modules,
+  compile — minutes on weak hardware; rollback compiled twice) — the biggest gap between the "very easy /
+  weak hardware" promise and reality. Added `.github/workflows/release.yml`: on a semver tag it builds a
+  multi-arch (amd64+arm64) image and pushes `ghcr.io/programmism/brainiac:{version,latest}`. The base
+  `docker-compose.yml` now **pulls** `image: ghcr.io/programmism/brainiac:${BRAINIAC_VERSION:-latest}`;
+  building from source moved to `docker-compose.dev.yml` (used by CI smoke and local dev). `brainiac update`
+  now `docker compose pull`s the versioned image instead of rebuilding, keeping the health-gated rollback.
+  **Operational:** the GHCR package must be made public once (repo → Packages) for unauthenticated pulls; the
+  first release tag after this change publishes `:latest`.
 - **2026-07-16** — **Right-size compose memory to a real 4 GB (#249).** The `mem_limit` caps summed to
   ~4.25 GB (Ollama alone at 3 GB) against the advertised "4 GB box", so the proxy/backup profiles or a
   model pull could OOM. Ollama is sized for the default embedder (nomic, ~1.5 GB peak) at `1536m`; the core

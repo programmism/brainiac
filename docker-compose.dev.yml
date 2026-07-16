@@ -9,6 +9,14 @@
 #   OLLAMA_URL='http://localhost:11434' ./bin/cli health
 
 services:
+  # Build the app image from source instead of pulling the released one (#248) —
+  # for local development and CI. The built image is tagged as the same name the
+  # base file pulls, so `up` uses it.
+  app:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-0.0.0-docker}
   db:
     ports:
       - "127.0.0.1:5432:5432"
