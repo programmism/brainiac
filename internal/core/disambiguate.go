@@ -67,6 +67,7 @@ func (c *Core) Disambiguate(ctx context.Context, nodeID string, add map[string]s
 	if err != nil {
 		return nil, err
 	}
+	c.audit(ctx, "disambiguate", updated.CanonicalName, updated.Discriminators["project"])
 	return updated, nil
 }
 

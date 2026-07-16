@@ -358,6 +358,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-16** — **Write audit log (#267, security P0).** A company memory of sensitive data must answer
+  "who created/changed/deleted X" for compliance and insider-threat review. Added an append-only `audit_log`
+  table (migration `0013`) and a best-effort `c.audit(ctx, op, target, namespace)` (swallows its own errors
+  so it never fails the write it records) called from every mutation — remember, link, supersede,
+  disambiguate, split, merge, delete/handoff namespace, rollup, import. The acting identity is the
+  principal's name, or `operator` for an unscoped Layer-1 write. Read surface: `Core.AuditLog` + CLI
+  `brainiac audit`. Reads are not audited (higher volume, lower risk — a follow-up); true per-*human*
+  identity beyond the per-token principal is also future work.
 - **2026-07-16** — **Publish prebuilt images to GHCR (#248).** The app image was compiled from source on the
   target box on every `docker compose up` and every `brainiac update` (pull golang, download modules,
   compile — minutes on weak hardware; rollback compiled twice) — the biggest gap between the "very easy /

@@ -23,6 +23,9 @@ func (c *Core) DeleteNamespace(ctx context.Context, namespace string) (store.Del
 		counts, err = store.DeleteNamespace(ctx, db, namespace)
 		return err
 	})
+	if err == nil {
+		c.audit(ctx, "delete_namespace", namespace, namespace)
+	}
 	return counts, err
 }
 
@@ -84,6 +87,9 @@ func (c *Core) HandoffNamespace(ctx context.Context, from, to string) (HandoffCo
 		counts = HandoffCounts{Nodes: len(nodes), Chunks: len(chunks)}
 		return nil
 	})
+	if err == nil {
+		c.audit(ctx, "handoff_namespace", from+" -> "+to, to)
+	}
 	return counts, err
 }
 

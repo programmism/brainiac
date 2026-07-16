@@ -117,5 +117,6 @@ func (c *Core) Split(ctx context.Context, nodeID, axis string, routes map[string
 	if err != nil {
 		return nil, err
 	}
+	c.audit(ctx, "split", nodeID+" by "+axis, "")
 	return result, nil
 }

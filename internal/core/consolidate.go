@@ -147,7 +147,7 @@ func (c *Core) ApplyMerge(ctx context.Context, keepID, dropID string) error {
 	if keepID == dropID {
 		return fmt.Errorf("cannot merge a node into itself")
 	}
-	return store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
 		// Both nodes must be in the caller's own namespace (#265).
 		keep, err := c.assertNodeWritable(ctx, db, keepID)
 		if err != nil {
@@ -166,4 +166,8 @@ func (c *Core) ApplyMerge(ctx context.Context, keepID, dropID string) error {
 		}
 		return store.UpdateNodeStatus(ctx, db, drop.ID, model.StatusHistorical)
 	})
+	if err == nil {
+		c.audit(ctx, "merge", dropID+" into "+keepID, "")
+	}
+	return err
 }

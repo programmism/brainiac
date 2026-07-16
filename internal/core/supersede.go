@@ -18,7 +18,7 @@ func (c *Core) Supersede(ctx context.Context, oldID, newID, why, author string) 
 	if oldID == newID {
 		return fmt.Errorf("a node cannot supersede itself")
 	}
-	return store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
 		// Both endpoints must be in the caller's own namespace (#265).
 		if _, err := c.assertNodeWritable(ctx, db, oldID); err != nil {
 			return err
@@ -37,4 +37,8 @@ func (c *Core) Supersede(ctx context.Context, oldID, newID, why, author string) 
 		}
 		return store.UpdateNodeStatus(ctx, db, oldID, model.StatusHistorical)
 	})
+	if err == nil {
+		c.audit(ctx, "supersede", newID+" supersedes "+oldID, "")
+	}
+	return err
 }

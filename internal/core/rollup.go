@@ -30,5 +30,6 @@ func (c *Core) Rollup(ctx context.Context, nodeID, text string) (*model.Node, er
 		return nil, fmt.Errorf("update rollup: %w", err)
 	}
 	node.Rollup = text
+	c.audit(ctx, "rollup", node.CanonicalName, node.Discriminators["project"])
 	return node, nil
 }

@@ -82,6 +82,7 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 			existing.Summary = in.Summary
 			existing.SummaryEmbedding = emb
 		}
+		c.audit(ctx, "remember", existing.CanonicalName, existing.Discriminators["project"])
 		return &RememberResult{Node: existing, Created: false}, nil
 	}
 
@@ -120,6 +121,7 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 		}
 		return nil, fmt.Errorf("insert node: %w", err)
 	}
+	c.audit(ctx, "remember", node.CanonicalName, node.Discriminators["project"])
 	return &RememberResult{Node: node, Created: true, Duplicates: dups}, nil
 }
 

@@ -366,6 +366,42 @@ func namespaceHandoffCmd() *cobra.Command {
 	return cmd
 }
 
+func auditCmd() *cobra.Command {
+	var limit int
+	cmd := &cobra.Command{
+		Use:   "audit",
+		Short: "Show the recent write audit log (who wrote what, when)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			entries, err := buildCore(cfg, pool).AuditLog(ctx, limit)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if len(entries) == 0 {
+				fmt.Fprintln(out, "no audit entries")
+				return nil
+			}
+			for _, e := range entries {
+				ns := e.Namespace
+				if ns == "" {
+					ns = "global"
+				}
+				fmt.Fprintf(out, "%s  %-16s  %-18s  %s  [%s]\n",
+					e.At.UTC().Format(time.RFC3339), e.Principal, e.Operation, e.Target, ns)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&limit, "limit", 100, "how many recent entries to show")
+	return cmd
+}
+
 func rollupCmd() *cobra.Command {
 	var id, name, textFlag, project string
 	cmd := &cobra.Command{

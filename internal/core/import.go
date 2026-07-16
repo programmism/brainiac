@@ -90,5 +90,6 @@ func (c *Core) ImportNamespace(ctx context.Context, exp *NamespaceExport, target
 		}
 		counts.Chunks++
 	}
+	c.audit(ctx, "import_namespace", target, target)
 	return counts, nil
 }
