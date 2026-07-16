@@ -80,12 +80,14 @@ case "${1:-}" in
 			echo "update: already up to date ($latest)."
 			exit 0
 		fi
-		echo "update: ${current:-$before} → $latest — rebuilding…"
+		echo "update: ${current:-$before} → $latest — pulling prebuilt image…"
 		git checkout --quiet "$latest"
-		if ! docker compose up -d --build; then
-			echo "update: build failed — rolling back to ${current:-$before}…" >&2
+		export BRAINIAC_VERSION="$latest"
+		if ! { docker compose pull app && docker compose up -d; }; then
+			echo "update: pull/start failed — rolling back to ${current:-$before}…" >&2
 			git checkout --quiet "$before"
-			docker compose up -d --build || true
+			export BRAINIAC_VERSION="${current:-latest}"
+			docker compose up -d || true
 			exit 1
 		fi
 		# Gate on the app container's OWN Docker health status — the same check
@@ -114,7 +116,8 @@ case "${1:-}" in
 		if [ "$ok" -ne 1 ]; then
 			echo "update: $latest did not become healthy in time — rolling back to ${current:-$before}…" >&2
 			git checkout --quiet "$before"
-			docker compose up -d --build || true
+			export BRAINIAC_VERSION="${current:-latest}"
+			docker compose up -d || true
 			echo "update: rolled back. Check 'brainiac logs app'." >&2
 			exit 1
 		fi

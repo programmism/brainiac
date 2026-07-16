@@ -75,7 +75,9 @@ jobs:
       - name: Build image and start db + app
         run: |
           cp .env.example .env
-          docker compose up -d --build db app
+          # Build from source via the dev override (the base file pulls a
+          # prebuilt image; CI validates the build path).
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build db app
       - name: Wait for /readyz and verify the DB is healthy
         run: |
           for i in $(seq 1 60); do

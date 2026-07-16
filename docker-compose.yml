@@ -61,10 +61,10 @@ services:
     restart: "no"
 
   app:
-    build:
-      context: .
-      args:
-        VERSION: ${VERSION:-0.0.0-docker}
+    # Pulls a prebuilt multi-arch image from GHCR (#248) — no compile on the target
+    # box. Pin a version with BRAINIAC_VERSION; default tracks the latest release.
+    # For local development / CI, layer docker-compose.dev.yml to build from source.
+    image: ghcr.io/programmism/brainiac:${BRAINIAC_VERSION:-latest}
     depends_on:
       db:
         condition: service_healthy
