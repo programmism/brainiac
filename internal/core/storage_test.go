@@ -19,13 +19,16 @@ func TestReembedRebuildsFromText(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	// The wrong embedding is beyond the relevance floor, so "alpha" finds nothing.
-	before, err := c.Search(ctx, "alpha", 1, "")
+	// Probe the DENSE arm directly (c.Search is now hybrid, so its lexical half
+	// would find "alpha" by text regardless of the vector). The wrong embedding is
+	// orthogonal to the query, so the dense distance is far (~1) before reembed.
+	qemb, _ := hashEmbedder{}.Embed(ctx, "alpha")
+	before, err := store.SearchChunks(ctx, pool, qemb, 1, store.AllScopes(), store.NoWall())
 	if err != nil {
 		t.Fatalf("search before: %v", err)
 	}
-	if len(before) != 0 {
-		t.Fatalf("expected no relevant hit before reembed, got %+v", before)
+	if len(before) == 0 || before[0].Distance < 0.5 {
+		t.Fatalf("expected a far dense hit before reembed, got %+v", before)
 	}
 
 	n, err := c.Reembed(ctx)
@@ -33,8 +36,8 @@ func TestReembedRebuildsFromText(t *testing.T) {
 		t.Fatalf("reembed: n=%d err=%v", n, err)
 	}
 
-	// After rebuilding the vector from the stored text, the chunk is found at ~0.
-	after, err := c.Search(ctx, "alpha", 1, "")
+	// After rebuilding the vector from the stored text, the dense distance is ~0.
+	after, err := store.SearchChunks(ctx, pool, qemb, 1, store.AllScopes(), store.NoWall())
 	if err != nil || len(after) == 0 {
 		t.Fatalf("search after: %v", err)
 	}
