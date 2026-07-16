@@ -94,20 +94,26 @@ const nearDupJaccard = 0.9
 // same content mirrored across sources doesn't crowd out diverse evidence. Order
 // is preserved.
 func collapseNearDuplicates(hits []model.ChunkHit) []model.ChunkHit {
+	type keptChunk struct {
+		set   map[string]struct{}
+		scope string
+	}
 	kept := make([]model.ChunkHit, 0, len(hits))
-	keptSets := make([]map[string]struct{}, 0, len(hits))
+	seen := make([]keptChunk, 0, len(hits))
 	for _, h := range hits {
 		set := wordSet(h.Text)
 		dup := false
-		for _, ks := range keptSets {
-			if jaccard(set, ks) >= nearDupJaccard {
+		for _, ks := range seen {
+			// Only within the same scope: identical content in different projects
+			// (e.g. alpha vs global) is legitimately distinct provenance (#217/#143).
+			if ks.scope == h.Scope && jaccard(set, ks.set) >= nearDupJaccard {
 				dup = true
 				break
 			}
 		}
 		if !dup {
 			kept = append(kept, h)
-			keptSets = append(keptSets, set)
+			seen = append(seen, keptChunk{set: set, scope: h.Scope})
 		}
 	}
 	return kept
