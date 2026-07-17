@@ -85,7 +85,7 @@ func connect(ctx context.Context) (*config.Config, *pgxpool.Pool, error) {
 // buildCore wires a Core over the pool, the configured embedder, and the
 // density selector, plus the optional local-LLM extractor when enabled.
 func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
-	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
+	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize), ollama.WithMaxConcurrency(cfg.Embedding.MaxConcurrency))
 	var opts []core.Option
 	if cfg.LocalExtractionEnabled() {
 		ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))

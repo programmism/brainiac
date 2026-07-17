@@ -63,8 +63,15 @@ pointing it at real data or a network.
 6. **Right-to-erasure at fact granularity.** Supersede/merge keep history; only
    whole-namespace `namespace delete` hard-deletes. Per-node/per-chunk erasure is a
    roadmap item — for GDPR today, isolate erasable data into its own namespace.
-7. **Request-rate / DoS.** Storage quotas are not rate limits; each search triggers
-   an embed. Add **rate limiting at the proxy** (Caddy) and network controls.
+7. **Request-rate / DoS (#270).** Storage quotas cap rows, not request rate, and
+   each search triggers an Ollama embed. The app now has two opt-in controls:
+   **per-client rate limiting** (`http.rate_limit_rps` + `rate_limit_burst`, or
+   `HTTP_RATE_LIMIT_RPS`/`_BURST`) — a token bucket keyed by principal, else bearer
+   token, else source IP, returning `429` + `Retry-After` — and an
+   **embed-concurrency cap** (`embedding.max_concurrency` / `EMBED_MAX_CONCURRENCY`)
+   bounding in-flight embed round-trips to Ollama. Both default off. Still add
+   **rate limiting at the proxy** (Caddy) and network controls for network-level
+   abuse; the app-level limit is per-identity, not a substitute.
 
 ## Hardening checklist
 
@@ -78,6 +85,8 @@ pointing it at real data or a network.
 - [ ] For multi-team sensitive data: `principals:` configured (Layer 2), one
       namespace per team; the MCP process runs with `BRAINIAC_PRINCIPAL_TOKEN`.
 - [ ] Extraction review **on** for any untrusted ingested source.
+- [ ] `http.rate_limit_rps` and `embedding.max_concurrency` set for any
+      multi-client / exposed deployment (plus proxy-level rate limiting).
 - [ ] Postgres on an **encrypted volume**; backups (`--profile backup`) shipped
       **off-box**.
 - [ ] `brainiac audit` reviewed periodically; ship the access logs off the box.

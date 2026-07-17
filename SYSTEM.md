@@ -358,6 +358,21 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Request rate limiting + embed-concurrency cap (#270, security P1).** Storage quotas
+  cap rows, not request rate, and the shipped Caddyfile has none — so one token (or open Layer-1 reads)
+  could pin the shared Ollama/DB, since **every `/api/search` triggers an embed**. Two independent, opt-in
+  controls: **(1) Per-client rate limiting** — a token-bucket middleware on the `/api` group
+  (`http.rate_limit_rps` + `rate_limit_burst`, or `HTTP_RATE_LIMIT_RPS`/`_BURST`). A "client" is the
+  resolved principal (Layer 2), else a hash of the bearer token, else the source IP — so the limiter sits
+  *after* `principalAuth` and never keys on a raw secret. Over-budget requests get `429` + `Retry-After`;
+  idle full buckets are pruned ≤ once/min so the map stays bounded under open reads. **(2) Embed-concurrency
+  cap** — `embedding.max_concurrency` / `EMBED_MAX_CONCURRENCY` bounds in-flight embed round-trips to Ollama
+  via a semaphore *inside* the ollama embedder (`WithMaxConcurrency`), so a bulk ingest plus many concurrent
+  searches can't overrun the box regardless of request rate. Both default **off** (0 = unlimited),
+  Layer-1/Layer-2 behavior otherwise unchanged. Unit tests (no DB): `rateLimiter.allow` with an injected
+  clock, a `429` middleware test, and a peak-in-flight assertion for the embed cap. Rate limiting still
+  *also* belongs at the proxy for network-level abuse; this adds the app-level, per-identity half #186 left
+  out. Config/auth layer only — no migration.
 - **2026-07-16** — **Token lifecycle: entropy floor, hash-at-rest, expiry, hot revocation (#269, security P1).**
   Principal bearer tokens were free-form and long-lived; revocation meant editing config and restarting the
   whole stack (which also kills the MCP server). Five changes, all at the config/auth layer (no DB — tokens

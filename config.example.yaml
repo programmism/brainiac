@@ -7,6 +7,9 @@
 
 http:
   addr: ":8080"
+  # rate_limit_rps: 5          # per-client /api req/s (#270); 0/omitted = off.
+  #                            #   client = principal, else bearer token, else IP.
+  # rate_limit_burst: 10       # token-bucket depth; 0 = ceil(rate_limit_rps)
 
 storage:
   # Prefer DATABASE_URL over putting the DSN here.
@@ -18,6 +21,7 @@ embedding:
   model: nomic-embed-text
   dims: 768
   batch_size: 32              # chunks per embed request on bulk ingest (#140); 0 = default
+  # max_concurrency: 4        # cap in-flight embed round-trips to Ollama (#270); 0 = unlimited
 
 extraction:
   default: chat-driven        # "chat-driven" (default): Claude supplies the graph via remember/link.
