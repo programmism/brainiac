@@ -365,6 +365,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Structured JSON access logs + request-id (part of #258, observability P1).** The HTTP
+  access log was chi's plain-text formatter teed to stderr + the 2000-line in-memory ring — lossy, and not
+  machine-parseable. Replaced it with a `jsonLogFormatter` that emits **one JSON object per request** to
+  **stdout** (Docker's json-file driver rotates it, so the durable request log survives crashes), teed to
+  the ring only as a WebUI convenience. Each line carries the chi **request-id** (`request_id`) for
+  cross-line correlation, plus `method`/`path`/`status`/`bytes`/`duration_ms`/`remote`/`ts`; the **path only**
+  is logged, never the query (which can carry secrets), verified by a unit test. The app's operational
+  `log.Printf` lines (startup, migrations, notices) stay plain on stderr for now — structuring those is a
+  tracked follow-up (#329).
 - **2026-07-17** — **First-run tutorial + troubleshooting (#276, product-docs P0).** Onboarding stopped at
   "it's running" — no end-to-end example, no troubleshooting, and MCP setup looked like it needed a
   hand-edited absolute path. Added `docs/first-run.md`: a 10-minute CLI-only walkthrough (`up` → `remember`

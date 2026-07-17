@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
@@ -117,6 +120,36 @@ func do(t *testing.T, h http.Handler, path string) (int, map[string]string) {
 	var body map[string]string
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 	return rec.Code, body
+}
+
+// The access logger emits one JSON object per request, carrying the chi
+// request-id for correlation (#258).
+func TestJSONAccessLog(t *testing.T) {
+	var buf bytes.Buffer
+	f := &jsonLogFormatter{w: &buf}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/search?q=secret", nil)
+	req = req.WithContext(context.WithValue(req.Context(), middleware.RequestIDKey, "req-123"))
+	entry := f.NewLogEntry(req)
+	entry.Write(200, 512, nil, 3*time.Millisecond, nil)
+
+	var rec map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buf.Bytes()), &rec); err != nil {
+		t.Fatalf("access log line is not valid JSON: %v\n%s", err, buf.String())
+	}
+	if rec["msg"] != "http_request" || rec["method"] != "GET" || rec["status"] != float64(200) {
+		t.Errorf("fields wrong: %+v", rec)
+	}
+	if rec["request_id"] != "req-123" {
+		t.Errorf("missing request_id: %+v", rec)
+	}
+	// The path is logged but never the query (which can carry secrets).
+	if rec["path"] != "/api/search" {
+		t.Errorf("path = %v, want /api/search (no query)", rec["path"])
+	}
+	if strings.Contains(buf.String(), "secret") {
+		t.Errorf("query leaked into the access log: %s", buf.String())
+	}
 }
 
 func TestHealthz(t *testing.T) {
