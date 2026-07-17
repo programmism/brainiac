@@ -32,6 +32,30 @@ func TestQuantileAndRender(t *testing.T) {
 	}
 }
 
+func TestPerRouteMetricsRender(t *testing.T) {
+	r := New()
+	r.ObserveRoute("/api/search", 200, 0.01)
+	r.ObserveRoute("/api/search", 200, 0.02)
+	r.ObserveRoute("/api/search", 500, 0.2)
+	r.ObserveRoute("", 404, 0.001) // unmatched → "other"
+
+	rec := httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+
+	for _, want := range []string{
+		`brainiac_http_route_duration_seconds_count{route="/api/search"} 3`,
+		`brainiac_http_route_duration_seconds_count{route="other"} 1`,
+		`brainiac_http_requests_total{route="/api/search",code="200"} 2`,
+		`brainiac_http_requests_total{route="/api/search",code="500"} 1`,
+		`brainiac_http_requests_total{route="other",code="404"} 1`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metrics output missing %q:\n%s", want, body)
+		}
+	}
+}
+
 func TestMiddlewareObserves(t *testing.T) {
 	r := New()
 	h := r.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

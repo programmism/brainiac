@@ -127,6 +127,28 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// Per-route metrics label the matched chi pattern and count status codes, so
+// /healthz never pollutes the /api p95 and errors are visible (#259).
+func TestPerRouteMetrics(t *testing.T) {
+	c := core.New(nil, nil, nil)
+	h := New(fakePinger{}, nil, c, Options{})
+
+	// A healthy route and a guaranteed 404 (unmatched /api path is JSON 404).
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/does-not-exist", nil))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+
+	if !strings.Contains(body, `brainiac_http_route_duration_seconds_count{route="/healthz"}`) {
+		t.Errorf("healthz route latency not recorded:\n%s", body)
+	}
+	if !strings.Contains(body, `code="404"`) {
+		t.Errorf("404 error not counted:\n%s", body)
+	}
+}
+
 // The token bucket allows up to burst immediately, then refills at rps.
 func TestRateLimiterAllow(t *testing.T) {
 	l := newRateLimiter(2, 3) // 2 req/s, burst 3
