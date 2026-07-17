@@ -115,7 +115,9 @@ It's a symlink to this checkout, so `brainiac update` keeps the installed comman
 ./brainiac recall "why is X built this way"
 ```
 
-Full guide: **[docs/laptop.md](docs/laptop.md)**.
+New here? Do the **[10-minute first-run tutorial](docs/first-run.md)** — put one
+decision in, recall the *why* back out, then wire it to your agent. Full laptop
+guide: **[docs/laptop.md](docs/laptop.md)**.
 
 ### Make it your agent's memory
 
@@ -289,7 +291,7 @@ sources ──connectors──▶ core (chunk · select · embed · store · gra
 > decision *and its rationale*, the data model, and a dated decision log. Read it before
 > contributing; update it in the same PR as any change.
 
-**More docs:** [concepts & workflows](docs/concepts-and-workflows.md) · [laptop](docs/laptop.md) ·
+**More docs:** [first-run tutorial](docs/first-run.md) · [concepts & workflows](docs/concepts-and-workflows.md) · [laptop](docs/laptop.md) ·
 [agent memory](docs/agent-memory.md) · [operations](docs/operations.md) · [deployment](docs/deployment.md) ·
 [security & threat model](docs/security.md) · [API reference](docs/api.md) · [production readiness](docs/production-readiness.md) ·
 [decision records](docs/decisions/).
