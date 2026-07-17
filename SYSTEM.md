@@ -365,6 +365,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **GPU compose override + scaling doc (#252, deploy P1).** GPU appeared in the docs only
+  as "you don't need one" — the *scale-to-strong-hardware* promise had no compute-axis story. Added
+  `docker-compose.gpu.yml`: a thin override that reserves an **NVIDIA GPU** for the Ollama service
+  (`deploy.resources.reservations.devices`, `driver: nvidia`) and lifts the 4 GB-box `mem_limit`/`cpus`
+  caps, applied with `-f docker-compose.yml -f docker-compose.gpu.yml`. Nothing else changes — app/DB/
+  migrations/`./brainiac` are identical; it only moves embedding (and the optional local-LLM extractor) onto
+  the GPU. Documented in `deployment.md` (a "Scaling on the compute axis — GPU" section with the toolkit
+  prerequisite and an `nvidia-smi` verify step) + a README FAQ entry. Deploy-config + docs only; the base
+  compose (unchanged) is still what CI smoke-tests.
 - **2026-07-17** — **TLS posture + basic-auth is not the tenant boundary (#271, security P1).** Layer-1
   reads are fully open (protection depends on the proxy), the shipped Caddy used a **single shared**
   `basic_auth` credential, and `SITE_ADDRESS` could be `:80` — so bearer/basic-auth crossed the wire in

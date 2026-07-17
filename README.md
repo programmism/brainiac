@@ -214,7 +214,7 @@ WantedBy=timers.target
 ## FAQ
 
 **Do I need a GPU, an API key, or a cloud LLM?**
-No. The only model is a small local embedder (`nomic-embed-text` via Ollama). Runs CPU-only on ~4 GB RAM. Nothing is sent to any cloud.
+No. The only model is a small local embedder (`nomic-embed-text` via Ollama). Runs CPU-only on ~4 GB RAM. Nothing is sent to any cloud. **To scale up** — bigger corpora, higher QPS, or the optional local-LLM extractor — you *can* put Ollama on a GPU: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d` (see [deployment.md → Scaling](docs/deployment.md#scaling-on-the-compute-axis--gpu-252)).
 
 **Does it use an LLM to build the knowledge graph?**
 No. The graph is filled by explicit `remember`/`link` calls — your agent in chat, or you via the CLI. So every relationship is deliberate and carries a real `why`, instead of being auto-extracted (and possibly hallucinated).

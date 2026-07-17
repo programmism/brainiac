@@ -1,0 +1,30 @@
+# GPU override (#252) — reserve an NVIDIA GPU for Ollama so embedding (and the
+# optional local-LLM extractor) run on the GPU instead of the CPU. Layered on top
+# of the base compose file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+#
+# Requirements on the host:
+#   - an NVIDIA GPU + recent driver
+#   - the NVIDIA Container Toolkit (nvidia-ctk), so Docker can pass the GPU through
+#
+# Verify the GPU is visible inside the container:
+#   docker compose exec ollama nvidia-smi
+#
+# This only changes resource allocation — the app, DB, and model pull are
+# unchanged, so `./brainiac` and every other command work the same.
+
+services:
+  ollama:
+    # Pass an NVIDIA GPU through to the Ollama container.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # The base file caps Ollama for a 4 GB CPU box; a GPU host is beefier and
+    # usually also runs a chat-model extractor, so lift the caps. Tune to your box.
+    mem_limit: 12g
+    cpus: 4.0
