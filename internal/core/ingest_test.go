@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"strings"
@@ -104,6 +105,63 @@ func TestIngestReembedsOnlyLocalRegion(t *testing.T) {
 	}
 	if s2.Skipped < stored-3 {
 		t.Errorf("only %d chunks skipped; expected most of %d to be unchanged", s2.Skipped, stored)
+	}
+}
+
+// errConn yields a fetch error at index errAt, then keeps yielding — simulating a
+// paginated connector that hits one bad page mid-backfill.
+type errConn struct {
+	docs  []plugins.RawDoc
+	errAt int
+}
+
+func (c errConn) Fetch(context.Context) iter.Seq2[plugins.RawDoc, error] {
+	return func(yield func(plugins.RawDoc, error) bool) {
+		for i, d := range c.docs {
+			if i == c.errAt {
+				if !yield(plugins.RawDoc{}, errors.New("simulated fetch error")) {
+					return
+				}
+				continue
+			}
+			if !yield(d, nil) {
+				return
+			}
+		}
+	}
+}
+
+func (errConn) Watch(context.Context) iter.Seq2[plugins.Change, error] {
+	return func(func(plugins.Change, error) bool) {}
+}
+
+// A single fetch error is counted and skipped, not fatal — the good docs on
+// either side still import (#241).
+func TestIngestNonFatalFetchError(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	conn := errConn{
+		errAt: 1,
+		docs: []plugins.RawDoc{
+			{Text: "OrderService writes 1200 orders to Postgres for durability during peak load.", SourceURI: "doc://a"},
+			{}, // index 1 → yields the fetch error
+			{Text: "PaymentGateway retries charges with idempotency keys during peak load.", SourceURI: "doc://b"},
+		},
+	}
+	s, err := c.Ingest(ctx, conn, IngestOptions{})
+	if err != nil {
+		t.Fatalf("a mid-stream fetch error must not fail the whole ingest: %v", err)
+	}
+	if s.FetchErrors != 1 {
+		t.Errorf("FetchErrors = %d, want 1", s.FetchErrors)
+	}
+	if s.Docs != 2 {
+		t.Errorf("Docs = %d, want 2 (both good docs past the error)", s.Docs)
+	}
+	if s.Kept < 2 {
+		t.Errorf("Kept = %d, want >= 2 (both good docs stored)", s.Kept)
 	}
 }
 

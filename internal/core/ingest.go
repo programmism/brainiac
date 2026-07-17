@@ -68,6 +68,7 @@ type IngestStats struct {
 	SkippedDocs int // whole documents skipped by incremental mtime check (#236)
 	Deleted     int // stale chunks removed (source content edited away/removed)
 	Failed      int // documents that failed (e.g. embedder down) — skipped, run continues
+	FetchErrors int // connector fetch/pagination errors — skipped, run continues (#241)
 	// Extraction totals — non-zero only when the optional local-LLM extractor is
 	// configured (SYSTEM.md §7). Nodes/Edges count what was created (proposed or
 	// live per config); ExtractFailed counts chunks whose extraction errored and
@@ -91,7 +92,16 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts In
 	var stats IngestStats
 	for doc, err := range conn.Fetch(ctx) {
 		if err != nil {
-			return stats, fmt.Errorf("fetch: %w", err)
+			// A single fetch/pagination error must not abort the whole backfill
+			// (#241): count it and keep consuming whatever the connector yields
+			// next, so one bad page doesn't lose a large import. Only a cancelled
+			// context is terminal. (Resuming an interrupted backfill rides on the
+			// per-source mtime skip, #236; persisted connector cursors are #323.)
+			if ctx.Err() != nil {
+				return stats, ctx.Err()
+			}
+			stats.FetchErrors++
+			continue
 		}
 		stats.Docs++
 		if err := c.ingestDoc(ctx, doc, opts, &stats); err != nil {

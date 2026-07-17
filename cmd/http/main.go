@@ -263,6 +263,9 @@ func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every tim
 			if stats.Kept+stats.Queued+stats.Deleted > 0 {
 				log.Printf("auto-import %s: +%d kept, %d deleted", dir, stats.Kept+stats.Queued, stats.Deleted)
 			}
+			if stats.FetchErrors > 0 {
+				log.Printf("auto-import %s: %d fetch error(s) skipped (import continued) (#241)", dir, stats.FetchErrors)
+			}
 		}
 	}
 	log.Printf("auto-import enabled every %s (watching /data/docs)", every)
