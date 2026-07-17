@@ -29,6 +29,12 @@ type IngestOptions struct {
 	// cheap and non-blocking. Setting it makes embedding step through the chunks
 	// in batches (to report between them) rather than one shot.
 	OnProgress func(IngestProgress)
+	// Incremental skips a document whose source modification time has not advanced
+	// since it was last synced (persisted per source_uri, #236) — so a periodic
+	// auto-import doesn't re-chunk/re-hash unchanged files. Off by default: a
+	// one-shot `import` re-reconciles fully (content-hash safety), trusting mtime
+	// only when the caller opts in.
+	Incremental bool
 }
 
 // IngestProgress is a running snapshot emitted during ingest (#139).
@@ -53,14 +59,15 @@ func discFromProject(project string) map[string]string {
 
 // IngestStats reports what happened during an ingest run.
 type IngestStats struct {
-	Docs    int // documents fetched
-	Chunks  int // chunks seen
-	Kept    int // stored hot
-	Queued  int // stored cold (borderline; excluded from default search)
-	Dropped int // rejected by the selector
-	Skipped int // unchanged (content hash already present for this source)
-	Deleted int // stale chunks removed (source content edited away/removed)
-	Failed  int // documents that failed (e.g. embedder down) — skipped, run continues
+	Docs        int // documents fetched
+	Chunks      int // chunks seen
+	Kept        int // stored hot
+	Queued      int // stored cold (borderline; excluded from default search)
+	Dropped     int // rejected by the selector
+	Skipped     int // unchanged (content hash already present for this source)
+	SkippedDocs int // whole documents skipped by incremental mtime check (#236)
+	Deleted     int // stale chunks removed (source content edited away/removed)
+	Failed      int // documents that failed (e.g. embedder down) — skipped, run continues
 	// Extraction totals — non-zero only when the optional local-LLM extractor is
 	// configured (SYSTEM.md §7). Nodes/Edges count what was created (proposed or
 	// live per config); ExtractFailed counts chunks whose extraction errored and
@@ -118,6 +125,17 @@ func (c *Core) IngestText(ctx context.Context, sourceURI, text, project string) 
 // transaction (no network held open); the reconcile (delete stale + insert new)
 // runs in one short transaction.
 func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOptions, stats *IngestStats) error {
+	// Incremental sync (#236): skip a document whose source modification time has
+	// not advanced since it was last synced — no chunking, hashing, or embedding.
+	// Never skips on a DryRun (which must report the true reconcile) or when the
+	// source's mtime is unknown.
+	if opts.Incremental && doc.ModifiedAt != nil && !opts.DryRun {
+		if prev, ok, serr := store.SourceSyncModifiedAt(ctx, c.pool, doc.SourceURI); serr == nil && ok && !doc.ModifiedAt.After(prev) {
+			stats.SkippedDocs++
+			return nil
+		}
+	}
+
 	disc, err := c.pinWrite(ctx, discFromProject(opts.Project))
 	if err != nil {
 		return err
@@ -226,7 +244,9 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 				return err
 			}
 		}
-		return nil
+		// Record the sync point so a later incremental run can skip this document
+		// if its source hasn't advanced (#236). Atomic with the reconcile above.
+		return store.UpsertSourceSync(ctx, db, doc.SourceURI, doc.ModifiedAt)
 	})
 	if err != nil {
 		return err

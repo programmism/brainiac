@@ -3,6 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/programmism/brainiac/internal/model"
 )
@@ -95,4 +99,32 @@ func DeleteChunksBySourceURINotIn(ctx context.Context, db DBTX, uri string, keep
 		return 0, err
 	}
 	return tag.RowsAffected(), nil
+}
+
+// SourceSyncModifiedAt returns the last-synced source modification time recorded
+// for a source_uri (#236), and false if none is stored yet.
+func SourceSyncModifiedAt(ctx context.Context, db DBTX, uri string) (time.Time, bool, error) {
+	var t *time.Time
+	err := db.QueryRow(ctx, `SELECT modified_at FROM source_sync WHERE source_uri = $1`, uri).Scan(&t)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if t == nil {
+		return time.Time{}, false, nil
+	}
+	return *t, true, nil
+}
+
+// UpsertSourceSync records that a source_uri was synced now, with the source's
+// modification time (nil = unknown), so a later incremental run can skip it if it
+// hasn't advanced (#236).
+func UpsertSourceSync(ctx context.Context, db DBTX, uri string, modifiedAt *time.Time) error {
+	_, err := db.Exec(ctx,
+		`INSERT INTO source_sync (source_uri, modified_at, synced_at) VALUES ($1, $2, now())
+		 ON CONFLICT (source_uri) DO UPDATE SET modified_at = EXCLUDED.modified_at, synced_at = now()`,
+		uri, modifiedAt)
+	return err
 }

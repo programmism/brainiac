@@ -362,6 +362,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Persisted incremental-sync state + mtime skip (#236, ingestion P0).** Auto-import
+  re-scanned and re-reconciled every file each interval. Added a `source_sync` table (migration `0015`,
+  one row per `source_uri` with the last-synced `modified_at`) and an opt-in `IngestOptions.Incremental`:
+  when set, `ingestDoc` skips a document whose `RawDoc.ModifiedAt` has not advanced past the stored value —
+  before any chunking/hashing/embedding — and records the sync point inside the reconcile transaction. The
+  timer-based **auto-import turns this on**; the one-shot `import` leaves it off so it still does a full
+  content-hash reconcile (mtime is only *trusted* when the caller opts in, since a hand-reset mtime could
+  otherwise mask a content edit). DryRun never skips (its preview must be exact). DB-gated test in
+  `ingest_test.go` (skip on equal mtime, process on newer mtime, full reconcile when non-incremental).
+  Consuming `Watch()` for **deletion** sync and connector-side read-skipping (so unchanged files aren't even
+  read) need cross-connector scoping and are tracked as follow-up #323.
 - **2026-07-17** — **Multi-format extraction layer (#234, ingestion P0).** The local-file connector ingested
   only `.md`/`.markdown`; a folder of HTML exports or `.docx` was invisible. Added `internal/doctext` — a
   **dependency-free** extraction seam (`ToText(name, data)` / `Supported(name)`) that turns a document's
