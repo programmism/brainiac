@@ -3,6 +3,9 @@
 No Go, no exposed ports, no long docker commands — there's a `./brainiac` wrapper,
 and docs you drop in `./data/docs` are imported automatically.
 
+> 👉 First time? Do the **[10-minute first-run tutorial](first-run.md)** — it walks
+> you from `up` to recalling your first decision, with a troubleshooting box.
+
 ## 0. Prerequisites
 - Docker Desktop (Mac/Windows/Linux), ~4 GB free RAM.
 

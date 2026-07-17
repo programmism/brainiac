@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **First-run tutorial + troubleshooting (#276, product-docs P0).** Onboarding stopped at
+  "it's running" — no end-to-end example, no troubleshooting, and MCP setup looked like it needed a
+  hand-edited absolute path. Added `docs/first-run.md`: a 10-minute CLI-only walkthrough (`up` → `remember`
+  two nodes → `link` with a `--why` → `recall` the rationale back out → optional bulk `import` → wire MCP),
+  a **troubleshooting table** (model-still-downloading / `/readyz` 503, the `embedding.dims` schema-mismatch
+  error, embedder-unreachable, port-busy, MCP-not-connected, writes-off-by-default), and an **MCP verify
+  step** — pointing at `./brainiac mcp-config` (which already emits the absolute path via `$(pwd)`, so no
+  hand-editing) plus a "ask Claude to recall" check. Linked from README + laptop.md. Screenshots can't be
+  rendered in CI, so they're tracked as a capture-on-deploy checklist in `docs/images/README.md` (the
+  tutorial reserves the filenames). Docs-only.
 - **2026-07-17** — **Claude-backed extractor (#235, ingestion P0).** The default extraction path is
   chat-driven (Claude via MCP supplies structure) and the only *server-side* extractor was `local-llm`
   (Ollama) — weaker, and needing a beefy box. Added `internal/plugins/anthropic`: a `plugins.Extractor`
