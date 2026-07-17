@@ -18,6 +18,7 @@ import (
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
+	"github.com/programmism/brainiac/internal/plugins/slack"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -119,8 +120,17 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 				return c.Ingest(ctx, notion.New(sc.Token), opts)
 			}
 			return c.Ingest(ctx, notion.NewForPages(sc.Token, []string{target}), opts)
+		case "slack":
+			sc := cfg.Source("slack")
+			if sc == nil || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("slack is not configured (set SLACK_TOKEN)")
+			}
+			if target == "" {
+				return c.Ingest(ctx, slack.New(sc.Token), opts)
+			}
+			return c.Ingest(ctx, slack.NewForChannels(sc.Token, []string{target}), opts)
 		default:
-			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion or markdown)", source)
+			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, or markdown)", source)
 		}
 	}
 }
