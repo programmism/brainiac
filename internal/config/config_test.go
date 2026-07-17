@@ -184,6 +184,46 @@ func TestPrincipalExpiryAndRevocation(t *testing.T) {
 	}
 }
 
+func TestRateLimitAndConcurrencyConfig(t *testing.T) {
+	c := Default()
+	c.Storage.DSN = "postgres://x"
+
+	// Off by default.
+	if c.RateLimitEnabled() {
+		t.Fatal("rate limiting should be off by default")
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("default config rejected: %v", err)
+	}
+
+	// Burst defaults to ceil(rps), min 1, when unset.
+	c.HTTP.RateLimitRPS = 2.5
+	if !c.RateLimitEnabled() {
+		t.Fatal("rate limiting should be on when rps > 0")
+	}
+	if got := c.EffectiveRateLimitBurst(); got != 3 {
+		t.Fatalf("effective burst = %d, want 3 (ceil 2.5)", got)
+	}
+	c.HTTP.RateLimitBurst = 10
+	if got := c.EffectiveRateLimitBurst(); got != 10 {
+		t.Fatalf("explicit burst = %d, want 10", got)
+	}
+
+	// Negatives are rejected.
+	for _, bad := range []func(*Config){
+		func(c *Config) { c.HTTP.RateLimitRPS = -1 },
+		func(c *Config) { c.HTTP.RateLimitBurst = -1 },
+		func(c *Config) { c.Embedding.MaxConcurrency = -1 },
+	} {
+		cc := Default()
+		cc.Storage.DSN = "postgres://x"
+		bad(cc)
+		if err := cc.Validate(); err == nil {
+			t.Fatal("negative rate-limit/concurrency value must fail validation")
+		}
+	}
+}
+
 func TestEnvKey(t *testing.T) {
 	cases := map[string]string{"team-a": "TEAM_A", "Platform": "PLATFORM", "a.b c": "A_B_C"}
 	for in, want := range cases {

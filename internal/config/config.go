@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"net/url"
 	"os"
 	"strconv"
@@ -218,6 +219,15 @@ type HTTPConfig struct {
 	// AuthToken, if set, is the bearer token required for write endpoints.
 	// Prefer setting it via AUTH_TOKEN in the environment.
 	AuthToken string `yaml:"auth_token,omitempty"`
+	// RateLimitRPS caps sustained /api requests per second per client (#270);
+	// 0 disables. A "client" is the principal (Layer 2), else the bearer token,
+	// else the source IP. Each /api/search triggers an Ollama embed, so this is the
+	// first line of defense against one caller exhausting shared Ollama/DB.
+	RateLimitRPS float64 `yaml:"rate_limit_rps,omitempty"`
+	// RateLimitBurst is the token-bucket depth — the largest instantaneous burst
+	// allowed above the sustained rate. Defaults to ceil(RateLimitRPS) (min 1) when
+	// rate limiting is on and this is unset.
+	RateLimitBurst int `yaml:"rate_limit_burst,omitempty"`
 }
 
 // StorageConfig points at Postgres. DSN is a secret — set it via DATABASE_URL.
@@ -234,6 +244,10 @@ type EmbeddingConfig struct {
 	// BatchSize is how many chunks bulk ingest sends per embed request (#140).
 	// 0 = the embedder's default. Tune against the Ollama box's memory.
 	BatchSize int `yaml:"batch_size"`
+	// MaxConcurrency caps in-flight embed round-trips to Ollama (#270); 0 =
+	// unlimited. A bulk ingest and many concurrent /api/search calls otherwise pile
+	// onto one Ollama box; this bounds the load independent of request rate.
+	MaxConcurrency int `yaml:"max_concurrency,omitempty"`
 }
 
 // ExtractionConfig selects how text becomes nodes/edges. The default
@@ -365,6 +379,21 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("AUTH_TOKEN"); v != "" {
 		c.HTTP.AuthToken = v
 	}
+	if v := os.Getenv("HTTP_RATE_LIMIT_RPS"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			c.HTTP.RateLimitRPS = f
+		}
+	}
+	if v := os.Getenv("HTTP_RATE_LIMIT_BURST"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.HTTP.RateLimitBurst = n
+		}
+	}
+	if v := os.Getenv("EMBED_MAX_CONCURRENCY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Embedding.MaxConcurrency = n
+		}
+	}
 	// WEBUI_MODE ("read-only"|"interactive") — the only way to enable WebUI write
 	// actions in the shipped image, which carries no config.yaml. Writes also need
 	// AUTH_TOKEN (secure by default).
@@ -429,10 +458,36 @@ func (c *Config) Validate() error {
 	if c.LocalExtractionEnabled() && c.Extraction.Model == "" {
 		return errors.New("extraction.model must be set when extraction.default is 'local-llm' (set it or EXTRACTION_MODEL)")
 	}
+	if c.HTTP.RateLimitRPS < 0 {
+		return fmt.Errorf("http.rate_limit_rps must be >= 0, got %g", c.HTTP.RateLimitRPS)
+	}
+	if c.HTTP.RateLimitBurst < 0 {
+		return fmt.Errorf("http.rate_limit_burst must be >= 0, got %d", c.HTTP.RateLimitBurst)
+	}
+	if c.Embedding.MaxConcurrency < 0 {
+		return fmt.Errorf("embedding.max_concurrency must be >= 0, got %d", c.Embedding.MaxConcurrency)
+	}
 	if err := c.validatePrincipals(); err != nil {
 		return err
 	}
 	return nil
+}
+
+// RateLimitEnabled reports whether per-client /api rate limiting is configured.
+func (c *Config) RateLimitEnabled() bool { return c.HTTP.RateLimitRPS > 0 }
+
+// EffectiveRateLimitBurst returns the token-bucket depth to use: the configured
+// burst, or a sensible default of ceil(rps) (at least 1) when unset. Meaningful
+// only when RateLimitEnabled.
+func (c *Config) EffectiveRateLimitBurst() int {
+	if c.HTTP.RateLimitBurst > 0 {
+		return c.HTTP.RateLimitBurst
+	}
+	b := int(math.Ceil(c.HTTP.RateLimitRPS))
+	if b < 1 {
+		b = 1
+	}
+	return b
 }
 
 // MinTokenLen is the minimum length for a plaintext principal bearer token — a

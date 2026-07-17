@@ -71,7 +71,7 @@ func run() error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
+	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize), ollama.WithMaxConcurrency(cfg.Embedding.MaxConcurrency))
 	c := core.New(pool, embedder, density.New(), extractorOptions(cfg)...)
 
 	writable := cfg.Clients.WebUI == "interactive"
@@ -98,11 +98,19 @@ func run() error {
 		}
 		ccancel()
 	}
+	if cfg.RateLimitEnabled() {
+		log.Printf("rate limiting ON: %g req/s per client, burst %d (#270)", cfg.HTTP.RateLimitRPS, cfg.EffectiveRateLimitBurst())
+	}
+	if cfg.Embedding.MaxConcurrency > 0 {
+		log.Printf("embed concurrency capped at %d in-flight round-trips to Ollama (#270)", cfg.Embedding.MaxConcurrency)
+	}
 	handler := server.New(pool, embedderCheck, c, server.Options{
-		Writable:  writable,
-		AuthToken: cfg.HTTP.AuthToken,
-		Auth:      auth,
-		Logs:      logs,
+		Writable:       writable,
+		AuthToken:      cfg.HTTP.AuthToken,
+		Auth:           auth,
+		Logs:           logs,
+		RateLimitRPS:   cfg.HTTP.RateLimitRPS,
+		RateLimitBurst: cfg.EffectiveRateLimitBurst(),
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,

@@ -5,11 +5,15 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
+	"math"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -59,6 +63,12 @@ type Options struct {
 	// GET /api/logs reads from (the WebUI Logs tab, #166). Nil keeps the default
 	// access logger and mounts no logs endpoint.
 	Logs *logbuf.Buffer
+	// RateLimitRPS > 0 turns on per-client /api rate limiting (#270): each client
+	// (principal, else bearer token, else source IP) gets a token bucket refilling
+	// at this many requests/sec. RateLimitBurst is the bucket depth (defaulted to
+	// ceil(rps), min 1, when <= 0). 0 RPS = no limiting.
+	RateLimitRPS   float64
+	RateLimitBurst int
 }
 
 // New builds the HTTP handler:
@@ -117,6 +127,19 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 		r.Route("/api", func(r chi.Router) {
 			if hardIso {
 				r.Use(principalAuth(opts.Auth))
+			}
+			// Rate limiting sits after auth so it keys on the resolved principal
+			// (falling back to token/IP). Each /api/search costs an Ollama embed, so
+			// this is the front-line cap against one caller exhausting the box (#270).
+			if opts.RateLimitRPS > 0 {
+				burst := opts.RateLimitBurst
+				if burst < 1 {
+					burst = int(math.Ceil(opts.RateLimitRPS))
+					if burst < 1 {
+						burst = 1
+					}
+				}
+				r.Use(rateLimit(newRateLimiter(opts.RateLimitRPS, burst)))
 			}
 			// API errors are always JSON, even for unmatched routes/methods, so a
 			// client (the WebUI) never gets a plain-text body it then fails to parse
@@ -392,6 +415,7 @@ const (
 	errUnauthorized     = stringError("unauthorized")
 	errNotFound         = stringError("not found")
 	errMethodNotAllowed = stringError("method not allowed")
+	errRateLimited      = stringError("rate limit exceeded")
 )
 
 // bearerAuth requires a matching `Authorization: Bearer <token>` header.
@@ -496,6 +520,102 @@ func bearerToken(header string) string {
 		return ""
 	}
 	return header[len(prefix):]
+}
+
+// rateLimiter is a per-client token-bucket limiter (#270). A client is the
+// principal (Layer 2), else the bearer token, else the source IP — so one caller
+// can't exhaust the shared Ollama/DB behind /api. Idle buckets are pruned
+// opportunistically so the map stays bounded under open Layer-1 reads.
+type rateLimiter struct {
+	mu        sync.Mutex
+	buckets   map[string]*tokenBucket
+	rps       float64
+	burst     float64
+	lastPrune time.Time
+}
+
+type tokenBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func newRateLimiter(rps float64, burst int) *rateLimiter {
+	return &rateLimiter{buckets: make(map[string]*tokenBucket), rps: rps, burst: float64(burst)}
+}
+
+// allow charges one token to key at time now, returning whether it's permitted
+// and, when not, how long until a token frees up (for Retry-After).
+func (l *rateLimiter) allow(key string, now time.Time) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b := l.buckets[key]
+	if b == nil {
+		b = &tokenBucket{tokens: l.burst, last: now}
+		l.buckets[key] = b
+	}
+	// Refill by elapsed time, capped at burst.
+	if elapsed := now.Sub(b.last).Seconds(); elapsed > 0 {
+		b.tokens += elapsed * l.rps
+		if b.tokens > l.burst {
+			b.tokens = l.burst
+		}
+		b.last = now
+	}
+	l.pruneLocked(now)
+	if b.tokens >= 1 {
+		b.tokens--
+		return true, 0
+	}
+	wait := time.Duration((1 - b.tokens) / l.rps * float64(time.Second))
+	return false, wait
+}
+
+// pruneLocked drops full, idle buckets at most once a minute so the map can't
+// grow without bound under a churn of source IPs. A full bucket has no debt, so
+// forgetting it is equivalent to never having seen the client.
+func (l *rateLimiter) pruneLocked(now time.Time) {
+	if now.Sub(l.lastPrune) < time.Minute {
+		return
+	}
+	l.lastPrune = now
+	for k, b := range l.buckets {
+		if b.tokens >= l.burst && now.Sub(b.last) > 2*time.Minute {
+			delete(l.buckets, k)
+		}
+	}
+}
+
+// rateLimit rejects requests over the per-client budget with 429 + Retry-After.
+func rateLimit(l *rateLimiter) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ok, wait := l.allow(clientKey(r), time.Now())
+			if !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
+				writeError(w, http.StatusTooManyRequests, errRateLimited)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// clientKey identifies the caller for rate limiting: the resolved principal name
+// (Layer 2), else a short hash of the bearer token (never the raw secret), else
+// the source IP. The prefixes keep the three key spaces disjoint.
+func clientKey(r *http.Request) string {
+	if p := core.PrincipalFrom(r.Context()); p != nil {
+		return "p:" + p.Name
+	}
+	if tok := bearerToken(r.Header.Get("Authorization")); tok != "" {
+		sum := sha256.Sum256([]byte(tok))
+		return "t:" + hex.EncodeToString(sum[:8])
+	}
+	ip := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	return "ip:" + ip
 }
 
 // healthResponse enriches the core metrics with operational fields.

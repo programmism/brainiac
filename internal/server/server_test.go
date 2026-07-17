@@ -127,6 +127,61 @@ func TestHealthz(t *testing.T) {
 	}
 }
 
+// The token bucket allows up to burst immediately, then refills at rps.
+func TestRateLimiterAllow(t *testing.T) {
+	l := newRateLimiter(2, 3) // 2 req/s, burst 3
+	base := time.Unix(1700000000, 0)
+	for i := 0; i < 3; i++ {
+		if ok, _ := l.allow("k", base); !ok {
+			t.Fatalf("request %d within burst should be allowed", i)
+		}
+	}
+	ok, wait := l.allow("k", base)
+	if ok {
+		t.Fatal("4th immediate request should be denied (burst exhausted)")
+	}
+	if wait <= 0 || wait > time.Second {
+		t.Fatalf("retry-after = %v, want ~0.5s", wait)
+	}
+	// After 1s, 2 tokens have refilled → two more allowed, third denied.
+	later := base.Add(time.Second)
+	if ok, _ := l.allow("k", later); !ok {
+		t.Fatal("token should have refilled after 1s")
+	}
+	if ok, _ := l.allow("k", later); !ok {
+		t.Fatal("second refilled token should be allowed")
+	}
+	if ok, _ := l.allow("k", later); ok {
+		t.Fatal("only 2 tokens refill per second")
+	}
+	// A different client has its own independent bucket.
+	if ok, _ := l.allow("other", later); !ok {
+		t.Fatal("independent client should not share a bucket")
+	}
+}
+
+// The middleware returns 429 + Retry-After once a client's burst is spent.
+func TestRateLimitMiddleware429(t *testing.T) {
+	c := core.New(nil, nil, nil)
+	h := New(fakePinger{}, nil, c, Options{RateLimitRPS: 1, RateLimitBurst: 1})
+
+	// capabilities is cheap and always mounted; the first call consumes the single
+	// burst token, the immediate second is throttled.
+	first := httptest.NewRecorder()
+	h.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("first request = %d, want 200", first.Code)
+	}
+	second := httptest.NewRecorder()
+	h.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/api/capabilities", nil))
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request = %d, want 429", second.Code)
+	}
+	if second.Header().Get("Retry-After") == "" {
+		t.Fatal("429 should carry a Retry-After header")
+	}
+}
+
 func TestReadyzDBOK_EmbedderNotConfigured(t *testing.T) {
 	h := New(fakePinger{}, nil, nil, Options{})
 	code, body := do(t, h, "/readyz")

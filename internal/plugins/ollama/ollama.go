@@ -38,6 +38,9 @@ type Embedder struct {
 	// EmbedBatch) get docPrefix; queries (EmbedQuery) get queryPrefix (#210).
 	queryPrefix string
 	docPrefix   string
+	// sem, when non-nil, caps concurrent embed round-trips to Ollama (#270). A
+	// buffered channel used as a counting semaphore; nil = unlimited.
+	sem chan struct{}
 }
 
 // Option customizes an Embedder.
@@ -60,6 +63,31 @@ func WithBatchSize(n int) Option {
 		if n > 0 {
 			e.batchSize = n
 		}
+	}
+}
+
+// WithMaxConcurrency caps concurrent embed round-trips to Ollama (#270); n <= 0
+// leaves it unlimited. Bounds the load a bulk ingest plus many concurrent
+// searches can put on one Ollama box.
+func WithMaxConcurrency(n int) Option {
+	return func(e *Embedder) {
+		if n > 0 {
+			e.sem = make(chan struct{}, n)
+		}
+	}
+}
+
+// acquire blocks until a concurrency slot is free or ctx is done; the returned
+// release returns the slot. Both are no-ops when no cap is configured.
+func (e *Embedder) acquire(ctx context.Context) (release func(), err error) {
+	if e.sem == nil {
+		return func() {}, nil
+	}
+	select {
+	case e.sem <- struct{}{}:
+		return func() { <-e.sem }, nil
+	case <-ctx.Done():
+		return func() {}, ctx.Err()
 	}
 }
 
@@ -213,6 +241,11 @@ func (e *Embedder) EmbedBatch(ctx context.Context, texts []string) ([][]float32,
 }
 
 func (e *Embedder) embedOnce(ctx context.Context, text string) ([]float32, error) {
+	release, err := e.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	payload, err := json.Marshal(embedRequest{Model: e.model, Prompt: text})
 	if err != nil {
 		return nil, err
@@ -250,6 +283,11 @@ func (e *Embedder) embedOnce(ctx context.Context, text string) ([]float32, error
 }
 
 func (e *Embedder) embedBatchOnce(ctx context.Context, texts []string) ([][]float32, error) {
+	release, err := e.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	payload, err := json.Marshal(embedBatchRequest{Model: e.model, Input: texts})
 	if err != nil {
 		return nil, err

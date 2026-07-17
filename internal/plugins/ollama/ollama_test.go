@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestEmbed(t *testing.T) {
@@ -153,4 +155,57 @@ func TestEmbedBatchErrorStatus(t *testing.T) {
 	if _, err := e.EmbedBatch(context.Background(), []string{"x"}); err == nil {
 		t.Fatal("expected error on non-200 response")
 	}
+}
+
+func TestMaxConcurrencyCapsInFlight(t *testing.T) {
+	const limit = 2
+	var (
+		mu       sync.Mutex
+		inFlight int
+		peak     int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		inFlight++
+		if inFlight > peak {
+			peak = inFlight
+		}
+		mu.Unlock()
+		time.Sleep(20 * time.Millisecond) // hold the slot so overlap is observable
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(embedResponse{Embedding: []float64{1, 2, 3}})
+	}))
+	defer srv.Close()
+
+	e := New(srv.URL, "nomic-embed-text", 3, WithMaxConcurrency(limit))
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := e.Embed(context.Background(), "x"); err != nil {
+				t.Errorf("embed: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if peak > limit {
+		t.Fatalf("peak in-flight embeds = %d, want <= %d", peak, limit)
+	}
+	if peak == 0 {
+		t.Fatal("no embeds observed")
+	}
+}
+
+func TestMaxConcurrencyUnsetIsUnlimited(t *testing.T) {
+	e := New("http://x", "m", 3)
+	release, err := e.acquire(context.Background())
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	release() // must be a no-op, not panic
 }

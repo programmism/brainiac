@@ -47,7 +47,7 @@ func run() error {
 		return fmt.Errorf("migrate: %w", err)
 	}
 
-	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize))
+	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize), ollama.WithMaxConcurrency(cfg.Embedding.MaxConcurrency))
 	c := core.New(pool, embedder, density.New(), extractorOptions(cfg)...)
 	principal, err := selectPrincipal(cfg)
 	if err != nil {
