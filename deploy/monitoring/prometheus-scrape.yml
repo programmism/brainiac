@@ -1,0 +1,20 @@
+# Example Prometheus scrape + rule wiring for Brainiac (#264).
+# Merge into your prometheus.yml. See brainiac.rules.yml for the alerts.
+#
+# ⚠️ /metrics is UNAUTHENTICATED and mounted at the server root (not under /api,
+# so the principal/rate-limit middleware doesn't cover it). Do NOT expose it to the
+# public internet — scrape it over the internal Docker network (target app:8080),
+# or firewall it to your Prometheus host. It exposes counts and latencies, not
+# memory contents, but it's still operational data.
+
+global:
+  scrape_interval: 30s
+
+rule_files:
+  - brainiac.rules.yml
+
+scrape_configs:
+  - job_name: brainiac          # the alert rules match up{job="brainiac"}
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["app:8080"]   # internal compose network; adjust for your setup

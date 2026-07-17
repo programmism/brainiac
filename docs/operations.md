@@ -34,3 +34,17 @@ restore the app picks up the data immediately (schema + vectors + graph all came
 - `pgvector` data (halfvec embeddings) is included in the dump — no separate vector export needed.
 - For point-in-time recovery (PITR) at larger scale, enable WAL archiving on Postgres; the daily dump is
   the simple default for the prototype/team tier.
+
+## Monitoring & alerts (#264)
+The app exposes Prometheus metrics at `/metrics` (per-route latency + error counts,
+graph-health gauges, container memory, vector-index size). Ship-ready alerting
+rules and a per-alert **runbook** live under `deploy/monitoring/`:
+
+- [`brainiac.rules.yml`](../deploy/monitoring/brainiac.rules.yml) — alerts (down,
+  5xx rate, search p95, index-exceeds-½-RAM, memory-near-limit, stale-edges).
+- [`prometheus-scrape.yml`](../deploy/monitoring/prometheus-scrape.yml) — scrape +
+  `rule_files` wiring.
+- **[runbook.md](runbook.md)** — what each alert means and the first response.
+
+⚠️ `/metrics` is unauthenticated and at the server root — scrape it over the
+internal network, never expose it publicly.

@@ -365,6 +365,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Prometheus alert rules + operational runbook (#264, observability P2).** The app
+  exposed `/metrics` (per-route latency + error counts #259, graph-health gauges, container memory, vector
+  index size) but shipped **no alerts and no runbook** — operators had to invent both. Added
+  `deploy/monitoring/brainiac.rules.yml` (a Prometheus alert group: `BrainiacDown`, `HighErrorRate` from the
+  5xx ratio, `SlowSearchP95` via `histogram_quantile` on the per-route buckets, `VectorIndexExceedsHalfRAM`
+  and `MemoryNearLimit` tied to the ★ index-vs-RAM scaling ratio in §9/#256, and `HighStaleEdges` /
+  `HighHistoricalNodes` curation signals), a `prometheus-scrape.yml` wiring snippet, and `docs/runbook.md`
+  with per-alert first-response steps. Every threshold matches a documented scaling target; `/metrics` is
+  flagged unauthenticated (scrape internally, never public). Docs/config only — no app change.
 - **2026-07-17** — **GPU compose override + scaling doc (#252, deploy P1).** GPU appeared in the docs only
   as "you don't need one" — the *scale-to-strong-hardware* promise had no compute-axis story. Added
   `docker-compose.gpu.yml`: a thin override that reserves an **NVIDIA GPU** for the Ollama service
