@@ -362,6 +362,19 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Multi-format extraction layer (#234, ingestion P0).** The local-file connector ingested
+  only `.md`/`.markdown`; a folder of HTML exports or `.docx` was invisible. Added `internal/doctext` — a
+  **dependency-free** extraction seam (`ToText(name, data)` / `Supported(name)`) that turns a document's
+  bytes into plain text: Markdown/plain text pass through, HTML is stripped with a small hand-rolled
+  tokenizer (drops `<script>`/`<style>` bodies, block tags → line breaks, decodes common entities), and DOCX
+  is unzipped and its `<w:t>` runs pulled from `word/document.xml` with the standard library (namespace-prefix
+  agnostic). The `markdown` connector now walks every `Supported` file and converts it, keeping `.md`
+  behavior and the `markdown://` source-URI scheme unchanged (so existing docs don't churn) — `/data/docs`
+  now ingests `.txt`/`.html`/`.docx` too. Fixture unit tests in `internal/doctext` (HTML strip + entity
+  decode + unterminated-tag safety, DOCX runs/paragraph/tab, invalid-zip, passthrough) and the connector
+  test. **PDF** needs a heavier parser (external lib / OCR), so `ToText` returns `ErrUnsupported` for it and
+  those files are skipped+counted; tracked as follow-up #321. Google Docs extraction belongs to the Drive
+  connector (#239).
 - **2026-07-17** — **Per-route latency + error-rate metrics (#259, observability P1).** The single latency
   histogram lumped `/healthz`, `/metrics`, and static assets in with `/api/search`, polluting the p95
   scaling signal, and there was no error counter. Added, alongside the unchanged overall histogram (kept for
