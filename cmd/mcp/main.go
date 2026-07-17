@@ -14,6 +14,7 @@ import (
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/mcpserver"
+	"github.com/programmism/brainiac/internal/plugins/anthropic"
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
@@ -92,11 +93,16 @@ func selectPrincipal(cfg *config.Config) (*core.Principal, error) {
 // Off by default (chat-driven): returns no options, so ingest keeps its current
 // behavior and only the chat path writes nodes/edges.
 func extractorOptions(cfg *config.Config) []core.Option {
-	if !cfg.LocalExtractionEnabled() {
+	switch {
+	case cfg.ClaudeExtractionEnabled():
+		ext := anthropic.NewExtractor(cfg.Extraction.APIKey, cfg.Extraction.Model, anthropic.WithRetries(cfg.Extraction.Retries))
+		return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
+	case cfg.LocalExtractionEnabled():
+		ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
+		return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
+	default:
 		return nil
 	}
-	ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
-	return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
 }
 
 // importFunc dispatches an MCP ingest request to the right connector, keeping

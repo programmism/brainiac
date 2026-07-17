@@ -27,7 +27,11 @@ extraction:
   default: chat-driven        # "chat-driven" (default): Claude supplies the graph via remember/link.
                               # "local-llm": opt-in Ollama chat model derives nodes/edges during ingest
                               # (needs a beefy box; a weak one keeps the free chat path). Env: EXTRACTOR.
-  # model: llama3.1           # required when default is local-llm (env: EXTRACTION_MODEL)
+                              # "claude": Claude Messages API extracts during ingest (#235); needs an
+                              # ANTHROPIC_API_KEY. Strongest quality; set `model` to a cheaper Claude for bulk.
+  # model: llama3.1           # local-llm: the Ollama model (env: EXTRACTION_MODEL).
+                              # claude: the model id (default claude-opus-4-8; e.g. claude-haiku-4-5 for cost)
+  # api_key: sk-ant-...       # required when default is claude; prefer ANTHROPIC_API_KEY in the environment
   # base_url: ""              # extraction Ollama endpoint; empty = the embedding base_url (env: EXTRACTION_URL)
   # retries: 3                # transient-failure attempts per chunk
   review: true                # true (default): extracted rows go to the review queue (WebUI Proposals tab)

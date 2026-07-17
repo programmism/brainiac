@@ -224,6 +224,22 @@ func TestRateLimitAndConcurrencyConfig(t *testing.T) {
 	}
 }
 
+func TestClaudeExtractionRequiresKey(t *testing.T) {
+	c := Default()
+	c.Storage.DSN = "postgres://x"
+	c.Extraction.Default = "claude"
+	if !c.ClaudeExtractionEnabled() {
+		t.Fatal("default=claude should enable claude extraction")
+	}
+	if err := c.Validate(); err == nil {
+		t.Fatal("claude extraction without an API key must fail validation")
+	}
+	c.Extraction.APIKey = "sk-test"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("claude extraction with a key should validate: %v", err)
+	}
+}
+
 func TestEnvKey(t *testing.T) {
 	cases := map[string]string{"team-a": "TEAM_A", "Platform": "PLATFORM", "a.b c": "A_B_C"}
 	for in, want := range cases {

@@ -25,6 +25,7 @@ import (
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
+	"github.com/programmism/brainiac/internal/plugins/anthropic"
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
@@ -283,11 +284,16 @@ func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every tim
 // extractorOptions builds the optional local-LLM extractor wiring from config.
 // Off by default (chat-driven): returns no options so ingest is unchanged.
 func extractorOptions(cfg *config.Config) []core.Option {
-	if !cfg.LocalExtractionEnabled() {
+	switch {
+	case cfg.ClaudeExtractionEnabled():
+		ext := anthropic.NewExtractor(cfg.Extraction.APIKey, cfg.Extraction.Model, anthropic.WithRetries(cfg.Extraction.Retries))
+		return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
+	case cfg.LocalExtractionEnabled():
+		ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
+		return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
+	default:
 		return nil
 	}
-	ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
-	return []core.Option{core.WithExtractor(ext, cfg.Extraction.Review)}
 }
 
 func ollamaChecker(baseURL, model string) server.Checker {

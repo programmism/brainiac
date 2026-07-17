@@ -269,12 +269,21 @@ type ExtractionConfig struct {
 	// instead of writing them live. Default true — a local model is weaker than
 	// Claude, so its output is gated by human approval unless explicitly trusted.
 	Review bool `yaml:"review"`
+	// APIKey authenticates the Claude Messages API extractor (default "claude",
+	// #235). Secret — prefer ANTHROPIC_API_KEY in the environment.
+	APIKey string `yaml:"api_key,omitempty"`
 }
 
 // LocalExtractionEnabled reports whether the optional local-LLM extractor is
 // turned on.
 func (c *Config) LocalExtractionEnabled() bool {
 	return c.Extraction.Default == "local-llm"
+}
+
+// ClaudeExtractionEnabled reports whether the server-side Claude extractor is the
+// configured extraction path (#235).
+func (c *Config) ClaudeExtractionEnabled() bool {
+	return c.Extraction.Default == "claude"
 }
 
 // ExtractorBaseURL is the Ollama endpoint for extraction: the explicit
@@ -419,6 +428,9 @@ func (c *Config) applyEnvOverrides() {
 			c.Extraction.Review = b
 		}
 	}
+	if v := os.Getenv("ANTHROPIC_API_KEY"); v != "" {
+		c.Extraction.APIKey = v
+	}
 	// Per-principal bearer tokens (#120), secret — env wins over file. Keyed
 	// PRINCIPAL_TOKEN_<NAME> with NAME uppercased and non-alphanumerics → '_'.
 	for i := range c.Principals {
@@ -470,6 +482,9 @@ func (c *Config) Validate() error {
 	}
 	if c.LocalExtractionEnabled() && c.Extraction.Model == "" {
 		return errors.New("extraction.model must be set when extraction.default is 'local-llm' (set it or EXTRACTION_MODEL)")
+	}
+	if c.ClaudeExtractionEnabled() && c.Extraction.APIKey == "" {
+		return errors.New("extraction.api_key must be set when extraction.default is 'claude' (set it or ANTHROPIC_API_KEY)")
 	}
 	if c.HTTP.RateLimitRPS < 0 {
 		return fmt.Errorf("http.rate_limit_rps must be >= 0, got %g", c.HTTP.RateLimitRPS)

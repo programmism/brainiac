@@ -214,11 +214,14 @@ pipeline LLM; the "extraction" is the chat itself.
 **Four seams** (interfaces from the start, one impl each for v1):
 - `SourceConnector.fetch()/watch()` — "give me documents, tell me when they change." v1: Notion.
 - `Extractor.extract(chunk)` — text → nodes/edges. Default: **chat-driven** (bypassed; Claude supplies
-  the structure). Optional **`local-llm`** (Ollama chat model + structured output) is now implemented for
-  bulk: enable with `extraction.default: local-llm` (or `EXTRACTOR=local-llm`) on a box beefy enough to
-  run a chat model; a weak box keeps the free chat path. Extracted nodes/edges default to the **review
-  queue** (`extraction.review`, see §8) since a local model is weaker than Claude. Runs on kept (hot)
-  chunks during ingest, best-effort — a failed chunk is counted and skipped, never failing the document.
+  the structure). Two server-side extractors exist for automated bulk paths: **`local-llm`** (Ollama chat
+  model + structured output, `extraction.default: local-llm`) for a self-hosted box, and **`claude`**
+  (Claude Messages API structured output, `extraction.default: claude` + `ANTHROPIC_API_KEY`, #235) for
+  the strongest quality when an API key is available (`internal/plugins/anthropic`, raw HTTP, no SDK — a
+  cheaper model like `claude-haiku-4-5` can be set via `extraction.model`). Extracted nodes/edges default
+  to the **review queue** (`extraction.review`, see §8). Runs on kept (hot) chunks during ingest,
+  best-effort — a failed chunk (or a Claude `refusal`) is counted and skipped, never failing the document.
+  Per-chunk today; the Batch API cost path and cross-doc entity resolution are follow-ups (#326).
 - `Selector.score(chunk)` — the water filter; keep/queue/drop. v1: `density-filter`.
 - `Embedder.embed()/dims()` — v1: Ollama nomic-embed-text.
 
@@ -362,6 +365,20 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Claude-backed extractor (#235, ingestion P0).** The default extraction path is
+  chat-driven (Claude via MCP supplies structure) and the only *server-side* extractor was `local-llm`
+  (Ollama) — weaker, and needing a beefy box. Added `internal/plugins/anthropic`: a `plugins.Extractor`
+  over the **Claude Messages API** with a JSON-schema **structured output** (`output_config.format`), so bulk
+  ingest gets high-quality automated extraction wherever an `ANTHROPIC_API_KEY` is available. Kept to **raw
+  HTTP, no SDK** (minimal-dependency stance, §3) — mirrors the hand-rolled Ollama client, with retry/backoff
+  and `stop_reason: "refusal"` surfaced as a per-chunk error (skipped, chunk still stored). Selected via
+  `extraction.default: claude`; `extraction.model` defaults to `claude-opus-4-8` but can point at a cheaper
+  model (e.g. `claude-haiku-4-5`) for bulk cost; extracted rows still default to the review queue. Both
+  `cmd/http` and `cmd/mcp` `extractorOptions` now switch claude → local-llm → chat-driven. Config validates
+  that a key is present when `default: claude`. Unit-tested against an httptest fake Messages API (structured
+  parse + empty-field drop, refusal→error, non-200→error, model override) — no live key needed. **Batch API**
+  cost path and **cross-document entity resolution** (the issue's second half) need an ingest-side batching
+  seam and are tracked as follow-up #326.
 - **2026-07-17** — **Slack connector (#237, ingestion P0).** A third real connector over the stable
   `SourceConnector` seam (after Notion + local files), validating the seam again against a chat source.
   `internal/plugins/slack` reads the Slack Web API with a bot token (`SLACK_TOKEN`, scopes
