@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"math"
@@ -363,12 +364,68 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 // 5xx internal errors the app logs via the standard logger. Without a sink it
 // falls back to chi's default logger.
 func accessLogger(logs *logbuf.Buffer) func(http.Handler) http.Handler {
-	if logs == nil {
-		return middleware.Logger
+	// Structured JSON to stdout (Docker's json-file driver rotates it) so the
+	// durable request log survives crashes — the 2000-line in-memory ring is only
+	// a WebUI convenience now (#258). Each line carries the chi request-id so a
+	// request can be correlated across log lines.
+	var out io.Writer = os.Stdout
+	if logs != nil {
+		out = io.MultiWriter(os.Stdout, logs)
 	}
-	out := io.MultiWriter(os.Stderr, logs)
-	fmtr := &middleware.DefaultLogFormatter{Logger: log.New(out, "", log.LstdFlags), NoColor: true}
-	return middleware.RequestLogger(fmtr)
+	return middleware.RequestLogger(&jsonLogFormatter{w: out})
+}
+
+// jsonLogFormatter renders chi's per-request log as one JSON object per line.
+type jsonLogFormatter struct{ w io.Writer }
+
+func (f *jsonLogFormatter) NewLogEntry(r *http.Request) middleware.LogEntry {
+	return &jsonLogEntry{
+		w:      f.w,
+		method: r.Method,
+		path:   r.URL.Path, // path only — never the query, which can carry secrets
+		remote: r.RemoteAddr,
+		reqID:  middleware.GetReqID(r.Context()),
+	}
+}
+
+type jsonLogEntry struct {
+	w                           io.Writer
+	method, path, remote, reqID string
+}
+
+func (e *jsonLogEntry) Write(status, bytes int, _ http.Header, elapsed time.Duration, _ any) {
+	e.emit(map[string]any{
+		"level":       "info",
+		"msg":         "http_request",
+		"method":      e.method,
+		"path":        e.path,
+		"status":      status,
+		"bytes":       bytes,
+		"duration_ms": float64(elapsed.Microseconds()) / 1000.0,
+		"remote":      e.remote,
+	})
+}
+
+func (e *jsonLogEntry) Panic(v any, _ []byte) {
+	e.emit(map[string]any{
+		"level":  "error",
+		"msg":    "http_panic",
+		"method": e.method,
+		"path":   e.path,
+		"panic":  fmt.Sprint(v),
+	})
+}
+
+func (e *jsonLogEntry) emit(rec map[string]any) {
+	rec["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
+	if e.reqID != "" {
+		rec["request_id"] = e.reqID
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		return
+	}
+	_, _ = fmt.Fprintln(e.w, string(b))
 }
 
 // proposalHandler adapts a core review action (approve/reject a node/edge by id)
