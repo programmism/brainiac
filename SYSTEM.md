@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Calibrated (relative) chunk distance gating (#215, retrieval P1).** Chunk retrieval
+  gated on a **single absolute** cosine cutoff (`MaxRelevantDistance = 0.75`) — non-portable across
+  model/domain/query-length: a weak query with only mediocre matches still returned a long barely-relevant
+  tail. Added **relative** gating in `filterByDistance` — a chunk is also dropped once it sits more than
+  `ChunkDistanceGap` (0.15) behind the **best** (nearest) hit — so a strong query keeps its tight cluster
+  while a weak one is trimmed to its few genuinely-close hits. Mirrors the node gate already in recall.go
+  (`MaxNodeDistance` + `NodeDistanceGap`). Both gates are monotonic over the nearest-first list, so it still
+  returns a prefix. Pure unit test in `search_test.go` (absolute-only, relative-gap-dominates, weak-query
+  cluster). Eval-tunable (#29); making the thresholds **config** rather than consts (the issue's second
+  half) is tracked as follow-up #332.
 - **2026-07-17** — **Non-fatal fetch errors in ingest (#241, ingestion P1).** A single fetch/pagination
   error from a connector aborted the **entire** import (`return stats, err`) — so a large Notion/Slack
   backfill was fragile: one bad page lost the whole run. `Core.Ingest` now **counts and skips** a yielded
