@@ -362,6 +362,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Per-route latency + error-rate metrics (#259, observability P1).** The single latency
+  histogram lumped `/healthz`, `/metrics`, and static assets in with `/api/search`, polluting the p95
+  scaling signal, and there was no error counter. Added, alongside the unchanged overall histogram (kept for
+  existing dashboards): **`brainiac_http_route_duration_seconds{route}`** — a latency histogram per matched
+  route — and **`brainiac_http_requests_total{route,code}`** — a per-route, per-status request counter (the
+  error-rate signal). Cardinality is bounded by using chi's **matched route pattern** (e.g. `/api/search`,
+  `/api/edges/{id}/confirm`), not the raw path; unmatched paths collapse to `other`. The `metrics` package
+  stays router-agnostic — a `routeMetrics` middleware in `server` extracts the chi pattern and status (via a
+  `statusRecorder` that still forwards `Flush` for SSE) and calls `reg.ObserveRoute`. Unit tests in
+  `metrics` + `server` (no DB). The subsystem throughput/queue-depth/extraction-failure counters from the
+  issue need cross-layer core hooks and were split into a tracked follow-up (#319); #259's HTTP-metrics core
+  is done here.
 - **2026-07-17** — **Startup banner (#254, deploy P2).** First boot logged pieces (migrations, "listening
   on …") but never the actionable summary a novice needs, so getting to the WebUI leaned on reading
   `laptop.md`. `brainiac-http` now prints a one-block banner once it's up: the clickable **WebUI URL**

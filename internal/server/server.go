@@ -94,6 +94,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 	r.Use(accessLogger(opts.Logs))
 	r.Use(middleware.Recoverer)
 	r.Use(reg.Middleware)
+	r.Use(routeMetrics(reg))
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -507,6 +508,49 @@ func principalAuth(m PrincipalMatcher) func(http.Handler) http.Handler {
 			}
 			next.ServeHTTP(w, r.WithContext(core.WithPrincipal(r.Context(), match)))
 		})
+	}
+}
+
+// routeMetrics records per-route latency and per-status request counts (#259). It
+// reads the matched chi route pattern (bounded cardinality, e.g. "/api/search")
+// after the handler runs, keeping the metrics package router-agnostic.
+func routeMetrics(reg *metrics.Registry) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			sw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+			next.ServeHTTP(sw, r)
+			route := chi.RouteContext(r.Context()).RoutePattern()
+			reg.ObserveRoute(route, sw.status, time.Since(start).Seconds())
+		})
+	}
+}
+
+// statusRecorder captures the response status code for the metrics middleware.
+type statusRecorder struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+}
+
+func (s *statusRecorder) WriteHeader(code int) {
+	if !s.wroteHeader {
+		s.status = code
+		s.wroteHeader = true
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusRecorder) Write(b []byte) (int, error) {
+	s.wroteHeader = true // an implicit 200 if WriteHeader was never called
+	return s.ResponseWriter.Write(b)
+}
+
+// Flush forwards to the underlying writer when it supports flushing, so the
+// wrapper doesn't break streaming/SSE handlers.
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 
