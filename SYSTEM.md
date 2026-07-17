@@ -365,6 +365,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Postgres tuning-at-scale guide (#232, scale P2).** `pgxpool` was fully defaulted and
+  there was no guidance for the churn Brainiac generates. Added a **"Tuning Postgres at scale"** section to
+  `operations.md`: (1) **autovacuum** — supersede/merge flip rows `current→historical` and ingest deletes
+  stale chunks, so per-table `autovacuum_vacuum_scale_factor = 0.05` on `chunks`/`nodes`/`edges` keeps dead
+  tuples in check; (2) **HNSW maintenance** — `REINDEX INDEX CONCURRENTLY` the partial hot-tier/summary
+  vector indexes after big re-embeds, watching `brainiac_vector_index_bytes` vs the ★ ½-RAM ratio; (3)
+  **PITR** — `wal_level`/`archive_mode`/`archive_command` + `pg_basebackup` for point-in-time recovery beyond
+  the daily `pg_dump`. The **pool-sizing** and **PgBouncer** knobs from #232 were documented with #253
+  (managed-postgres.md, `pool_max_conns` in the DSN). Docs only.
 - **2026-07-17** — **Managed / external Postgres guide + override (#253, deploy P2).** The compose hardcoded
   the app's `DATABASE_URL` at `db:5432?sslmode=disable`, and there was no story for pointing at RDS / Cloud
   SQL / Neon. Added `docker-compose.managed.yml` (same override pattern as the GPU file, #252): it reads
