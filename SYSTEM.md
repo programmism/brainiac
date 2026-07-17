@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Orphan + age-based staleness sweeps in Consolidate (#263, observability P2).** Staleness
+  only fired when a *source chunk changed* (`FlagStaleBySource`), so **chat-captured** edges (no `source_uri`)
+  and edges whose **source vanished** never aged out; and there was no sweep for **orphan** (edgeless) nodes
+  left behind after their relationships were retired/superseded. Added two read-only sweeps to the
+  `ConsolidationReport`: **`Aging`** — current, unflagged edges whose `COALESCE(last_confirmed_at, created_at)`
+  predates `EdgeStaleAge` (180 days), catching time-decayed decisions regardless of source; and **`Orphans`**
+  — current nodes with no current edge on either end. Both are **proposals only** (the report never mutates,
+  #262) — surfaced in `/api/consolidate` JSON and the `brainiac consolidate` CLI (with `confirm`/`retire-edge`/
+  link/delete hints). New store queries `FindAgingEdges`/`FindOrphanNodes`; DB-gated test (orphan surfaces,
+  linked nodes don't; a fresh edge isn't aging, a 365-day-old one is).
 - **2026-07-17** — **Prometheus alert rules + operational runbook (#264, observability P2).** The app
   exposed `/metrics` (per-route latency + error counts #259, graph-health gauges, container memory, vector
   index size) but shipped **no alerts and no runbook** — operators had to invent both. Added

@@ -805,6 +805,14 @@ func consolidateCmd() *cobra.Command {
 			for _, r := range rep.Rollups {
 				fmt.Fprintf(out, "  - %s (%d edges)\n", r.Name, r.EdgeCount)
 			}
+			fmt.Fprintf(out, "aging edges (%d — not confirmed in a long time; `kb confirm <id>` or `kb retire-edge <id>`):\n", len(rep.Aging))
+			for _, e := range rep.Aging {
+				fmt.Fprintf(out, "  - %s: -%s-> (edge %s)\n", e.FromID, e.Type, e.ID)
+			}
+			fmt.Fprintf(out, "orphan nodes (%d — no current edges; link or delete):\n", len(rep.Orphans))
+			for _, n := range rep.Orphans {
+				fmt.Fprintf(out, "  - %s (%s)\n", n.CanonicalName, n.ID)
+			}
 			return nil
 		},
 	}
