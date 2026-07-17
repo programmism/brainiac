@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Non-fatal fetch errors in ingest (#241, ingestion P1).** A single fetch/pagination
+  error from a connector aborted the **entire** import (`return stats, err`) — so a large Notion/Slack
+  backfill was fragile: one bad page lost the whole run. `Core.Ingest` now **counts and skips** a yielded
+  fetch error (`IngestStats.FetchErrors`) and keeps consuming whatever the connector yields next; only a
+  cancelled context is terminal. Connectors that continue past an error (markdown per-file, Slack
+  per-channel) now import all the good items; ones that stop (Notion) return partial success with a count
+  instead of a hard failure. Surfaced in the auto-import log. **Resume** of an interrupted backfill rides on
+  the per-source **mtime skip** (#236, `Incremental`): a re-run skips already-synced docs. Persisted
+  connector-level cursors (Notion `start_cursor`, etc.) remain part of #323. DB-gated test in `ingest_test.go`
+  (a mid-stream error connector → both good docs import, `FetchErrors=1`, no error).
 - **2026-07-17** — **Structured JSON access logs + request-id (part of #258, observability P1).** The HTTP
   access log was chi's plain-text formatter teed to stderr + the 2000-line in-memory ring — lossy, and not
   machine-parseable. Replaced it with a `jsonLogFormatter` that emits **one JSON object per request** to
