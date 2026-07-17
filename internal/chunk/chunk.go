@@ -5,6 +5,14 @@
 // (and content hash) identical — so re-ingest re-embeds only the edited region,
 // not the whole tail (SYSTEM.md §8, issue #99). Boundaries are snapped to the
 // nearest line/word break so chunks never split mid-word or mid-rune.
+//
+// Each chunk after the first also carries a bounded, sentence-aligned overlap of
+// the preceding chunk's tail (#214), so a fact spanning a boundary lands wholly
+// in at least one chunk instead of being halved with neither side winning
+// retrieval. The overlap is itself a function of local content (the previous
+// core's tail), so the self-healing property holds — an edit's blast radius just
+// grows by one: the chunk whose overlap it changed. Near-duplicate results the
+// overlap can produce are collapsed at retrieval time (#217).
 package chunk
 
 import (
@@ -18,6 +26,7 @@ const (
 	targetLen  = 1024 // switch masks here to center sizes
 	maxSize    = 1600 // forced cut — bounds huge chunks
 	snapWindow = 64   // look-back window to align a cut to a word/line break
+	overlapMax = 256  // max bytes of the previous chunk's tail carried into the next
 )
 
 // Two masks (normalized chunking): a stricter one below the target length makes
@@ -42,9 +51,29 @@ func init() {
 	}
 }
 
-// Split breaks text into content-defined chunks (trimmed, non-empty).
+// Split breaks text into content-defined chunks (trimmed, non-empty). Every chunk
+// after the first is prefixed with a bounded, sentence-aligned overlap of the
+// previous chunk's tail (#214).
 func Split(text string) []string {
-	b := []byte(text)
+	cores := splitCores([]byte(text))
+	if len(cores) <= 1 {
+		return cores
+	}
+	out := make([]string, 0, len(cores))
+	out = append(out, cores[0])
+	for i := 1; i < len(cores); i++ {
+		if ov := overlapTail(cores[i-1]); ov != "" {
+			out = append(out, ov+"\n"+cores[i])
+		} else {
+			out = append(out, cores[i])
+		}
+	}
+	return out
+}
+
+// splitCores produces the non-overlapping content-defined pieces (trimmed,
+// non-empty) that the overlap is then layered onto.
+func splitCores(b []byte) []string {
 	var chunks []string
 	for start := 0; start < len(b); {
 		end := nextCut(b, start)
@@ -54,6 +83,49 @@ func Split(text string) []string {
 		start = end
 	}
 	return chunks
+}
+
+// overlapTail returns the trailing context of prev to carry into the next chunk:
+// the last whole sentence(s) within the final overlapMax bytes, falling back to a
+// word boundary so it never begins mid-word or mid-rune. Empty if prev has no
+// usable tail.
+func overlapTail(prev string) string {
+	b := []byte(prev)
+	from := len(b) - overlapMax
+	if from < 0 {
+		from = 0
+	}
+	for from < len(b) && !utf8.RuneStart(b[from]) {
+		from++
+	}
+	w := b[from:]
+	return strings.TrimSpace(string(w[overlapStart(w):]))
+}
+
+// overlapStart finds where the tail window should begin so it starts at a clean
+// boundary: just after the first sentence terminator (. ! ? or newline) if one
+// exists, else after the first word break, else the window start.
+func overlapStart(w []byte) int {
+	for i := 0; i < len(w); i++ {
+		switch {
+		case w[i] == '\n':
+			return i + 1
+		case (w[i] == '.' || w[i] == '!' || w[i] == '?') && i+1 < len(w):
+			j := i + 1
+			for j < len(w) && (w[j] == ' ' || w[j] == '\t' || w[j] == '\n') {
+				j++
+			}
+			if j < len(w) {
+				return j
+			}
+		}
+	}
+	for i := 0; i < len(w); i++ {
+		if w[i] == ' ' || w[i] == '\t' || w[i] == '\n' {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // nextCut returns the byte offset where the chunk beginning at start should end.

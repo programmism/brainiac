@@ -43,12 +43,81 @@ func TestSizeBoundsAndNoMidWord(t *testing.T) {
 	if len(chunks) < 5 {
 		t.Fatalf("expected several chunks, got %d", len(chunks))
 	}
+	// A chunk is a core (<= maxSize) plus at most overlapMax of overlap and a
+	// one-byte separator (#214).
+	bound := maxSize + overlapMax + 1
 	for i, c := range chunks {
-		if n := len(c); n > maxSize {
-			t.Errorf("chunk %d exceeds maxSize: %d", i, n)
+		if n := len(c); n > bound {
+			t.Errorf("chunk %d exceeds core+overlap bound: %d > %d", i, n, bound)
 		}
 		if !utf8.ValidString(c) {
 			t.Errorf("chunk %d is not valid UTF-8", i)
+		}
+	}
+}
+
+// Every chunk after the first prefixes the previous core's sentence-aligned tail,
+// so a fact on a boundary survives whole in at least one chunk (#214).
+func TestOverlapCarriesPreviousTail(t *testing.T) {
+	text := longText()
+	cores := splitCores([]byte(text))
+	chunks := Split(text)
+	if len(cores) != len(chunks) {
+		t.Fatalf("core/chunk count mismatch: %d vs %d", len(cores), len(chunks))
+	}
+	overlaps := 0
+	for i := 1; i < len(chunks); i++ {
+		ov := overlapTail(cores[i-1])
+		var want string
+		if ov != "" {
+			want = ov + "\n" + cores[i]
+			overlaps++
+			// The overlap is a genuine substring of the previous core's tail.
+			if !strings.Contains(cores[i-1], ov) {
+				t.Fatalf("overlap %q is not from the previous core", ov)
+			}
+		} else {
+			want = cores[i]
+		}
+		if chunks[i] != want {
+			t.Fatalf("chunk %d = %q\nwant %q", i, chunks[i], want)
+		}
+	}
+	if overlaps == 0 {
+		t.Fatal("expected at least one non-empty overlap across chunks")
+	}
+}
+
+// overlapTail begins at a clean boundary — never mid-word/mid-rune — and stays
+// within the byte budget.
+func TestOverlapTailBoundary(t *testing.T) {
+	prev := "First sentence here. Second sentence follows. Third and final sentence of the paragraph."
+	got := overlapTail(prev)
+	if got == "" {
+		t.Fatal("expected a non-empty tail")
+	}
+	if len(got) > overlapMax {
+		t.Fatalf("overlap %d bytes exceeds budget %d", len(got), overlapMax)
+	}
+	// It must start at a word start (no leading partial word) and be a suffix-region.
+	if strings.HasPrefix(got, " ") || !strings.Contains(prev, got) {
+		t.Fatalf("overlap not cleanly bounded: %q", got)
+	}
+	if r := []rune(got); len(r) == 0 || !utf8.ValidString(got) {
+		t.Fatalf("overlap not valid UTF-8: %q", got)
+	}
+}
+
+// Split is deterministic — same input, same chunks (relied on by hash reconcile).
+func TestSplitDeterministic(t *testing.T) {
+	text := longText()
+	a, b := Split(text), Split(text)
+	if len(a) != len(b) {
+		t.Fatalf("nondeterministic length: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("chunk %d differs across runs", i)
 		}
 	}
 }

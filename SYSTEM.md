@@ -230,7 +230,11 @@ Ingest decides skip/drop/keep in one pass, then **embeds the survivors in a batc
 `embedding.batch_size`, default 32) so a large import costs dozens of round-trips, not one per chunk (#140).
 Source text is **normalized once before chunking** (CRLF→LF, trailing spaces stripped, blank-line runs
 collapsed, trimmed — `core.normalizeText`, #146): a pure idempotent function, so boundaries stay
-content-defined; it fixes formatting only and never drops content words.
+content-defined; it fixes formatting only and never drops content words. **Chunks overlap** (#214): every
+chunk after the first is prefixed with a bounded (≤ `overlapMax` = 256 B), sentence-aligned tail of the
+previous chunk, so a fact straddling a boundary lands whole in at least one chunk. The overlap is a function
+of local content, so the self-healing property holds — an edit's blast radius just grows by one chunk (the
+one whose overlap changed); near-duplicate results the overlap creates are collapsed at retrieval (#217).
 `IngestOptions.DryRun` (CLI `kb import --dry-run`) runs chunk + select only — no embed, no write — and
 reports what *would* happen (chunk count, kept/queued/dropped/skipped, would-delete), to preview a large or
 wrongly-scoped import before committing (#142). `IngestOptions.OnProgress` emits a running
@@ -358,6 +362,20 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Sentence-overlap chunking (#214, retrieval P1).** The CDC chunker cut with **zero
+  overlap**, so a "why" spanning a boundary was halved and neither side won retrieval. `chunk.Split` now
+  layers a bounded, sentence-aligned overlap onto the content-defined cores: each chunk after the first is
+  prefixed with the previous core's trailing sentence(s), capped at `overlapMax` (256 B) and snapped to a
+  sentence terminator (`. ! ?` / newline), falling back to a word break so it never starts mid-word/mid-rune.
+  Split was refactored into `splitCores` (unchanged CDC boundaries) + an overlap layer, so the **self-healing
+  property is preserved** — the overlap is a function of the previous core's local content, so re-ingest
+  still re-embeds only the edited region; the only cost is the blast radius growing by one chunk (the one
+  whose overlap changed). Chunk **count is unchanged** (same cores), only text/hashes differ, so the write
+  path's hash-reconcile skip/delete logic is untouched — but the first ingest after this ships **re-embeds
+  every doc once** (new hashes). Near-duplicate results overlap can produce are already collapsed at
+  retrieval (#217), which makes the overlap safe to enable by default. Pure unit tests in
+  `internal/chunk/chunk_test.go` (overlap present + suffix-derived, boundary/rune safety, determinism,
+  self-heal ≤ 3 chunks). Parent-doc pointer expansion (the issue's alternative) stays a follow-up.
 - **2026-07-17** — **Request rate limiting + embed-concurrency cap (#270, security P1).** Storage quotas
   cap rows, not request rate, and the shipped Caddyfile has none — so one token (or open Layer-1 reads)
   could pin the shared Ollama/DB, since **every `/api/search` triggers an embed**. Two independent, opt-in
