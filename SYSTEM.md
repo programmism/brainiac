@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **TLS posture + basic-auth is not the tenant boundary (#271, security P1).** Layer-1
+  reads are fully open (protection depends on the proxy), the shipped Caddy used a **single shared**
+  `basic_auth` credential, and `SITE_ADDRESS` could be `:80` — so bearer/basic-auth crossed the wire in
+  cleartext. Hardened the Caddyfile: added an **HSTS** header (`Strict-Transport-Security`, so a browser that
+  has seen HTTPS won't downgrade) and reframed `:80` as **local-dev only** with a prominent warning that the
+  shared `basic_auth` is a **coarse network gate, not the multi-tenant boundary** — the per-team boundary is
+  **Layer-2 principals** (`principals:`, per-token namespace isolation, #120), which a single shared
+  credential can't provide. Docs updated to match (`security.md` threat #2 + hardening checklist,
+  `.env.example`). No app-code change — the app can't see the upstream TLS; this is proxy hardening + an
+  operator-posture correction. The `caddy` CI job validates the Caddyfile.
 - **2026-07-17** — **Calibrated (relative) chunk distance gating (#215, retrieval P1).** Chunk retrieval
   gated on a **single absolute** cosine cutoff (`MaxRelevantDistance = 0.75`) — non-portable across
   model/domain/query-length: a weak query with only mediocre matches still returned a long barely-relevant
