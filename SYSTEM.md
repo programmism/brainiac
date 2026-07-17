@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Managed / external Postgres guide + override (#253, deploy P2).** The compose hardcoded
+  the app's `DATABASE_URL` at `db:5432?sslmode=disable`, and there was no story for pointing at RDS / Cloud
+  SQL / Neon. Added `docker-compose.managed.yml` (same override pattern as the GPU file, #252): it reads
+  `DATABASE_URL` from `.env` (required, `:?`-guarded), drops the app→`db` dependency, and parks the bundled
+  `db`/`backup` services behind an inactive `profiles:` so they don't start. `docs/managed-postgres.md`
+  covers pgvector-on-managed, **TLS DSN modes** (`require` vs `verify-full` + `sslrootcert`), **pool sizing**
+  via the DSN's `pool_max_conns` (pgxpool reads it natively — no rebuild) kept under the instance's
+  `max_connections`, **PgBouncer** for many MCP-process pools, and skipping the bundled backup cron (the
+  provider handles PITR). Linked from `deployment.md` + `.env.example`. Docs/config only; base compose
+  unchanged (still what CI smoke-tests). This also documents the pgxpool tuning knob half of #232.
 - **2026-07-17** — **Orphan + age-based staleness sweeps in Consolidate (#263, observability P2).** Staleness
   only fired when a *source chunk changed* (`FlagStaleBySource`), so **chat-captured** edges (no `source_uri`)
   and edges whose **source vanished** never aged out; and there was no sweep for **orphan** (edgeless) nodes

@@ -55,5 +55,17 @@ The override reserves the GPU for Ollama and lifts the CPU-box memory/CPU caps
 else changes — the app, DB, migrations, and `./brainiac` commands are identical.
 See also the sizing notes in [production-readiness.md](production-readiness.md).
 
+## Scaling the data tier — managed Postgres (#253)
+Point Brainiac at RDS / Cloud SQL / Neon / your own Postgres (needs pgvector) with
+a TLS DSN and the managed override:
+
+```bash
+# DATABASE_URL=postgres://…?sslmode=verify-full  in .env, then:
+docker compose -f docker-compose.yml -f docker-compose.managed.yml up -d
+```
+
+Full guide (TLS modes, `pool_max_conns` vs `max_connections`, PgBouncer, backups):
+**[managed-postgres.md](managed-postgres.md)**.
+
 ## Backups
 See [operations: backup & restore](operations.md).
