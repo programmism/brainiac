@@ -38,5 +38,22 @@ behind Caddy, which adds TLS + basic auth. See [`../Caddyfile`](../Caddyfile).
   then send `Authorization: Bearer <AUTH_TOKEN>` with write requests. Reads stay open — protect them with
   the Caddy proxy.
 
+## Scaling on the compute axis — GPU (#252)
+Brainiac runs fine on a 4 GB CPU box (the base compose caps Ollama at 1.5 GB / 2
+CPUs for the small embedder). To go faster — bigger corpora, higher search QPS, or
+the optional local-LLM extractor (`EXTRACTOR=local-llm`, which loads a chat model
+into the same Ollama) — put Ollama on a **GPU** with the override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+docker compose exec ollama nvidia-smi   # confirm the GPU is visible in-container
+```
+
+Requires an NVIDIA GPU + driver and the **NVIDIA Container Toolkit** on the host.
+The override reserves the GPU for Ollama and lifts the CPU-box memory/CPU caps
+(tune `mem_limit`/`cpus` in `docker-compose.gpu.yml` to your hardware). Nothing
+else changes — the app, DB, migrations, and `./brainiac` commands are identical.
+See also the sizing notes in [production-readiness.md](production-readiness.md).
+
 ## Backups
 See [operations: backup & restore](operations.md).
