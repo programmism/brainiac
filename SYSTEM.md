@@ -362,6 +362,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Transaction-wrap Remember (#222, core P1).** `Remember`'s dedup snapshot,
+  `checkNodeQuota`, and `InsertNode` ran as three separate pool statements — non-atomic, so a racing writer
+  could slip between the count and the insert and push a namespace over its `max_nodes` quota, and the
+  behavior diverged from `Link`, which already counts inside its own tx. Wrapped dedup-check + quota + insert
+  in a single `store.WithTx`, so the count Remember sees is the count it inserts against. The summary
+  **embed stays outside the tx** (a network round-trip must not hold a transaction open). The idempotent
+  create-race recovery (reuse the winner on `ErrNodeExists`, #220) now re-reads *inside* the same tx — safe
+  because `InsertNode` uses `ON CONFLICT DO NOTHING RETURNING`, which returns zero rows without aborting the
+  transaction. Audit fires only on a real create (unchanged) and after commit. No schema or API change;
+  covered in CI by the existing DB-gated create/quota/dedup/idempotency tests (`quota_test.go`,
+  `node_identity_test.go`, `audit_test.go`, …).
 - **2026-07-17** — **Sentence-overlap chunking (#214, retrieval P1).** The CDC chunker cut with **zero
   overlap**, so a "why" spanning a boundary was halved and neither side won retrieval. `chunk.Split` now
   layers a bounded, sentence-aligned overlap onto the content-defined cores: each chunk after the first is

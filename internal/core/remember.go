@@ -86,43 +86,62 @@ func (c *Core) Remember(ctx context.Context, in RememberInput) (*RememberResult,
 		return &RememberResult{Node: existing, Created: false}, nil
 	}
 
+	// Embed outside the transaction — it's a network round-trip and must not hold a
+	// DB tx open. The dedup snapshot, quota check, and insert then run in ONE
+	// transaction so the quota can't be bypassed by a racing writer and the node
+	// count Remember sees is the count it inserts against (#222) — matching Link,
+	// which already counts inside its tx.
 	emb, err := c.embedSummary(ctx, in.Summary)
 	if err != nil {
 		return nil, err
 	}
 
-	dups, err := c.findDuplicates(ctx, in.CanonicalName, scope, emb)
+	var result *RememberResult
+	err = store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+		dups, err := c.findDuplicates(ctx, db, in.CanonicalName, scope, emb)
+		if err != nil {
+			return err
+		}
+		if err := checkNodeQuota(ctx, db); err != nil {
+			return err
+		}
+		node := &model.Node{
+			CanonicalName:    in.CanonicalName,
+			Type:             normalizeType(in.Type), // canonicalize separator/case variants (#156)
+			Aliases:          in.Aliases,
+			Discriminators:   in.Discriminators,
+			Summary:          in.Summary,
+			SummaryEmbedding: emb,
+		}
+		if err := store.InsertNode(ctx, db, node); err != nil {
+			if errors.Is(err, store.ErrNodeExists) {
+				// Lost a create race with a concurrent writer — reuse the winner,
+				// keeping remember idempotent (#220). InsertNode's ON CONFLICT DO
+				// NOTHING doesn't abort the tx, so re-reading here is safe.
+				existing, gerr := store.GetNodeByCanonicalNameScoped(ctx, db, in.CanonicalName, scope)
+				if gerr != nil {
+					return fmt.Errorf("lookup after conflict: %w", gerr)
+				}
+				if existing != nil {
+					result = &RememberResult{Node: existing, Created: false}
+					return nil
+				}
+			}
+			return fmt.Errorf("insert node: %w", err)
+		}
+		result = &RememberResult{Node: node, Created: true, Duplicates: dups}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	if err := checkNodeQuota(ctx, c.pool); err != nil {
-		return nil, err
+	// Audit only a real create, matching the pre-#222 behavior (the conflict-reuse
+	// path stayed silent). Best-effort and outside the tx so a slow audit never
+	// holds the write open.
+	if result.Created {
+		c.audit(ctx, "remember", result.Node.CanonicalName, result.Node.Discriminators["project"])
 	}
-	node := &model.Node{
-		CanonicalName:    in.CanonicalName,
-		Type:             normalizeType(in.Type), // canonicalize separator/case variants (#156)
-		Aliases:          in.Aliases,
-		Discriminators:   in.Discriminators,
-		Summary:          in.Summary,
-		SummaryEmbedding: emb,
-	}
-	if err := store.InsertNode(ctx, c.pool, node); err != nil {
-		if errors.Is(err, store.ErrNodeExists) {
-			// Lost a create race with a concurrent writer — reuse the winner,
-			// keeping remember idempotent (#220).
-			existing, gerr := store.GetNodeByCanonicalNameScoped(ctx, c.pool, in.CanonicalName, scope)
-			if gerr != nil {
-				return nil, fmt.Errorf("lookup after conflict: %w", gerr)
-			}
-			if existing != nil {
-				return &RememberResult{Node: existing, Created: false}, nil
-			}
-		}
-		return nil, fmt.Errorf("insert node: %w", err)
-	}
-	c.audit(ctx, "remember", node.CanonicalName, node.Discriminators["project"])
-	return &RememberResult{Node: node, Created: true, Duplicates: dups}, nil
+	return result, nil
 }
 
 // embedSummary embeds a node summary for semantic dedup, or returns nil when
@@ -138,12 +157,12 @@ func (c *Core) embedSummary(ctx context.Context, summary string) ([]float32, err
 	return emb, nil
 }
 
-func (c *Core) findDuplicates(ctx context.Context, name, scope string, emb []float32) ([]DuplicateCandidate, error) {
+func (c *Core) findDuplicates(ctx context.Context, db store.DBTX, name, scope string, emb []float32) ([]DuplicateCandidate, error) {
 	var dups []DuplicateCandidate
 
 	// Dedup only within the same identity scope: two same-named entities in
 	// different projects are distinct, not duplicates (#117).
-	byName, err := store.FindNodesByNormalizedName(ctx, c.pool, name, store.ExactScope(scope))
+	byName, err := store.FindNodesByNormalizedName(ctx, db, name, store.ExactScope(scope))
 	if err != nil {
 		return nil, fmt.Errorf("normalized-name dedup: %w", err)
 	}
@@ -152,7 +171,7 @@ func (c *Core) findDuplicates(ctx context.Context, name, scope string, emb []flo
 	}
 
 	if emb != nil {
-		hits, err := store.FindSimilarNodes(ctx, c.pool, emb, 5, store.ExactScope(scope), store.NoWall())
+		hits, err := store.FindSimilarNodes(ctx, db, emb, 5, store.ExactScope(scope), store.NoWall())
 		if err != nil {
 			return nil, fmt.Errorf("semantic dedup: %w", err)
 		}
