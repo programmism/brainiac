@@ -10,6 +10,54 @@ import (
 	"github.com/programmism/brainiac/internal/store"
 )
 
+func TestConsolidationOrphanAndAgingSweeps(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	// A linked pair (not orphan) and a lone node (orphan — no edges).
+	if _, err := c.Link(ctx, LinkInput{From: "OrderService", Type: "writes-to", To: "Kafka", Why: "durability"}); err != nil {
+		t.Fatalf("seed link: %v", err)
+	}
+	if _, err := c.Remember(ctx, RememberInput{CanonicalName: "LonelyEntity"}); err != nil {
+		t.Fatalf("seed orphan: %v", err)
+	}
+
+	rep, err := c.Consolidate(ctx, false)
+	if err != nil {
+		t.Fatalf("consolidate: %v", err)
+	}
+
+	// Orphan sweep: the lone node surfaces; the linked pair does not.
+	orphanNames := map[string]bool{}
+	for _, n := range rep.Orphans {
+		orphanNames[n.CanonicalName] = true
+	}
+	if !orphanNames["LonelyEntity"] {
+		t.Errorf("LonelyEntity should be an orphan: %v", orphanNames)
+	}
+	if orphanNames["OrderService"] || orphanNames["Kafka"] {
+		t.Errorf("linked nodes must not be orphans: %v", orphanNames)
+	}
+
+	// Aging sweep: fresh edge is not aging yet.
+	if len(rep.Aging) != 0 {
+		t.Errorf("a just-created edge must not be aging: %d", len(rep.Aging))
+	}
+
+	// Age the edge past EdgeStaleAge (never-confirmed → COALESCE falls to created_at).
+	if _, err := pool.Exec(ctx, "UPDATE edges SET created_at = now() - interval '365 days', last_confirmed_at = NULL"); err != nil {
+		t.Fatalf("age edge: %v", err)
+	}
+	rep2, err := c.Consolidate(ctx, false)
+	if err != nil {
+		t.Fatalf("consolidate 2: %v", err)
+	}
+	if len(rep2.Aging) != 1 {
+		t.Fatalf("the aged edge should surface in Aging: %d", len(rep2.Aging))
+	}
+}
+
 func TestConsolidationFlow(t *testing.T) {
 	c, pool := newTestCore(t)
 	defer pool.Close()

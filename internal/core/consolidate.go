@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/store"
@@ -39,7 +40,18 @@ type ConsolidationReport struct {
 	Conflicts   []Conflict              `json:"conflicts"`
 	Stale       []model.Edge            `json:"stale"`
 	Rollups     []store.RollupCandidate `json:"rollups"`
+	// Aging edges: current, unflagged edges not confirmed within EdgeStaleAge — the
+	// time-based staleness sweep that catches chat/vanished-source edges the
+	// source-change path never ages out (#263). Orphans: current nodes with no
+	// current edge, candidates for cleanup or a fresh link.
+	Aging   []model.Edge `json:"aging"`
+	Orphans []model.Node `json:"orphans"`
 }
+
+// EdgeStaleAge is how long an edge may go without confirmation before the
+// time-based sweep flags it for review (#263). A decision unrevisited for this
+// long is worth a human glance even if its source never changed. Review-only.
+const EdgeStaleAge = 180 * 24 * time.Hour
 
 // Consolidate runs the librarian pass over the graph (small, not the corpus):
 // merge candidates, conflicts, staleness flags, split, and rollup candidates. It
@@ -92,6 +104,14 @@ func (c *Core) Consolidate(ctx context.Context, refresh bool) (*ConsolidationRep
 	if err != nil {
 		return nil, fmt.Errorf("find rollups: %w", err)
 	}
+	aging, err := store.FindAgingEdges(ctx, c.pool, time.Now().Add(-EdgeStaleAge))
+	if err != nil {
+		return nil, fmt.Errorf("find aging edges: %w", err)
+	}
+	orphans, err := store.FindOrphanNodes(ctx, c.pool)
+	if err != nil {
+		return nil, fmt.Errorf("find orphan nodes: %w", err)
+	}
 	splitIDs, err := store.ProposeNodeSplits(ctx, c.pool)
 	if err != nil {
 		return nil, fmt.Errorf("propose splits: %w", err)
@@ -134,7 +154,7 @@ func (c *Core) Consolidate(ctx context.Context, refresh bool) (*ConsolidationRep
 		splits = append(splits, SplitCandidate{Node: *node, Edges: evs})
 	}
 
-	return &ConsolidationReport{MergeGroups: merges, Splits: splits, Conflicts: conflicts, Stale: stale, Rollups: rollups}, nil
+	return &ConsolidationReport{MergeGroups: merges, Splits: splits, Conflicts: conflicts, Stale: stale, Rollups: rollups, Aging: aging, Orphans: orphans}, nil
 }
 
 // ApplyMerge merges the drop node into the keep node: its edges are repointed,

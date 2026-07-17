@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/programmism/brainiac/internal/model"
 )
@@ -316,6 +317,58 @@ func FindStaleEdges(ctx context.Context, db DBTX) ([]model.Edge, error) {
 		edges = append(edges, e)
 	}
 	return edges, rows.Err()
+}
+
+// FindAgingEdges returns current, not-already-flagged edges last confirmed (or, if
+// never confirmed, created) before cutoff — the time-based staleness sweep (#263).
+// The source-change staleness path (FlagStaleBySource) only fires when a source
+// chunk changes, so chat-captured edges (no source_uri) and edges whose source
+// vanished never age out; this catches them by age.
+func FindAgingEdges(ctx context.Context, db DBTX, cutoff time.Time) ([]model.Edge, error) {
+	rows, err := db.Query(ctx, `SELECT `+edgeCols+` FROM edges
+		WHERE status = 'current' AND flagged_stale = false
+		  AND COALESCE(last_confirmed_at, created_at) < $1
+		ORDER BY COALESCE(last_confirmed_at, created_at)`, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var edges []model.Edge
+	for rows.Next() {
+		e, err := scanEdge(rows)
+		if err != nil {
+			return nil, err
+		}
+		edges = append(edges, e)
+	}
+	return edges, rows.Err()
+}
+
+// FindOrphanNodes returns current nodes with no current edge on either end (#263)
+// — entities left disconnected after their relationships were retired/superseded,
+// candidates for cleanup or a fresh link.
+func FindOrphanNodes(ctx context.Context, db DBTX) ([]model.Node, error) {
+	rows, err := db.Query(ctx, `SELECT `+nodeCols+` FROM nodes n
+		WHERE n.status = 'current'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM edges e
+		      WHERE e.status = 'current' AND (e.from_id = n.id OR e.to_id = n.id))
+		ORDER BY n.created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []model.Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes, rows.Err()
 }
 
 // RollupCandidate is a node with enough edges to warrant a "current state of X"
