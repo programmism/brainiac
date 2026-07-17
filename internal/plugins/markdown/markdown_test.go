@@ -5,40 +5,56 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/programmism/brainiac/internal/plugins"
 )
 
-func TestFetchWalksMarkdownFiles(t *testing.T) {
+func TestFetchWalksSupportedFiles(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "a.md", "# Alpha\n\nfirst")
 	write(t, root, filepath.Join("sub", "b.markdown"), "# Beta\n\nsecond")
-	write(t, root, "c.txt", "ignored non-markdown")
+	write(t, root, "c.txt", "plain text now ingested") // .txt is supported (#234)
+	write(t, root, "page.html", "<h1>Gamma</h1><p>third</p>")
+	write(t, root, "ignore.bin", "binary blob") // unsupported → skipped
 
 	c := New(root)
-	var docs []plugins.RawDoc
+	byURI := map[string]plugins.RawDoc{}
 	for d, err := range c.Fetch(context.Background()) {
 		if err != nil {
 			t.Fatalf("fetch: %v", err)
 		}
-		docs = append(docs, d)
+		byURI[d.SourceURI] = d
 	}
-	sort.Slice(docs, func(i, j int) bool { return docs[i].SourceURI < docs[j].SourceURI })
 
-	if len(docs) != 2 {
-		t.Fatalf("got %d docs, want 2 (.txt ignored): %+v", len(docs), docs)
+	if len(byURI) != 4 {
+		t.Fatalf("got %d docs, want 4 (.bin skipped): %v", len(byURI), keys(byURI))
 	}
-	if docs[0].SourceURI != "markdown://a.md" || docs[0].Text != "# Alpha\n\nfirst" {
-		t.Errorf("doc0 = %+v", docs[0])
+	if got := byURI["markdown://a.md"].Text; got != "# Alpha\n\nfirst" {
+		t.Errorf("md passthrough changed: %q", got)
 	}
-	if docs[1].SourceURI != "markdown://sub/b.markdown" {
-		t.Errorf("doc1 uri = %q", docs[1].SourceURI)
+	if got := byURI["markdown://c.txt"].Text; got != "plain text now ingested" {
+		t.Errorf(".txt not ingested as text: %q", got)
 	}
-	if docs[1].SourceLocator["path"] != "sub/b.markdown" {
-		t.Errorf("doc1 locator = %v", docs[1].SourceLocator)
+	if got := byURI["markdown://page.html"].Text; !contains(got, "Gamma") || !contains(got, "third") {
+		t.Errorf("html not converted to text: %q", got)
+	}
+	if byURI["markdown://sub/b.markdown"].SourceLocator["path"] != "sub/b.markdown" {
+		t.Errorf("locator wrong: %v", byURI["markdown://sub/b.markdown"].SourceLocator)
 	}
 }
+
+func keys(m map[string]plugins.RawDoc) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func contains(s, sub string) bool { return len(s) >= len(sub) && strings.Contains(s, sub) }
 
 func write(t *testing.T, root, rel, content string) {
 	t.Helper()

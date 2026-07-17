@@ -1,7 +1,9 @@
 // Package markdown implements the plugins.SourceConnector seam over a folder of
-// Markdown files. It is the deliberate *second* connector (PRD §2.3, §20.4):
-// building it against the same interface as the Notion connector validates the
-// seam before we call it stable. The interface fit both with no changes.
+// local files. It began as the deliberate *second* connector (PRD §2.3, §20.4) —
+// building it against the same interface as the Notion connector validated the
+// seam. It now ingests any format the doctext extraction layer understands
+// (Markdown, plain text, HTML, DOCX — #234), converting each to text before it
+// enters the pipeline; the source-URI scheme stays `markdown://` for continuity.
 package markdown
 
 import (
@@ -10,9 +12,9 @@ import (
 	"iter"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
+	"github.com/programmism/brainiac/internal/doctext"
 	"github.com/programmism/brainiac/internal/plugins"
 )
 
@@ -26,13 +28,12 @@ func New(dir string) *Connector { return &Connector{root: dir} }
 
 var _ plugins.SourceConnector = (*Connector)(nil)
 
-func isMarkdown(name string) bool {
-	ext := strings.ToLower(filepath.Ext(name))
-	return ext == ".md" || ext == ".markdown"
-}
+// isSupported reports whether the file is one the doctext layer can extract (#234).
+func isSupported(name string) bool { return doctext.Supported(name) }
 
-// Fetch yields one RawDoc per Markdown file, with a portable `markdown://<rel>`
-// source URI.
+// Fetch yields one RawDoc per supported file, its bytes converted to text by the
+// doctext layer, with a portable `markdown://<rel>` source URI. An unconvertible
+// file (e.g. a corrupt .docx) yields its error and is skipped by ingest.
 func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] {
 	return func(yield func(plugins.RawDoc, error) bool) {
 		if info, err := os.Stat(c.root); err != nil || !info.IsDir() {
@@ -46,12 +47,19 @@ func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] 
 			if ctx.Err() != nil {
 				return fs.SkipAll
 			}
-			if d.IsDir() || !isMarkdown(d.Name()) {
+			if d.IsDir() || !isSupported(d.Name()) {
 				return nil
 			}
 			data, readErr := os.ReadFile(path) //nolint:gosec // operator-provided root
 			if readErr != nil {
 				if !yield(plugins.RawDoc{}, readErr) {
+					return fs.SkipAll
+				}
+				return nil
+			}
+			text, convErr := doctext.ToText(d.Name(), data)
+			if convErr != nil {
+				if !yield(plugins.RawDoc{}, convErr) {
 					return fs.SkipAll
 				}
 				return nil
@@ -63,7 +71,7 @@ func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] 
 				modified = &m
 			}
 			if !yield(plugins.RawDoc{
-				Text:          string(data),
+				Text:          text,
 				SourceURI:     "markdown://" + filepath.ToSlash(rel),
 				SourceLocator: map[string]any{"path": filepath.ToSlash(rel)},
 				Metadata:      map[string]any{"source": "markdown"},
@@ -88,7 +96,7 @@ func (c *Connector) Watch(ctx context.Context) iter.Seq2[plugins.Change, error] 
 			if ctx.Err() != nil {
 				return fs.SkipAll
 			}
-			if d.IsDir() || !isMarkdown(d.Name()) {
+			if d.IsDir() || !isSupported(d.Name()) {
 				return nil
 			}
 			rel, _ := filepath.Rel(c.root, path)
