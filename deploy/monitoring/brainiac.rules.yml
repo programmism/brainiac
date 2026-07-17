@@ -1,0 +1,92 @@
+# Brainiac Prometheus alerting rules (#264).
+#
+# Load into Prometheus via `rule_files:` and scrape the app's /metrics endpoint
+# (see prometheus-scrape.yml). Every alert links to docs/runbook.md for what it
+# means and the first response. Thresholds match the scaling signals documented in
+# SYSTEM.md §9 (index < ½ RAM, search p95 < ~200 ms) — tune to your deployment.
+
+groups:
+  - name: brainiac
+    rules:
+      # --- availability ---
+      - alert: BrainiacDown
+        expr: up{job="brainiac"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Brainiac target {{ $labels.instance }} is not scrapeable"
+          description: "Prometheus can't reach /metrics for 2m — the app is down or unreachable."
+          runbook: "docs/runbook.md#brainiacdown"
+
+      # --- request health (per-route metrics, #259) ---
+      - alert: BrainiacHighErrorRate
+        expr: |
+          sum(rate(brainiac_http_requests_total{code=~"5.."}[5m]))
+            / clamp_min(sum(rate(brainiac_http_requests_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Brainiac 5xx rate > 5% ({{ $value | humanizePercentage }})"
+          description: "More than 5% of /api responses are 5xx over 5m — check the DB/embedder and app logs."
+          runbook: "docs/runbook.md#brainiachigherrorrate"
+
+      - alert: BrainiacSlowSearchP95
+        expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(brainiac_http_route_duration_seconds_bucket{route="/api/search"}[5m]))
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Brainiac /api/search p95 > 500ms ({{ $value }}s)"
+          description: "Search p95 is well above the ~200ms target — often the HNSW index spilling past RAM. See BrainiacVectorIndexExceedsHalfRAM."
+          runbook: "docs/runbook.md#brainiacslowsearchp95"
+
+      # --- the ★ scaling ratio (SYSTEM.md §9, #256) ---
+      - alert: BrainiacVectorIndexExceedsHalfRAM
+        expr: |
+          brainiac_container_mem_limit_bytes > 0
+            and brainiac_vector_index_bytes > brainiac_container_mem_limit_bytes / 2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HNSW vector index > ½ container RAM"
+          description: "The hot-tier vector index no longer fits comfortably in RAM; query p95 rises as it spills to disk. Raise memory or shrink the hot tier."
+          runbook: "docs/runbook.md#brainiacvectorindexexceedshalfram"
+
+      - alert: BrainiacMemoryNearLimit
+        expr: |
+          brainiac_container_mem_limit_bytes > 0
+            and brainiac_container_mem_used_bytes / brainiac_container_mem_limit_bytes > 0.9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Brainiac container memory > 90% of its limit"
+          description: "The app container is near its mem_limit for 10m — risk of OOM-kill. Raise the limit or reduce load."
+          runbook: "docs/runbook.md#brainiacmemorynearlimit"
+
+      # --- graph health / curation backlog ---
+      - alert: BrainiacHighStaleEdges
+        expr: brainiac_percent_edges_stale > 20
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Over 20% of current edges are flagged stale"
+          description: "Source content changed under many edges; run consolidation / review the flagged edges."
+          runbook: "docs/runbook.md#brainiachighstaleedges"
+
+      - alert: BrainiacHighHistoricalNodes
+        expr: brainiac_percent_nodes_historical > 50
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "Over 50% of nodes are historical (superseded)"
+          description: "High churn — mostly benign, but a consolidation pass keeps the graph tidy and search focused."
+          runbook: "docs/runbook.md#brainiachighhistoricalnodes"
