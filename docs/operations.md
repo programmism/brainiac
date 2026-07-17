@@ -35,6 +35,54 @@ restore the app picks up the data immediately (schema + vectors + graph all came
 - For point-in-time recovery (PITR) at larger scale, enable WAL archiving on Postgres; the daily dump is
   the simple default for the prototype/team tier.
 
+## Tuning Postgres at scale (#232)
+The defaults are sized for the prototype/team tier. As the corpus and write rate
+grow, three knobs matter. (For pointing at a **managed** Postgres and connection
+pooling, see [managed-postgres.md](managed-postgres.md).)
+
+**Autovacuum for churn.** Brainiac's write pattern creates dead tuples faster than a
+typical app: supersede/merge **flip rows** `current → historical` (not deletes, but
+updates), and the ingest reconcile **deletes** stale chunks. Make autovacuum keep up
+on the hot tables — per-table so you don't disturb the whole cluster:
+
+```sql
+ALTER TABLE chunks SET (autovacuum_vacuum_scale_factor = 0.05, autovacuum_analyze_scale_factor = 0.02);
+ALTER TABLE nodes  SET (autovacuum_vacuum_scale_factor = 0.05);
+ALTER TABLE edges  SET (autovacuum_vacuum_scale_factor = 0.05);
+```
+
+(The default `0.2` scale factor waits until 20% of a table is dead — too lax for
+churny tables; `0.05` vacuums at 5%.)
+
+**HNSW index maintenance.** The hot-tier vector index is partial
+(`chunks_embedding_hot_idx WHERE tier = 'hot'`, plus `nodes_summary_embedding_idx`).
+Heavy re-embedding / tier flips can bloat it and drift recall. After a large
+backfill or re-embed, rebuild without taking a write lock:
+
+```sql
+REINDEX INDEX CONCURRENTLY chunks_embedding_hot_idx;
+REINDEX INDEX CONCURRENTLY nodes_summary_embedding_idx;
+```
+
+Watch `brainiac_vector_index_bytes` vs container RAM (the ★ ratio, §9 / alert
+`BrainiacVectorIndexExceedsHalfRAM`) — when the index outgrows ~½ RAM, query p95
+rises as it spills; raise memory or shrink the hot tier.
+
+**Point-in-time recovery (PITR).** The daily `pg_dump` (below) is the simple default
+and restores to the last snapshot. For finer recovery on self-hosted Postgres,
+enable **WAL archiving** and base backups:
+
+```
+# postgresql.conf
+wal_level = replica
+archive_mode = on
+archive_command = 'test ! -f /archive/%f && cp %p /archive/%f'   # ship WAL off-box
+```
+
+Take a `pg_basebackup -D /base -Ft -z` periodically; restore by unpacking the base
+backup + replaying archived WAL to a `recovery_target_time`. Managed Postgres does
+all of this for you (see managed-postgres.md).
+
 ## Monitoring & alerts (#264)
 The app exposes Prometheus metrics at `/metrics` (per-route latency + error counts,
 graph-health gauges, container memory, vector-index size). Ship-ready alerting
