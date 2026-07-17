@@ -254,7 +254,7 @@ func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every tim
 	}
 	run := func() {
 		for dir := range dirs {
-			stats, err := c.Ingest(ctx, markdown.New(dir), core.IngestOptions{OnProgress: onProgress})
+			stats, err := c.Ingest(ctx, markdown.New(dir), core.IngestOptions{OnProgress: onProgress, Incremental: true})
 			if err != nil {
 				log.Printf("auto-import %s: %v", dir, err)
 				continue

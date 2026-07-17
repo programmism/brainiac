@@ -6,6 +6,7 @@ import (
 	"iter"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/programmism/brainiac/internal/plugins"
 )
@@ -103,6 +104,59 @@ func TestIngestReembedsOnlyLocalRegion(t *testing.T) {
 	}
 	if s2.Skipped < stored-3 {
 		t.Errorf("only %d chunks skipped; expected most of %d to be unchanged", s2.Skipped, stored)
+	}
+}
+
+func TestIncrementalMtimeSkip(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	const uri = "doc://inc"
+	body := "OrderService writes 1200 orders to Postgres and Kafka every minute for durability during peak load."
+	t1 := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	docAt := func(tm time.Time) sliceConn {
+		return sliceConn{docs: []plugins.RawDoc{{Text: body, SourceURI: uri, ModifiedAt: &tm}}}
+	}
+
+	// First incremental ingest stores chunks and records the sync point.
+	s1, err := c.Ingest(ctx, docAt(t1), IngestOptions{Incremental: true})
+	if err != nil {
+		t.Fatalf("ingest v1: %v", err)
+	}
+	stored := s1.Kept + s1.Queued
+	if stored < 1 || s1.SkippedDocs != 0 {
+		t.Fatalf("v1: stored=%d skippedDocs=%d, want stored>=1 skippedDocs=0", stored, s1.SkippedDocs)
+	}
+
+	// Re-ingest with the SAME mtime under Incremental → whole doc skipped before
+	// chunking (no chunks even counted).
+	s2, err := c.Ingest(ctx, docAt(t1), IngestOptions{Incremental: true})
+	if err != nil {
+		t.Fatalf("ingest v2: %v", err)
+	}
+	if s2.SkippedDocs != 1 || s2.Chunks != 0 || s2.Kept != 0 {
+		t.Fatalf("v2: %+v — want SkippedDocs=1, Chunks=0, Kept=0", s2)
+	}
+
+	// Without Incremental, the same mtime does NOT skip — the doc is reconciled
+	// (content unchanged → chunks skipped by hash, but the doc is processed).
+	s3, err := c.Ingest(ctx, docAt(t1), IngestOptions{})
+	if err != nil {
+		t.Fatalf("ingest v3: %v", err)
+	}
+	if s3.SkippedDocs != 0 || s3.Chunks == 0 {
+		t.Fatalf("v3: %+v — want SkippedDocs=0 and the doc processed (Chunks>0)", s3)
+	}
+
+	// A newer mtime under Incremental processes the doc again (mtime advanced),
+	// though its content is unchanged so chunks are skipped by hash.
+	s4, err := c.Ingest(ctx, docAt(t1.Add(time.Hour)), IngestOptions{Incremental: true})
+	if err != nil {
+		t.Fatalf("ingest v4: %v", err)
+	}
+	if s4.SkippedDocs != 0 || s4.Skipped < stored {
+		t.Fatalf("v4: %+v — want SkippedDocs=0 and unchanged chunks skipped by hash", s4)
 	}
 }
 
