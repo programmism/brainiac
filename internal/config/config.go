@@ -439,6 +439,19 @@ func (c *Config) applyEnvOverrides() {
 			c.Sources = append(c.Sources, SourceConfig{Type: "notion", Selection: "density-filter", Token: v})
 		}
 	}
+	if v := os.Getenv("SLACK_TOKEN"); v != "" {
+		found := false
+		for i := range c.Sources {
+			if c.Sources[i].Type == "slack" {
+				c.Sources[i].Token = v
+				found = true
+			}
+		}
+		if !found {
+			// Auto-create a slack source so the bot token alone is enough to import (#237).
+			c.Sources = append(c.Sources, SourceConfig{Type: "slack", Selection: "density-filter", Token: v})
+		}
+	}
 }
 
 // Validate checks the invariants the app depends on to boot.

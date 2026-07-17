@@ -362,6 +362,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Slack connector (#237, ingestion P0).** A third real connector over the stable
+  `SourceConnector` seam (after Notion + local files), validating the seam again against a chat source.
+  `internal/plugins/slack` reads the Slack Web API with a bot token (`SLACK_TOKEN`, scopes
+  `channels:read`+`channels:history`): `conversations.list` enumerates the readable public channels (or an
+  explicit set via `NewForChannels`), `conversations.history` pulls each channel's messages, both paginated
+  by `response_metadata.next_cursor`, with 429/`Retry-After` backoff and the `{ok,error}` envelope surfaced
+  as an error. Each substantive message becomes one `RawDoc` (`slack://<channel>/<ts>` provenance, message
+  `ts` → `ModifiedAt`); system/join/blank messages (non-empty `subtype` or empty text) are skipped. Wired
+  everywhere Notion is: `SLACK_TOKEN` auto-creates a `slack` source, and MCP `import` / CLI `kb import
+  --source slack [--path CHANNEL]` dispatch to it. Fully unit-tested against an httptest fake Slack server
+  (pagination, channel-filter skips `list`, `ok:false` → error, ts parsing) — no live workspace needed.
+  Threads (`conversations.replies`) and persisted per-channel cursors are future refinements (#323).
 - **2026-07-17** — **Persisted incremental-sync state + mtime skip (#236, ingestion P0).** Auto-import
   re-scanned and re-reconciled every file each interval. Added a `source_sync` table (migration `0015`,
   one row per `source_uri` with the last-synced `modified_at`) and an opt-in `IngestOptions.Incremental`:

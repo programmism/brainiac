@@ -41,6 +41,9 @@ sources:
   - type: notion
     selection: density-filter
     # token: secret_xxx        # prefer NOTION_TOKEN in the environment
+  # - type: slack              # kb import --source slack [--path CHANNEL_ID] (#237)
+  #   selection: density-filter
+  #   # token: xoxb-…          # prefer SLACK_TOKEN; bot needs channels:read + channels:history
   # - type: markdown           # kb import --source markdown [--path DIR]
   #   selection: density-filter
   #   path: ./docs
