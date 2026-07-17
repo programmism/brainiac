@@ -37,9 +37,17 @@ pointing it at real data or a network.
    everything. **Bind to localhost** (the default) and put the whole surface behind
    the **Caddy reverse proxy with TLS + auth** (`--profile proxy`) for any network
    exposure. Do not expose the app port directly.
-2. **Cleartext tokens over `:80`.** If `SITE_ADDRESS=:80`, bearer/basic-auth
-   credentials cross the wire in cleartext. **Require TLS in production** — use a
-   real domain (auto-HTTPS) or `:443` with `tls internal`; never `:80` off-box.
+2. **Cleartext tokens over `:80`, and basic-auth is not the tenant boundary
+   (#271).** If `SITE_ADDRESS=:80`, bearer/basic-auth credentials cross the wire in
+   cleartext — **require TLS in production**: a real domain (auto-HTTPS) or `:443`
+   with `tls internal`; `:80` is **local-dev only**, never off-box. The proxy now
+   sends **HSTS** so a browser that has seen HTTPS won't downgrade. Separately, the
+   shipped Caddy `basic_auth` is a **single shared credential** — a *coarse network
+   gate* that keeps the open Layer-1 read surface off the public internet, **not** a
+   multi-tenant boundary. The per-team boundary is **Layer-2 principals**
+   (`principals:`, per-token namespace isolation — threat table above): for
+   multi-team sensitive data, configure principals and treat basic-auth as
+   defense-in-depth, not the wall.
 3. **Token lifecycle (#269).** Principal tokens support entropy floors,
    hash-at-rest, expiry, and hot revocation. Generate a strong token with
    `brainiac token gen` (256-bit hex; a plaintext principal token must be ≥ 32
@@ -76,8 +84,9 @@ pointing it at real data or a network.
 ## Hardening checklist
 
 - [ ] App bound to `127.0.0.1` (default); never publish `:8080` to the network.
-- [ ] Caddy proxy profile on, with **TLS** (domain or `:443`) and a strong
-      `BASIC_AUTH_HASH`.
+- [ ] Caddy proxy profile on, with **TLS** (domain or `:443`, never `:80` off-box)
+      and a strong `BASIC_AUTH_HASH`. Treat basic-auth as a coarse gate, not the
+      tenant boundary — use **Layer-2 principals** for multi-team isolation (#271).
 - [ ] `AUTH_TOKEN` (and any `PRINCIPAL_TOKEN_*`) are long and random
       (`brainiac token gen`); in `.env` only. Prefer `token_sha256:` (hash-at-rest)
       for principals, and set `expires:` where a cutoff applies.

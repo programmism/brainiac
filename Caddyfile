@@ -1,13 +1,25 @@
 # Brainiac reverse proxy (SYSTEM.md §16, ADR 0001).
-# Fronts the app's HTTP surface (WebUI + REST) with auth and TLS. The MCP server
-# is stdio-only and is never network-exposed.
+# Fronts the app's HTTP surface (WebUI + REST) with TLS + a coarse network gate.
+# The MCP server is stdio-only and is never network-exposed.
 #
 # Configure via environment (see .env.example):
-#   SITE_ADDRESS     your domain (auto-HTTPS) · ":443" (add `tls internal`) · ":80"
+#   SITE_ADDRESS     your domain (auto-HTTPS, recommended) · ":443" (add `tls internal`)
+#                    Use ":80" for LOCAL DEV ONLY — off-box it sends bearer tokens
+#                    and basic-auth in cleartext (#271). Require TLS in production.
 #   BASIC_AUTH_USER  username
 #   BASIC_AUTH_HASH  bcrypt hash — generate with: caddy hash-password --plaintext '…'
+#
+# ⚠️ basic_auth here is a COARSE network gate (keeps the open Layer-1 read surface
+# off the public internet), NOT the multi-tenant boundary. The per-team boundary is
+# Layer-2 principals (`principals:` in config, per-token namespace isolation, #120) —
+# a single shared basic-auth credential cannot separate tenants. For multi-team
+# sensitive data, configure principals and treat basic_auth as defense-in-depth.
 
 {$SITE_ADDRESS} {
+	# HSTS: once a browser has seen HTTPS, never downgrade to cleartext (#271).
+	# Harmless on a domain/:443; a no-op for plain-HTTP :80 dev.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
 	basic_auth {
 		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
 	}
