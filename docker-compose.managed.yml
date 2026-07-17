@@ -1,0 +1,26 @@
+# Managed / external Postgres override (#253) — point the app at RDS / Cloud SQL /
+# Neon / your own Postgres instead of the bundled `db` container. Layered on top of
+# the base compose file:
+#
+#   # set DATABASE_URL (with TLS) in .env, then:
+#   docker compose -f docker-compose.yml -f docker-compose.managed.yml up -d
+#
+# See docs/managed-postgres.md for the DSN (TLS), pool sizing, and pgvector notes.
+
+services:
+  app:
+    # Read the full DSN from the environment instead of the bundled-db default, and
+    # drop the dependency on the local `db` container.
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL to your managed Postgres DSN (see docs/managed-postgres.md)}
+
+  # Don't start the bundled Postgres or its pg_dump backup when using a managed DB —
+  # the managed provider handles storage and backups. `profiles` keeps them defined
+  # but inactive unless explicitly requested.
+  db:
+    profiles: ["bundled-db-disabled"]
+  backup:
+    profiles: ["bundled-db-disabled"]
