@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -87,17 +88,8 @@ func run() error {
 		log.Printf("hard isolation ON: %d principal(s) — /api requires a principal token, reads walled per namespace (#120)", a.Len())
 	}
 	embedderCheck := ollamaChecker(cfg.Embedding.BaseURL, cfg.Embedding.Model)
-	if embedderCheck != nil {
-		// Loud, one-shot boot warning so a still-downloading or failed model pull
-		// isn't a silent 503 later (#250).
-		cctx, ccancel := context.WithTimeout(ctx, 3*time.Second)
-		if err := embedderCheck(cctx); errors.Is(err, server.ErrEmbedderModelMissing) {
-			log.Printf("warning: embedder reachable but model %q not pulled yet — search/recall will 503 until the pull finishes", cfg.Embedding.Model)
-		} else if err != nil {
-			log.Printf("warning: embedder unreachable at %s (%v) — search/recall will 503 until it is up", cfg.Embedding.BaseURL, err)
-		}
-		ccancel()
-	}
+	// The embedder readiness caveat (still-downloading / unreachable model, #250) is
+	// surfaced in the startup banner below, once, so it lands next to the WebUI URL.
 	if cfg.RateLimitEnabled() {
 		log.Printf("rate limiting ON: %g req/s per client, burst %d (#270)", cfg.HTTP.RateLimitRPS, cfg.EffectiveRateLimitBurst())
 	}
@@ -145,11 +137,60 @@ func run() error {
 		go autoImport(shutdownCtx, c, cfg, d)
 	}
 
-	log.Printf("listening on %s", cfg.HTTP.Addr)
+	logStartupBanner(cfg, writable, embedderCheck)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// logStartupBanner prints a friendly, greppable summary at boot so a first-time
+// operator sees the WebUI URL, write mode, and any "still warming up" caveats
+// without reading the docs (#254). Everything here is already logged in pieces;
+// the banner just puts the actionable bits in one block.
+func logStartupBanner(cfg *config.Config, writable bool, embedderCheck server.Checker) {
+	url := webURL(cfg.HTTP.Addr)
+	mode := "read-only"
+	if writable {
+		mode = "interactive (writes enabled)"
+	} else if cfg.Clients.WebUI == "interactive" {
+		mode = "read-only (set AUTH_TOKEN to enable writes)"
+	}
+	log.Printf("──────────────────────────────────────────────")
+	log.Printf(" Brainiac %s is up", core.Version)
+	log.Printf("   WebUI:   %s", url)
+	log.Printf("   Health:  %s/healthz   Ready: %s/readyz", url, url)
+	log.Printf("   WebUI mode: %s", mode)
+	if cfg.PrincipalsEnabled() {
+		log.Printf("   Auth: hard isolation ON — every /api call needs a principal token (#120)")
+	}
+	// Surface the common first-run gotcha: the embedder model is still downloading,
+	// so search/recall will 503 until the pull finishes.
+	if embedderCheck != nil {
+		cctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if err := embedderCheck(cctx); errors.Is(err, server.ErrEmbedderModelMissing) {
+			log.Printf("   ⏳ embedder model %q still downloading — search/recall 503 until it finishes", cfg.Embedding.Model)
+		} else if err != nil {
+			log.Printf("   ⚠ embedder not reachable yet at %s — search/recall 503 until it is up", cfg.Embedding.BaseURL)
+		} else {
+			log.Printf("   ✓ embedder ready (%s)", cfg.Embedding.Model)
+		}
+		cancel()
+	}
+	log.Printf("──────────────────────────────────────────────")
+}
+
+// webURL turns a listen address (":8080", "0.0.0.0:8080") into a clickable URL,
+// defaulting the host to localhost for the common bind-all / bind-local cases.
+func webURL(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "http://localhost" + addr
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("http://%s:%s", host, port)
 }
 
 // reloadableAuth is a server.PrincipalMatcher backed by an atomically swappable

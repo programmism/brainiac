@@ -362,6 +362,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-17** — **Startup banner (#254, deploy P2).** First boot logged pieces (migrations, "listening
+  on …") but never the actionable summary a novice needs, so getting to the WebUI leaned on reading
+  `laptop.md`. `brainiac-http` now prints a one-block banner once it's up: the clickable **WebUI URL**
+  (`webURL` maps `:8080`/`0.0.0.0`/`::` to `localhost`), the health/ready endpoints, the WebUI write mode,
+  a hard-isolation note, and — the common first-run gotcha — whether the **embedder model is still
+  downloading / unreachable** (search-and-recall 503 until it's pulled, #250). The old standalone one-shot
+  embedder-warning block was folded into the banner so the caveat logs once, next to the URL. Pure `webURL`
+  unit test in `cmd/http/main_test.go`.
 - **2026-07-17** — **Transaction-wrap Remember (#222, core P1).** `Remember`'s dedup snapshot,
   `checkNodeQuota`, and `InsertNode` ran as three separate pool statements — non-atomic, so a racing writer
   could slip between the count and the insert and push a namespace over its `max_nodes` quota, and the
