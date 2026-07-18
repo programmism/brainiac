@@ -231,20 +231,30 @@ func (c *Core) propagateDelete(ctx context.Context, uri string) (int64, error) {
 // IngestText stores a single document's text into the memory (chunk → select →
 // embed → store, with per-source reconcile), for content a client already has
 // in hand — e.g. Claude reading Notion/web via its own integration and pushing
-// it in (the chat-driven path; no server-side connector/token needed).
+// it in (the chat-driven path; no server-side connector/token needed). The text
+// is treated as untrusted (fail-closed, #273); a client that vouches for a
+// specific document can mark it trusted per call via IngestTextWithTrust.
 func (c *Core) IngestText(ctx context.Context, sourceURI, text, project string) (IngestStats, error) {
+	return c.IngestTextWithTrust(ctx, sourceURI, text, project, "")
+}
+
+// IngestTextWithTrust is IngestText with an explicit per-call trust level (#375):
+// model.TrustTrusted or model.TrustUntrusted. Empty defaults to untrusted
+// (fail-closed) — the client opts a specific document into trusted only when it
+// vouches for it, without needing a per-source config entry. Untrusted text still
+// forces any extraction through the review queue and is flagged on recall (#273).
+func (c *Core) IngestTextWithTrust(ctx context.Context, sourceURI, text, project, trust string) (IngestStats, error) {
 	if c.selector == nil {
 		return IngestStats{}, fmt.Errorf("ingest requires a selector")
 	}
 	if sourceURI == "" {
 		return IngestStats{}, fmt.Errorf("source_uri is required")
 	}
+	if trust != "" && trust != model.TrustTrusted && trust != model.TrustUntrusted {
+		return IngestStats{}, fmt.Errorf("invalid trust %q: want %q or %q", trust, model.TrustTrusted, model.TrustUntrusted)
+	}
 	stats := IngestStats{Docs: 1}
-	// Ingested content is untrusted by default (#273): it's external text (a page
-	// Claude read, a connector's docs), the indirect-injection surface. Trusted is
-	// opt-in via IngestOptions.Trust (wired per-source in the follow-up), so recall
-	// treats content as untrusted until an operator vouches for its source.
-	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, IngestOptions{Project: project}, &stats); err != nil {
+	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, IngestOptions{Project: project, Trust: trust}, &stats); err != nil {
 		stats.Failed++
 		return stats, err
 	}
