@@ -70,10 +70,18 @@ func InsertChunk(ctx context.Context, db DBTX, c *model.Chunk) error {
 	).Scan(&c.ID, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A concurrent ingest already stored this exact (source_uri, content_hash);
-		// the chunk exists, so treat the insert as an idempotent no-op (#225).
+		// the chunk exists, so treat the insert as an idempotent no-op (#225). Its
+		// (chunk_id, source_uri) membership already exists (backfill or the prior
+		// insert), so there is nothing to record.
 		return nil
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// Record multi-source provenance (#244): the chunk belongs to this source.
+	// Additive bookkeeping — reads and the existing per-source delete path are
+	// unchanged; membership-based dedup/prune is wired in follow-up #387.
+	return RecordChunkSource(ctx, db, c.ID, c.SourceURI)
 }
 
 // ChunkExistsByHash reports whether a chunk with the given content hash is
