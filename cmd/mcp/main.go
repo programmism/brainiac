@@ -129,7 +129,7 @@ func retrievalOption(cfg *config.Config) core.Option {
 // the mcp/core layers plugin-agnostic.
 func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 	return func(ctx context.Context, source, target, project string) (core.IngestStats, error) {
-		opts := core.IngestOptions{Project: project}
+		opts := core.IngestOptions{Project: project, Trust: cfg.SourceTrust(source)}
 		switch source {
 		case "markdown":
 			dir := target

@@ -814,7 +814,7 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			opts := core.IngestOptions{Project: project, DryRun: dryRun}
+			opts := core.IngestOptions{Project: project, DryRun: dryRun, Trust: cfg.SourceTrust(source)}
 			if !dryRun {
 				errOut := cmd.ErrOrStderr()
 				opts.OnProgress = func(p core.IngestProgress) {

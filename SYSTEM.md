@@ -383,6 +383,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Per-source trusted config (#361, security P2).** #273 made all ingested content untrusted
+  by default (fail-closed) with `trusted` reachable only via an unset `IngestOptions.Trust`, so nothing could
+  actually be marked trusted. Added `sources[].trust` (env `<TYPE>_TRUST`, e.g. `GITHUB_TRUST=trusted`;
+  validated `trusted`/`untrusted`) and a `Config.SourceTrust(type)` resolver, wired into `opts.Trust` at both
+  ingest dispatch sites (CLI `import`, MCP `importFunc`). An operator can now vouch for a vetted source — its
+  chunks are stored trusted, skipping the forced extraction review and the untrusted flag in recall — while
+  everything else stays untrusted. Config unit test (env applies, unset resolves to "", invalid rejected);
+  the trust mechanism itself is covered by #273's DB-gated tests. **Node/edge trust propagation** (a recalled
+  node from an untrusted-sourced extraction carrying that provenance) and **client-prompt hardening guidance**
+  remain in follow-up #367.
 - **2026-07-18** — **Automated hot→cold demotion policy (#231, scale P2).** Tiering was promote-only —
   `SetChunkTier` existed but nothing auto-demoted, so the hot vector index only ever grew (against the §9 ★
   RAM ratio). Added an **opt-in, age-based** policy: `store.DemoteStaleHotChunks(olderThan)` +

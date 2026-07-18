@@ -418,6 +418,33 @@ func TestRetrievalThresholdsEnvAndValidation(t *testing.T) {
 	}
 }
 
+func TestPerSourceTrustEnvAndValidation(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	for _, k := range []string{"NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	// A github source (auto-created from the token) picks up GITHUB_TRUST.
+	t.Setenv("GITHUB_TOKEN", "ghp-abc")
+	t.Setenv("GITHUB_REPOS", "octo/mem")
+	t.Setenv("GITHUB_TRUST", "trusted")
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.SourceTrust("github") != "trusted" {
+		t.Fatalf("GITHUB_TRUST not applied: %q", c.SourceTrust("github"))
+	}
+	// An unconfigured source type resolves to "" (core treats as untrusted).
+	if c.SourceTrust("gdrive") != "" {
+		t.Fatalf("unset source trust should be empty, got %q", c.SourceTrust("gdrive"))
+	}
+	// An invalid trust value is rejected.
+	t.Setenv("GITHUB_TRUST", "maybe")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for source trust 'maybe'")
+	}
+}
+
 func TestGitLabEnvAutoCreatesSource(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	for _, k := range []string{"GITHUB_TOKEN", "NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {
