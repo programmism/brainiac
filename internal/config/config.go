@@ -6,6 +6,7 @@ package config
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -325,6 +326,28 @@ type HTTPConfig struct {
 // StorageConfig points at Postgres. DSN is a secret — set it via DATABASE_URL.
 type StorageConfig struct {
 	DSN string `yaml:"dsn"`
+	// EncryptionKey is a base64-encoded 32-byte AES-256 key for optional
+	// app-level chunk-text encryption at rest (#377). Empty = off (plaintext, the
+	// default). Set via ENCRYPTION_KEY.
+	EncryptionKey string `yaml:"encryption_key,omitempty"`
+}
+
+// ChunkEncryptionKey returns the decoded 32-byte encryption key, or nil when
+// unset (encryption disabled). An invalid key (bad base64 or wrong length) is an
+// error so a misconfigured key fails fast at boot rather than silently disabling
+// encryption.
+func (c *Config) ChunkEncryptionKey() ([]byte, error) {
+	if c.Storage.EncryptionKey == "" {
+		return nil, nil
+	}
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(c.Storage.EncryptionKey))
+	if err != nil {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must be base64: %w", err)
+	}
+	if len(key) != 32 {
+		return nil, fmt.Errorf("ENCRYPTION_KEY must decode to 32 bytes (AES-256), got %d", len(key))
+	}
+	return key, nil
 }
 
 // EmbeddingConfig selects the embedder plugin and its model.
@@ -545,6 +568,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("INGEST_PRUNE_DELETED"); v != "" {
 		c.Ingest.PruneDeleted = v == "true" || v == "1"
+	}
+	if v := os.Getenv("ENCRYPTION_KEY"); v != "" {
+		c.Storage.EncryptionKey = v
 	}
 	if v := os.Getenv("LOG_FORMAT"); v != "" {
 		c.Logging.Format = v

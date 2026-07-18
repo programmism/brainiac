@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Optional app-level chunk-text encryption at rest (#377, security P2).** Defense-in-depth
+  on top of the recommended full-volume encryption (#371). Opt-in `ENCRYPTION_KEY` (base64 32-byte AES-256;
+  unset = OFF = plaintext, exactly as before). When set, `InsertChunk` stores the `text` column
+  AES-256-GCM encrypted (random nonce, sentinel-prefixed) and every chunk-text read decrypts transparently
+  (`SetChunkCipher` installs a process-wide cipher in the store; `encryptText`/`decryptText` at the write +
+  5 read sites). `content_hash` and the embedding are computed from **plaintext** in the core before the
+  store sees the row, so vector search and dedup are unaffected. The sentinel prefix makes decrypt a safe
+  passthrough for plaintext rows, so enabling the key on an existing DB needs **no migration** (old rows
+  stay readable; new writes are encrypted). **Caveat:** the lexical/FTS path (#0012) indexes the stored
+  column, so it can't match *encrypted* chunks — retrieval degrades to vector-only for them; the primary
+  (dense) path is unaffected. Losing the key makes encrypted text unrecoverable. Node/edge field encryption
+  and key rotation are a follow-up (#399).
 - **2026-07-18** — **Node-level trust + per-call document trust (#375, security P2).** Two additions completing
   #367's trust story. (1) **Per-call trust:** `Core.IngestTextWithTrust(…, trust)` and the MCP `add_document`
   `trust` arg let a client mark a *specific* pushed document trusted without a per-source config entry;

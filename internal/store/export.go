@@ -75,6 +75,9 @@ func ExportChunks(ctx context.Context, db DBTX, wall Wall) ([]model.Chunk, error
 			&contentHash, &c.CreatedAt, &c.SourceModifiedAt, &disc); err != nil {
 			return nil, err
 		}
+		if err := decryptInto(&c.Text); err != nil {
+			return nil, err
+		}
 		c.Tier = model.Tier(tier)
 		if contentHash != nil {
 			c.ContentHash = *contentHash

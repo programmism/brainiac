@@ -53,6 +53,16 @@ func run() error {
 	// the protocol stream. Structured JSON to stderr (#258); no ring here.
 	applog.Setup(os.Stderr, nil, cfg.Logging.Format, cfg.Logging.Level)
 
+	// Optional app-level chunk-text encryption (#377); no-op when ENCRYPTION_KEY
+	// is unset (the default).
+	encKey, err := cfg.ChunkEncryptionKey()
+	if err != nil {
+		return err
+	}
+	if err := store.SetChunkCipher(encKey); err != nil {
+		return err
+	}
+
 	ctx := context.Background()
 	pool, err := store.ConnectWithRetry(ctx, cfg.Storage.DSN, 60*time.Second)
 	if err != nil {
