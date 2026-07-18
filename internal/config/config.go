@@ -499,6 +499,19 @@ func (c *Config) applyEnvOverrides() {
 			c.Sources = append(c.Sources, SourceConfig{Type: "gdrive", Selection: "density-filter", Token: v})
 		}
 	}
+	if v := os.Getenv("LINEAR_TOKEN"); v != "" {
+		found := false
+		for i := range c.Sources {
+			if c.Sources[i].Type == "linear" {
+				c.Sources[i].Token = v
+				found = true
+			}
+		}
+		if !found {
+			// Auto-create a linear source from the API key (#240).
+			c.Sources = append(c.Sources, SourceConfig{Type: "linear", Selection: "density-filter", Token: v})
+		}
+	}
 }
 
 // splitCSV splits a comma-separated env value into trimmed, non-empty items.

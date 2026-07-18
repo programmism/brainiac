@@ -91,3 +91,6 @@ clients:
 #   - name: platform
 #     read:  [team-a, team-b, global]   # an operator that reads several + global
 #     write: platform
+  # - type: linear             # kb import --source linear (#240) — Linear issues (markdown)
+  #   selection: density-filter
+  #   # token: lin_api_…       # prefer LINEAR_TOKEN; a Linear API key
