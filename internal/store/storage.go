@@ -99,22 +99,6 @@ func ChunkHashesBySourceURI(ctx context.Context, db DBTX, uri string) (map[strin
 	return out, rows.Err()
 }
 
-// DeleteChunksBySourceURINotIn removes chunks of a source whose content hash is
-// not in keepHashes — i.e. content that was edited away or deleted. With an
-// empty keepHashes, all chunks for the source are removed.
-func DeleteChunksBySourceURINotIn(ctx context.Context, db DBTX, uri string, keepHashes []string) (int64, error) {
-	if keepHashes == nil {
-		keepHashes = []string{}
-	}
-	tag, err := db.Exec(ctx,
-		`DELETE FROM chunks WHERE source_uri = $1 AND (content_hash IS NULL OR content_hash <> ALL($2))`,
-		uri, keepHashes)
-	if err != nil {
-		return 0, err
-	}
-	return tag.RowsAffected(), nil
-}
-
 // SourceSyncModifiedAt returns the last-synced source modification time recorded
 // for a source_uri (#236), and false if none is stored yet.
 func SourceSyncModifiedAt(ctx context.Context, db DBTX, uri string) (time.Time, bool, error) {

@@ -42,12 +42,13 @@ func ChunkSourceURIs(ctx context.Context, db DBTX, chunkID string) ([]string, er
 }
 
 // DropChunkSourceMembershipNotIn removes a source's membership for chunks whose
-// content_hash is not in keepHashes — the membership analog of
-// DeleteChunksBySourceURINotIn: content the source no longer carries (edited away
-// or deleted) stops being vouched for by this source, but the chunk itself is
+// content_hash is not in keepHashes: content the source no longer carries (edited
+// away or deleted) stops being vouched for by this source, but the chunk itself is
 // NOT deleted here — another source may still vouch for it. Call PruneOrphanChunks
 // afterward to remove chunks that lost their last source. Empty keepHashes drops
-// all of the source's memberships. Returns the number of memberships removed.
+// all of the source's memberships. Returns the number of memberships removed. This
+// is the reconcile deletion path (ingest.go); it replaced the old per-source chunk
+// delete once membership became the source of truth (#387).
 func DropChunkSourceMembershipNotIn(ctx context.Context, db DBTX, uri string, keepHashes []string) (int64, error) {
 	if keepHashes == nil {
 		keepHashes = []string{}
