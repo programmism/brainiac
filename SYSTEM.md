@@ -383,6 +383,20 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Current-tier partial indexes to cap the hot working set (#230, scale P1 — safe slice).**
+  Supersession never deletes (status flips `current`→`historical` and the row stays), so the full
+  `edges_from_idx`/`edges_to_idx` (0001) and `nodes_project_idx` (0011) index every historical/proposed row
+  too and grow without bound — while almost every read wants only the current tier (graph traversal
+  `(from_id=$1 OR to_id=$1) AND status='current'`, consolidation's `from_id=$1 AND status='current'`, the
+  current-node scan in `ListGraph`). Migration 0019 adds **partial** indexes `WHERE status='current'` on
+  `edges.from_id`, `edges.to_id`, `nodes.project`, so the hot index stays the size of *live* memory
+  regardless of history depth. Also indexed `superseded_at WHERE NOT NULL` on both tables (historical rows
+  only) for as-of reconstruction (#200) and the retention sweep (#363). Additive — the full indexes remain
+  for all-status paths (erase, as-of over historical); the planner picks the smaller partial index for
+  current-filtered queries. Plain `CREATE INDEX` (not `CONCURRENTLY`, illegal inside `applyOne`'s
+  BEGIN/COMMIT) — a brief lock, fine for an expand migration at boot on a fresh/small DB. Real declarative
+  table partitioning (current/historical split) needs a table rewrite / `pg_partman`, too risky to
+  auto-apply at boot — follow-up #385.
 - **2026-07-18** — **Claude Message Batches extraction path (#326, ingestion P1).** Bulk ingest calls the
   Claude extractor once per chunk (one Messages request each). Added `BatchExtractor.BatchExtract(items)` on
   `internal/plugins/anthropic` — submit all chunks (each with a `custom_id`) to the **Message Batches API**

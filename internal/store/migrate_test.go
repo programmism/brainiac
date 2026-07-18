@@ -43,4 +43,23 @@ func TestMigrate(t *testing.T) {
 			t.Errorf("table %q missing after migrate", table)
 		}
 	}
+
+	// The current-tier partial indexes (#230) must exist: they keep the hot
+	// working set small as historical rows accumulate.
+	for _, index := range []string{
+		"edges_from_current_idx", "edges_to_current_idx", "nodes_project_current_idx",
+		"nodes_superseded_at_idx", "edges_superseded_at_idx",
+	} {
+		var exists bool
+		err := pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = $1)`,
+			index,
+		).Scan(&exists)
+		if err != nil {
+			t.Fatalf("check index %s: %v", index, err)
+		}
+		if !exists {
+			t.Errorf("index %q missing after migrate", index)
+		}
+	}
 }
