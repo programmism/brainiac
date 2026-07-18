@@ -340,6 +340,13 @@ func InsertEdge(ctx context.Context, db DBTX, e *model.Edge) error {
 	if trust == "" {
 		trust = model.TrustTrusted // chat-captured edges are trusted; extractor sets untrusted
 	}
+	// Optional app-level encryption of the rationale at rest (#399); no-op when the
+	// key is unset, and empty stays NULL. edge.why is free text, not embedded or
+	// indexed, so encrypting it has no search cost.
+	storedWhy, err := encryptText(e.Why)
+	if err != nil {
+		return err
+	}
 	// Upsert: a repeated link for the same current (from,to,type) refreshes the
 	// rationale/provenance instead of creating a duplicate edge (§11, #71).
 	return db.QueryRow(ctx, `
@@ -350,7 +357,7 @@ func InsertEdge(ctx context.Context, db DBTX, e *model.Edge) error {
 		              source_locator = EXCLUDED.source_locator, author = EXCLUDED.author,
 		              last_confirmed_at = now()
 		RETURNING id, created_at`,
-		e.FromID, e.ToID, e.Type, nullStr(e.Why), nullStr(e.SourceURI), locator, nullStr(e.Author), string(status), trust,
+		e.FromID, e.ToID, e.Type, nullStr(storedWhy), nullStr(e.SourceURI), locator, nullStr(e.Author), string(status), trust,
 	).Scan(&e.ID, &e.CreatedAt)
 }
 

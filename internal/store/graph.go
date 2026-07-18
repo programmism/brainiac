@@ -27,6 +27,11 @@ func scanEdge(s rowScanner) (model.Edge, error) {
 		return e, err
 	}
 	e.Why = deref(why)
+	dec, derr := decryptText(e.Why)
+	if derr != nil {
+		return e, derr
+	}
+	e.Why = dec
 	e.SourceURI = deref(sourceURI)
 	e.Author = deref(author)
 	e.Status = model.Status(status)

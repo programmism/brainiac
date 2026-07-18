@@ -10,13 +10,14 @@ import (
 	"strings"
 )
 
-// Optional app-level chunk-text encryption (#377). When an ENCRYPTION_KEY is
-// configured, a chunk's text column is stored AES-256-GCM encrypted at rest;
-// embeddings and content_hash are computed from plaintext in the core before the
-// store sees the row, so vector search and dedup are unaffected. Off by default —
-// chunk text is stored as plaintext, exactly as before (the recommended at-rest
-// posture remains full-volume/disk encryption, #371; this is a defense-in-depth
-// opt-in for a shared or managed Postgres).
+// Optional app-level encryption of sensitive free-text at rest (#377, #399). When
+// an ENCRYPTION_KEY is configured, a chunk's text column and an edge's rationale
+// (why) are stored AES-256-GCM encrypted; embeddings and content_hash are computed
+// from plaintext in the core before the store sees the row, so vector search and
+// dedup are unaffected (edge.why is neither embedded nor indexed). Off by default —
+// text is stored as plaintext, exactly as before (the recommended at-rest posture
+// remains full-volume/disk encryption, #371; this is a defense-in-depth opt-in for
+// a shared or managed Postgres). One key covers all encrypted fields.
 //
 // Caveat: the lexical/full-text path (SearchChunksLexical, #0012) indexes the
 // stored column, so it cannot match *encrypted* chunks — retrieval degrades to
@@ -56,7 +57,9 @@ func SetChunkCipher(key []byte) error {
 // encryptText returns text ready to store: sentinel-prefixed ciphertext when a
 // cipher is configured, else the plaintext unchanged.
 func encryptText(text string) (string, error) {
-	if chunkAEAD == nil {
+	// Nothing to protect in an empty string; leaving it empty also preserves
+	// NULL/empty semantics for nullable columns (e.g. an edge with no rationale).
+	if chunkAEAD == nil || text == "" {
 		return text, nil
 	}
 	nonce := make([]byte, chunkAEAD.NonceSize())

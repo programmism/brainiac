@@ -383,6 +383,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Encrypt edge rationale (`why`) at rest (#399, security P2).** Extends the #377 encryption
+  seam from chunk text to the edge `why` (decision rationale — often the most sensitive free text, e.g. "we
+  chose X because the customer threatened to churn"). Reuses the same `ENCRYPTION_KEY`/cipher: `InsertEdge`
+  encrypts `why` (empty stays NULL — `encryptText` now leaves "" untouched, preserving nullable-column
+  semantics) and the single central `scanEdge` decrypts it (every edge read, incl. `ListProposedEdges`,
+  goes through `scanEdge`, so one site covers all reads). `why` is neither embedded nor indexed, so there's
+  **no search cost** (unlike chunk text's FTS caveat). Off by default. Node `summary`/`rollup` encryption
+  (entangled with consolidation's rollup generation) and key rotation are follow-up #403.
 - **2026-07-18** — **Self-describing table fragments: repeat the header on split (#369, ingestion P2).** When a
   Markdown table is too large for one chunk it splits at row boundaries (#350), so continuation chunks
   started with a bare body row — losing the column meaning for embedding/retrieval. `SplitWithProvenance`
