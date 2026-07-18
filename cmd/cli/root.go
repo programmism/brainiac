@@ -37,6 +37,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		migrateCmd(),
 		reindexCmd(),
+		compactCmd(),
 		sweepTiersCmd(),
 		sweepRetentionCmd(),
 		eraseCmd(),
