@@ -1,10 +1,12 @@
 // Package doctext is the multi-format extraction layer (#234): it turns a source
 // document's bytes into plain text the ingest pipeline can chunk, embed, and
-// store. It is deliberately dependency-free (SYSTEM.md §3) — plain text and
+// store. It is dependency-free by default (SYSTEM.md §3) — plain text and
 // Markdown pass through, HTML is stripped with a small hand-rolled tokenizer, and
 // DOCX is unzipped and its runs pulled from the WordprocessingML with the
-// standard library. Formats that need a heavier parser (e.g. PDF) return
-// ErrUnsupported so the caller can skip and count them rather than ingest binary.
+// standard library. The one exception is PDF (#321): robust parsing is beyond a
+// hand-rolled tokenizer, so it uses rsc.io/pdf to pull the text layer. A format
+// with no converter still returns ErrUnsupported so the caller can skip and count
+// it rather than ingest binary.
 package doctext
 
 import (
@@ -23,7 +25,7 @@ var ErrUnsupported = fmt.Errorf("doctext: unsupported format")
 // Supported reports whether ToText has a converter for name's extension.
 func Supported(name string) bool {
 	switch ext(name) {
-	case ".txt", ".text", ".md", ".markdown", ".html", ".htm", ".docx":
+	case ".txt", ".text", ".md", ".markdown", ".html", ".htm", ".docx", ".pdf":
 		return true
 	default:
 		return false
@@ -42,6 +44,8 @@ func ToText(name string, data []byte) (string, error) {
 		return htmlToText(data), nil
 	case ".docx":
 		return docxToText(data)
+	case ".pdf":
+		return pdfToText(data)
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupported, filepath.Ext(name))
 	}

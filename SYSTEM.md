@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **PDF text extraction in doctext (#321, ingestion P1).** `doctext.ToText` returned
+  `ErrUnsupported` for `.pdf`, so a folder of PDFs was skipped-and-counted rather than ingested. Added a
+  `.pdf` converter — the **one deliberate exception** to doctext's dependency-free rule, since robust PDF
+  parsing is far beyond a hand-rolled tokenizer (the issue scoped a library in): it uses `rsc.io/pdf` to pull
+  the **text layer**, reconstructing reading order from each fragment's position (top-to-bottom by Y, then
+  left-to-right by X, spaces on X-gaps, newlines on Y-drops). `rsc.io/pdf` **panics** on some malformed
+  inputs, so the parse is wrapped in a `recover` — a bad PDF becomes a skip-and-count error, never a process
+  crash. **Image-only / scanned PDFs** have no text layer, so they yield `""` (the caller skips an empty
+  doc); **OCR is out of scope**, deferred to #356. Unit-tested with a PDF fixture built in-test (valid xref,
+  Helvetica, word-positioned so reading order + spacing are exercised) + a malformed-PDF error (no-panic)
+  test. `go.mod` gains exactly one direct dep (`rsc.io/pdf v0.1.1`).
 - **2026-07-18** — **GitLab connector (#340, ingestion P1).** The ninth connector over the stable
   `SourceConnector` seam, the GitLab sibling of the GitHub connector (#238): `internal/plugins/gitlab` reads a
   project's **issues + merge requests** (title + Markdown description — no format conversion, like Linear) via
@@ -654,9 +665,8 @@ Newest first.
   behavior and the `markdown://` source-URI scheme unchanged (so existing docs don't churn) — `/data/docs`
   now ingests `.txt`/`.html`/`.docx` too. Fixture unit tests in `internal/doctext` (HTML strip + entity
   decode + unterminated-tag safety, DOCX runs/paragraph/tab, invalid-zip, passthrough) and the connector
-  test. **PDF** needs a heavier parser (external lib / OCR), so `ToText` returns `ErrUnsupported` for it and
-  those files are skipped+counted; tracked as follow-up #321. Google Docs extraction belongs to the Drive
-  connector (#239).
+  test. **PDF** needed a heavier parser, so at the time `ToText` returned `ErrUnsupported` for it (later added
+  via `rsc.io/pdf` in #321). Google Docs extraction belongs to the Drive connector (#239).
 - **2026-07-17** — **Per-route latency + error-rate metrics (#259, observability P1).** The single latency
   histogram lumped `/healthz`, `/metrics`, and static assets in with `/api/search`, polluting the p95
   scaling signal, and there was no error counter. Added, alongside the unchanged overall histogram (kept for
