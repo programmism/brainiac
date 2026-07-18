@@ -18,6 +18,7 @@ import (
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
+	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
@@ -156,8 +157,14 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 				return core.IngestStats{}, fmt.Errorf("gdrive is not configured (set GDRIVE_TOKEN)")
 			}
 			return c.Ingest(ctx, gdrive.New(sc.Token), opts)
+		case "linear":
+			sc := cfg.Source("linear")
+			if sc == nil || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("linear is not configured (set LINEAR_TOKEN)")
+			}
+			return c.Ingest(ctx, linear.New(sc.Token), opts)
 		default:
-			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, gdrive, or markdown)", source)
+			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, gdrive, linear, or markdown)", source)
 		}
 	}
 }

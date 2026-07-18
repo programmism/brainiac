@@ -21,6 +21,7 @@ import (
 	"github.com/programmism/brainiac/internal/plugins"
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
+	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/plugins/slack"
@@ -685,7 +686,7 @@ func importCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: "Ingest documents from a configured source (notion | slack | github | gdrive | markdown)",
+		Short: "Ingest documents from a configured source (notion | slack | github | gdrive | linear | markdown)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, pool, err := connect(ctx)
@@ -723,7 +724,7 @@ func importCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | github | gdrive | markdown)")
+	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | github | gdrive | linear | markdown)")
 	cmd.Flags().StringVar(&path, "path", "", "root directory for the markdown source (overrides config)")
 	cmd.Flags().StringVar(&project, "project", "", "project to scope imported documents to (omit for global)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview chunk/keep/drop counts without embedding or writing")
@@ -769,6 +770,12 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 			return nil, fmt.Errorf("gdrive source not configured (set an OAuth access token via GDRIVE_TOKEN)")
 		}
 		return gdrive.New(sc.Token), nil
+	case "linear":
+		sc := cfg.Source("linear")
+		if sc == nil || sc.Token == "" {
+			return nil, fmt.Errorf("linear source not configured (set an API key via LINEAR_TOKEN)")
+		}
+		return linear.New(sc.Token), nil
 	case "markdown":
 		dir := path
 		if dir == "" {

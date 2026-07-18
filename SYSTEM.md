@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Linear connector (#240, ingestion P1).** A sixth connector over the stable
+  `SourceConnector` seam — and the cleanest of the Confluence/Jira/**Linear** bundle, since Linear issue
+  descriptions are already **Markdown** (no format conversion). `internal/plugins/linear` runs a paginated
+  GraphQL query (`issues(first, after){ nodes{ identifier title description updatedAt url } pageInfo }`)
+  against the Linear API with the key in the `Authorization` header (Linear's raw-key convention, not
+  Bearer), surfacing GraphQL `errors` as a Go error. Each issue → one `RawDoc` (`url` provenance, `updatedAt`
+  → `ModifiedAt`); empty ones skipped. Wired like the others: `LINEAR_TOKEN` auto-creates a `linear` source;
+  MCP `import` / CLI `kb import --source linear`. Unit-tested against a fake GraphQL endpoint (cursor
+  pagination, empty-skip, graphql-error). **Jira** (ADF descriptions) and **Confluence** (XHTML storage
+  format) need format conversion like `doctext` and are tracked as follow-up #343.
 - **2026-07-18** — **Google Drive connector (#239, ingestion P1).** A fifth connector over the stable
   `SourceConnector` seam. `internal/plugins/gdrive` lists the files an OAuth **access token** (`GDRIVE_TOKEN`)
   can see (`GET /drive/v3/files?q=trashed=false`, `nextPageToken`-paginated) and pulls their text: **Google
