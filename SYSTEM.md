@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Request-id in 5xx app logs (#348, observability P2).** #258 put a `request_id` on every
+  JSON *access* log line, but the app's own ≥500 log (`writeError`'s `log.Printf`) carried none, so a 5xx
+  couldn't be correlated across the two logs. Added a `requestLogger` chi middleware (right after
+  `middleware.RequestID`) that binds `slog.With("request_id", GetReqID(ctx))` into the request context under a
+  private key, a `loggerFrom(ctx)` helper (falls back to `slog.Default()` outside a request), and routed
+  `writeError`/`handleCoreErr` through it (they now take the request `ctx`) — so a 5xx app log emits the same
+  `request_id` as its access-log line. Scoped to `internal/server` (core has no per-request logging, so no
+  core-wide threading was needed). Unit test (httptest): a 500 route's app log carries the handler's
+  `request_id`; a 4xx logs nothing server-side; `loggerFrom` never returns nil.
 - **2026-07-18** — **On-demand cold-tier search (#365, scale P2).** #231 archives aged chunks to the cold tier
   but `SearchChunks`/`SearchChunksLexical` hard-coded `tier = 'hot'`, so cold content was unsearchable without
   re-promotion. Threaded an `includeCold` flag through `core.Search` → `hybridSearch` → both store search

@@ -12,7 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -92,6 +92,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	r.Use(requestLogger) // bind a request_id-tagged logger to the ctx (#348)
 	r.Use(accessLogger(opts.Logs))
 	r.Use(middleware.Recoverer)
 	r.Use(reg.Middleware)
@@ -148,11 +149,11 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			// as JSON (#168). Without this, a write button in read-only mode POSTs to
 			// an unmounted route and chi's default plain-text 404 surfaces as a
 			// cryptic "invalid JSON" error in the browser.
-			r.NotFound(func(w http.ResponseWriter, _ *http.Request) {
-				writeError(w, http.StatusNotFound, errNotFound)
+			r.NotFound(func(w http.ResponseWriter, req *http.Request) {
+				writeError(req.Context(), w, http.StatusNotFound, errNotFound)
 			})
-			r.MethodNotAllowed(func(w http.ResponseWriter, _ *http.Request) {
-				writeError(w, http.StatusMethodNotAllowed, errMethodNotAllowed)
+			r.MethodNotAllowed(func(w http.ResponseWriter, req *http.Request) {
+				writeError(req.Context(), w, http.StatusMethodNotAllowed, errMethodNotAllowed)
 			})
 
 			// Capabilities: what the current deployment allows, so the UI can gate
@@ -166,7 +167,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			r.Get("/health", func(w http.ResponseWriter, req *http.Request) {
 				m, err := c.Health(req.Context())
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err)
+					writeError(req.Context(), w, http.StatusInternalServerError, err)
 					return
 				}
 				idx, _ := c.IndexSizeBytes(req.Context())
@@ -181,7 +182,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			r.Get("/search", func(w http.ResponseWriter, req *http.Request) {
 				q := req.URL.Query().Get("q")
 				if q == "" {
-					writeError(w, http.StatusBadRequest, errMissingQ)
+					writeError(req.Context(), w, http.StatusBadRequest, errMissingQ)
 					return
 				}
 				k, _ := strconv.Atoi(req.URL.Query().Get("k"))
@@ -191,7 +192,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				includeCold := req.URL.Query().Get("include_cold") == "true"
 				hits, err := c.Search(req.Context(), q, k, req.URL.Query().Get("project"), includeCold)
 				if err != nil {
-					handleCoreErr(w, err)
+					handleCoreErr(req.Context(), w, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, hits)
@@ -199,12 +200,12 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			r.Get("/recall", func(w http.ResponseWriter, req *http.Request) {
 				q := req.URL.Query().Get("q")
 				if q == "" {
-					writeError(w, http.StatusBadRequest, errMissingQ)
+					writeError(req.Context(), w, http.StatusBadRequest, errMissingQ)
 					return
 				}
 				res, err := c.Recall(req.Context(), q, req.URL.Query().Get("project"))
 				if err != nil {
-					handleCoreErr(w, err)
+					handleCoreErr(req.Context(), w, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, res)
@@ -215,16 +216,16 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				qv := req.URL.Query()
 				name, id := qv.Get("name"), qv.Get("id")
 				if name == "" && id == "" {
-					writeError(w, http.StatusBadRequest, errMissingNodeRef)
+					writeError(req.Context(), w, http.StatusBadRequest, errMissingNodeRef)
 					return
 				}
 				det, err := c.GetNode(req.Context(), id, name, qv.Get("project"))
 				if err != nil {
-					handleCoreErr(w, err)
+					handleCoreErr(req.Context(), w, err)
 					return
 				}
 				if det == nil {
-					writeError(w, http.StatusNotFound, errNodeNotFound)
+					writeError(req.Context(), w, http.StatusNotFound, errNodeNotFound)
 					return
 				}
 				writeJSON(w, http.StatusOK, det)
@@ -236,7 +237,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			r.Get("/system", func(w http.ResponseWriter, req *http.Request) {
 				sm, err := c.SystemMetrics(req.Context())
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err)
+					writeError(req.Context(), w, http.StatusInternalServerError, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, sm)
@@ -260,7 +261,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 				g, err := c.Graph(req.Context(), limit)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err)
+					writeError(req.Context(), w, http.StatusInternalServerError, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, g)
@@ -270,7 +271,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 			r.Get("/consolidate", func(w http.ResponseWriter, req *http.Request) {
 				rep, err := c.Consolidate(req.Context(), false)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err)
+					writeError(req.Context(), w, http.StatusInternalServerError, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, rep)
@@ -282,7 +283,7 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 				q, err := c.Proposals(req.Context(), limit)
 				if err != nil {
-					writeError(w, http.StatusInternalServerError, err)
+					writeError(req.Context(), w, http.StatusInternalServerError, err)
 					return
 				}
 				writeJSON(w, http.StatusOK, q)
@@ -295,11 +296,11 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 					r.Post("/merge", func(w http.ResponseWriter, req *http.Request) {
 						var body struct{ Keep, Drop string }
 						if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 64<<10)).Decode(&body); err != nil {
-							writeError(w, http.StatusBadRequest, err)
+							writeError(req.Context(), w, http.StatusBadRequest, err)
 							return
 						}
 						if err := c.ApplyMerge(req.Context(), body.Keep, body.Drop); err != nil {
-							handleCoreErr(w, err)
+							handleCoreErr(req.Context(), w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -311,33 +312,33 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 							Routes map[string]string `json:"routes"`
 						}
 						if err := json.NewDecoder(http.MaxBytesReader(w, req.Body, 256<<10)).Decode(&body); err != nil {
-							writeError(w, http.StatusBadRequest, err)
+							writeError(req.Context(), w, http.StatusBadRequest, err)
 							return
 						}
 						res, err := c.Split(req.Context(), body.NodeID, body.Axis, body.Routes)
 						if err != nil {
-							handleCoreErr(w, err)
+							handleCoreErr(req.Context(), w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, res)
 					})
 					r.Post("/edges/{id}/confirm", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.Confirm(req.Context(), chi.URLParam(req, "id")); err != nil {
-							handleCoreErr(w, err)
+							handleCoreErr(req.Context(), w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 					})
 					r.Post("/edges/{id}/flag-stale", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.FlagStale(req.Context(), chi.URLParam(req, "id")); err != nil {
-							handleCoreErr(w, err)
+							handleCoreErr(req.Context(), w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 					})
 					r.Post("/edges/{id}/retire", func(w http.ResponseWriter, req *http.Request) {
 						if err := c.RetireEdge(req.Context(), chi.URLParam(req, "id")); err != nil {
-							handleCoreErr(w, err)
+							handleCoreErr(req.Context(), w, err)
 							return
 						}
 						writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -435,7 +436,7 @@ func (e *jsonLogEntry) emit(rec map[string]any) {
 func proposalHandler(action func(context.Context, string) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if err := action(req.Context(), chi.URLParam(req, "id")); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
+			writeError(req.Context(), w, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -485,7 +486,7 @@ func bearerAuth(token string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			got := []byte(r.Header.Get("Authorization"))
 			if subtle.ConstantTimeCompare(got, want) != 1 {
-				writeError(w, http.StatusUnauthorized, errUnauthorized)
+				writeError(r.Context(), w, http.StatusUnauthorized, errUnauthorized)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -574,7 +575,7 @@ func principalAuth(m PrincipalMatcher) func(http.Handler) http.Handler {
 			}
 			match := m.Match(bearerToken(r.Header.Get("Authorization")), time.Now())
 			if match == nil {
-				writeError(w, http.StatusUnauthorized, errUnauthorized)
+				writeError(r.Context(), w, http.StatusUnauthorized, errUnauthorized)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(core.WithPrincipal(r.Context(), match)))
@@ -707,7 +708,7 @@ func rateLimit(l *rateLimiter) func(http.Handler) http.Handler {
 			ok, wait := l.allow(clientKey(r), time.Now())
 			if !ok {
 				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(wait.Seconds()))))
-				writeError(w, http.StatusTooManyRequests, errRateLimited)
+				writeError(r.Context(), w, http.StatusTooManyRequests, errRateLimited)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -743,16 +744,16 @@ type healthResponse struct {
 }
 
 // handleCoreErr maps an embedder outage to 503 and everything else to 500.
-func handleCoreErr(w http.ResponseWriter, err error) {
+func handleCoreErr(ctx context.Context, w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, core.ErrEmbed):
-		writeError(w, http.StatusServiceUnavailable, err)
+		writeError(ctx, w, http.StatusServiceUnavailable, err)
 	case errors.Is(err, core.ErrForbiddenNamespace):
-		writeError(w, http.StatusForbidden, err)
+		writeError(ctx, w, http.StatusForbidden, err)
 	case errors.Is(err, core.ErrQuotaExceeded):
-		writeError(w, http.StatusTooManyRequests, err)
+		writeError(ctx, w, http.StatusTooManyRequests, err)
 	default:
-		writeError(w, http.StatusInternalServerError, err)
+		writeError(ctx, w, http.StatusInternalServerError, err)
 	}
 }
 
@@ -763,12 +764,36 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 // writeError logs server-side (≥500) with the real error and returns a generic
-// message to the client, so internal details never leak (#77).
-func writeError(w http.ResponseWriter, code int, err error) {
+// message to the client, so internal details never leak (#77). The ≥500 log line
+// carries the request's request_id (#348) — the same id the JSON access log
+// records — so a 5xx can be correlated across both logs.
+func writeError(ctx context.Context, w http.ResponseWriter, code int, err error) {
 	if code >= http.StatusInternalServerError {
-		log.Printf("http %d: %v", code, err)
+		loggerFrom(ctx).Error("http error", "status", code, "err", err.Error())
 		writeJSON(w, code, map[string]string{"error": http.StatusText(code)})
 		return
 	}
 	writeJSON(w, code, map[string]string{"error": err.Error()})
+}
+
+// ctxKey is the private context key for the request-scoped logger (#348).
+type ctxKey struct{}
+
+// requestLogger is middleware that binds a logger tagged with the chi request-id
+// to the request context, so app logs emitted while handling the request carry the
+// same request_id as the access log. Register it after middleware.RequestID.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := slog.With("request_id", middleware.GetReqID(r.Context()))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, l)))
+	})
+}
+
+// loggerFrom returns the request-scoped logger bound by requestLogger, or the
+// default logger outside a request.
+func loggerFrom(ctx context.Context) *slog.Logger {
+	if l, ok := ctx.Value(ctxKey{}).(*slog.Logger); ok {
+		return l
+	}
+	return slog.Default()
 }
