@@ -330,6 +330,26 @@ func TestLoadMissingFileUsesDefaultsPlusEnv(t *testing.T) {
 	}
 }
 
+func TestRetiredEncryptionKeys(t *testing.T) {
+	// None configured → nil, no error.
+	if keys, err := (&Config{}).RetiredEncryptionKeys(); err != nil || keys != nil {
+		t.Fatalf("no retired keys = (%v, %v), want (nil, nil)", keys, err)
+	}
+	// Two valid 32-byte base64 keys decode.
+	k1 := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	k2 := base64.StdEncoding.EncodeToString(append(make([]byte, 31), 1))
+	c := &Config{Storage: StorageConfig{RetiredKeys: []string{k1, k2, ""}}} // blank skipped
+	keys, err := c.RetiredEncryptionKeys()
+	if err != nil || len(keys) != 2 {
+		t.Fatalf("valid retired keys = (len %d, %v), want (2, nil)", len(keys), err)
+	}
+	// Wrong length is rejected.
+	bad := &Config{Storage: StorageConfig{RetiredKeys: []string{base64.StdEncoding.EncodeToString(make([]byte, 16))}}}
+	if _, err := bad.RetiredEncryptionKeys(); err == nil {
+		t.Fatal("16-byte retired key should be rejected")
+	}
+}
+
 func TestSourceChunkPreset(t *testing.T) {
 	c := &Config{Sources: []SourceConfig{
 		{Type: "github", ChunkPreset: "code"},

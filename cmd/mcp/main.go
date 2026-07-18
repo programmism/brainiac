@@ -54,13 +54,17 @@ func run() error {
 	// the protocol stream. Structured JSON to stderr (#258); no ring here.
 	applog.Setup(os.Stderr, nil, cfg.Logging.Format, cfg.Logging.Level)
 
-	// Optional app-level chunk-text encryption (#377); no-op when ENCRYPTION_KEY
-	// is unset (the default).
+	// Optional app-level encryption (#377/#403); no-op when ENCRYPTION_KEY is unset.
+	// Retired keys stay readable for rotation until `kb reencrypt` migrates them.
 	encKey, err := cfg.ChunkEncryptionKey()
 	if err != nil {
 		return err
 	}
-	if err := store.SetChunkCipher(encKey); err != nil {
+	retiredKeys, err := cfg.RetiredEncryptionKeys()
+	if err != nil {
+		return err
+	}
+	if err := store.SetChunkCiphers(encKey, retiredKeys...); err != nil {
 		return err
 	}
 
