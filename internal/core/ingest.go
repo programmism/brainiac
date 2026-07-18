@@ -277,7 +277,15 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 
 	var deleted int64
 	err = store.WithTx(ctx, c.pool, func(db store.DBTX) error {
-		d, err := store.DeleteChunksBySourceURINotIn(ctx, db, doc.SourceURI, hashes)
+		// Membership-based reconcile (#244/#387): drop this source's claim on the
+		// content it no longer carries, then delete only the chunks whose LAST
+		// source is now gone. For a single-source chunk this is identical to the old
+		// per-source delete (its sole membership drops → it's orphaned → pruned); for
+		// content another source still vouches for, the chunk survives.
+		if _, err := store.DropChunkSourceMembershipNotIn(ctx, db, doc.SourceURI, hashes); err != nil {
+			return err
+		}
+		d, err := store.PruneOrphanChunks(ctx, db)
 		if err != nil {
 			return err
 		}

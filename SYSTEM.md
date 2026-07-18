@@ -383,6 +383,21 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Membership-based ingest reconcile (#387, ingestion P1 — activates #244's deletion side).**
+  The re-ingest reconcile deleted stale chunks with the per-source `DeleteChunksBySourceURINotIn` (drop this
+  source's chunks whose content is gone). Now it drops this source's *membership* for gone content
+  (`DropChunkSourceMembershipNotIn`) and then `PruneOrphanChunks` deletes only chunks whose **last** source
+  is gone. For a single-source chunk this is identical to before — its sole membership drops, it orphans, it
+  is pruned — so minimal single-user re-ingest behaves exactly as it did (verified by a single-source
+  control in the test). The new behavior only shows once a chunk has more than one source: content another
+  source still vouches for survives a re-ingest that removes it elsewhere. This is the deletion foundation
+  the watch-driven / opt-in deletion issues (#323, #247) need. The now-dead `DeleteChunksBySourceURINotIn`
+  was removed. **Global content dedup** (reuse an existing chunk by `content_hash` across sources instead of
+  storing a duplicate; relax `chunks_source_hash_uniq` → unique on `content_hash`; move skip-detection and
+  the `chunks.source_uri` provenance column onto membership) is the other half of #387 and is follow-up #389
+  — a destructive migration that collapses legacy duplicate rows, kept separate for its own careful DB
+  tests. Until it lands, dedup stays per-source, so a chunk gains a second source only via an explicit
+  `RecordChunkSource` (not yet on the ingest path).
 - **2026-07-18** — **Multi-source chunk provenance schema (#244, ingestion P1 — keystone, schema half).**
   A chunk carried a single `source_uri`, so identical content ingested from two sources became two rows
   (`chunks_source_hash_uniq` is `(source_uri, content_hash)`) and deleting one source could delete content
