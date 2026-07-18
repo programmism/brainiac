@@ -195,18 +195,8 @@ func (c *Core) pruneMissingDocs(ctx context.Context, seen, schemes map[string]bo
 			if seen[uri] {
 				continue
 			}
-			var deleted int64
-			if err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
-				if _, err := store.DropChunkSourceMembershipNotIn(ctx, db, uri, nil); err != nil {
-					return err
-				}
-				d, err := store.PruneOrphanChunks(ctx, db)
-				if err != nil {
-					return err
-				}
-				deleted = d
-				return store.DeleteSourceSync(ctx, db, uri)
-			}); err != nil {
+			deleted, err := c.propagateDelete(ctx, uri)
+			if err != nil {
 				return err
 			}
 			stats.Deleted += int(deleted)
@@ -214,6 +204,28 @@ func (c *Core) pruneMissingDocs(ctx context.Context, seen, schemes map[string]bo
 		}
 	}
 	return nil
+}
+
+// propagateDelete removes one document that no longer exists at its source: drop
+// this source's chunk memberships, prune chunks whose last source is now gone
+// (#387), and delete its source_sync row so a later run doesn't resurrect the skip.
+// One transaction. Returns how many chunks were actually deleted (0 if every chunk
+// is still vouched for by another source). Shared by the full-sweep prune
+// (#247) and the Watch()-driven delete stream (#323).
+func (c *Core) propagateDelete(ctx context.Context, uri string) (int64, error) {
+	var deleted int64
+	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+		if _, err := store.DropChunkSourceMembershipNotIn(ctx, db, uri, nil); err != nil {
+			return err
+		}
+		d, err := store.PruneOrphanChunks(ctx, db)
+		if err != nil {
+			return err
+		}
+		deleted = d
+		return store.DeleteSourceSync(ctx, db, uri)
+	})
+	return deleted, err
 }
 
 // IngestText stores a single document's text into the memory (chunk → select →

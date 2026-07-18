@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Watch()-driven deletion capability (#323, ingestion P1).** Connectors implement `Watch()`
+  (streaming source-side changes) but nothing consumed it. New `Core.ApplyChanges(conn, opts)` consumes the
+  `Watch()` stream: a `deleted` change propagates the deletion via the shared `propagateDelete` helper
+  (membership-based #387 — a document's chunks drop only when this source was their last claim, and its
+  `source_sync` row is removed), gated on the same opt-in as the full-sweep prune (`PruneMissing`, default
+  OFF, #247/#107). An `upserted` change is counted but not applied — `Watch()` carries only the SourceURI,
+  so re-ingesting new content needs a `Fetch` (that, connector cursors, and the connector-side mtime skip
+  are follow-up #395). Standalone capability: nothing wires `Watch()` into the running server yet (the
+  markdown connector's `Watch` is a no-op), so no default behavior changes — like BatchExtractor (#326),
+  it's ready for a future streaming-sync driver. `propagateDelete` was factored out of the #247 sweep prune
+  so both the sweep and the stream share one deletion path.
 - **2026-07-18** — **Global content dedup across sources (#389, ingestion P1).** Ingest deduped only *within* a
   source (`ChunkHashesBySourceURI`), so byte-identical content from two sources was embedded and stored
   twice. Now the reconcile decides skip/link/insert by **membership + global content_hash**: skip-detection
