@@ -294,6 +294,38 @@ func TestLoadMissingFileUsesDefaultsPlusEnv(t *testing.T) {
 	}
 }
 
+func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-dsn")
+	// Default: JSON at info (#258).
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Logging.Format != "json" || c.Logging.Level != "info" {
+		t.Fatalf("default logging = %q/%q, want json/info", c.Logging.Format, c.Logging.Level)
+	}
+	// Env overrides both.
+	t.Setenv("LOG_FORMAT", "text")
+	t.Setenv("LOG_LEVEL", "debug")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Logging.Format != "text" || c.Logging.Level != "debug" {
+		t.Fatalf("env not applied: %q/%q", c.Logging.Format, c.Logging.Level)
+	}
+	// Invalid values are rejected by Validate (via Load).
+	t.Setenv("LOG_FORMAT", "xml")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for logging.format=xml")
+	}
+	t.Setenv("LOG_FORMAT", "json")
+	t.Setenv("LOG_LEVEL", "loud")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for logging.level=loud")
+	}
+}
+
 func TestWebUIModeEnvOverride(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://env-dsn")
 	// Default (no env): read-only.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/programmism/brainiac/internal/applog"
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/mcpserver"
@@ -42,6 +43,10 @@ func run() error {
 		return err
 	}
 
+	// stdio transport owns stdout, so app logs MUST go to stderr or they corrupt
+	// the protocol stream. Structured JSON to stderr (#258); no ring here.
+	applog.Setup(os.Stderr, nil, cfg.Logging.Format, cfg.Logging.Level)
+
 	ctx := context.Background()
 	pool, err := store.ConnectWithRetry(ctx, cfg.Storage.DSN, 60*time.Second)
 	if err != nil {
@@ -63,8 +68,6 @@ func run() error {
 	}
 	srv := mcpserver.New(c, importFunc(c, cfg), principal)
 
-	// stdio: logs must go to stderr so they don't corrupt the protocol stream.
-	log.SetOutput(os.Stderr)
 	log.Printf("brainiac-mcp %s: serving over stdio", core.Version)
 	return srv.Run(ctx, &mcp.StdioTransport{})
 }

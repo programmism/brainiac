@@ -34,6 +34,7 @@ type Config struct {
 	Sources       []SourceConfig      `yaml:"sources"`
 	Clients       ClientsConfig       `yaml:"clients"`
 	Ingest        IngestConfig        `yaml:"ingest"`
+	Logging       LoggingConfig       `yaml:"logging"`
 	// Principals is the opt-in Layer 2 hard-isolation roster (#120). Empty =
 	// Layer 1 (open reads, single AUTH_TOKEN gates writes) — unchanged. When set,
 	// every /api call requires a principal's bearer token, reads are walled to its
@@ -214,6 +215,17 @@ func (c *Config) AutoImportInterval() time.Duration {
 	return d
 }
 
+// LoggingConfig controls the application logger (#258). The access log is always
+// JSON; these tune the app logger's rendering and verbosity.
+type LoggingConfig struct {
+	// Format is "json" (default — Docker's json-file driver rotates it, so the
+	// durable log survives crashes) or "text" for human-readable local runs.
+	Format string `yaml:"format,omitempty"`
+	// Level is debug|info|warn|error (default info). Bridged stdlib log.Printf
+	// lines emit at info, so a level above info also drops those.
+	Level string `yaml:"level,omitempty"`
+}
+
 // HTTPConfig configures the REST/WebUI server.
 type HTTPConfig struct {
 	Addr string `yaml:"addr"`
@@ -346,6 +358,8 @@ func Default() *Config {
 	c.Clients.MCP = true
 	c.Clients.WebUI = "read-only"
 	c.Clients.CLI = true
+	c.Logging.Format = "json"
+	c.Logging.Level = "info"
 	return c
 }
 
@@ -413,6 +427,12 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("INGEST_INTERVAL"); v != "" {
 		c.Ingest.Interval = v
+	}
+	if v := os.Getenv("LOG_FORMAT"); v != "" {
+		c.Logging.Format = v
+	}
+	if v := os.Getenv("LOG_LEVEL"); v != "" {
+		c.Logging.Level = v
 	}
 	// Local-LLM extractor (opt-in). EXTRACTOR=local-llm turns it on; the model is
 	// required in that case, the URL defaults to the embedding Ollama.
@@ -553,6 +573,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Embedding.MaxConcurrency < 0 {
 		return fmt.Errorf("embedding.max_concurrency must be >= 0, got %d", c.Embedding.MaxConcurrency)
+	}
+	if f := strings.ToLower(strings.TrimSpace(c.Logging.Format)); f != "" && f != "json" && f != "text" {
+		return fmt.Errorf("logging.format must be 'json' or 'text', got %q", c.Logging.Format)
+	}
+	switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {
+	case "", "debug", "info", "warn", "warning", "error":
+	default:
+		return fmt.Errorf("logging.level must be one of debug|info|warn|error, got %q", c.Logging.Level)
 	}
 	if err := c.validatePrincipals(); err != nil {
 		return err
