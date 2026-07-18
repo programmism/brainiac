@@ -35,6 +35,22 @@ restore the app picks up the data immediately (schema + vectors + graph all came
 - For point-in-time recovery (PITR) at larger scale, enable WAL archiving on Postgres; the daily dump is
   the simple default for the prototype/team tier.
 
+## Hot / cold tiering (#231)
+
+The hot tier is HNSW-indexed and searched; cold is an archive (no vector index, not
+in the default search path). Content is promoted to hot on ingest by the density
+selector. On a large KB, cap the hot tier so its index stays within RAM (the §9 ★
+ratio) with an **opt-in age-based demotion**: set `tiering.max_hot_age`
+(env `TIERING_MAX_HOT_AGE`, a Go duration like `4320h` = 180d) and run periodically:
+
+```bash
+kb sweep-tiers      # archives hot chunks older than max_hot_age to cold
+```
+
+Demoted chunks keep their text + embedding — cold is **archival and re-promotable**
+(`SetChunkTier` / a reindex), not deleted. It's a no-op until `max_hot_age` is set.
+An on-demand cold-search path (query the archive when hot misses) is tracked in #365.
+
 ## Right-to-erasure (#272)
 
 Supersede/merge keep history; for a GDPR erasure you need a real delete. Hard-delete

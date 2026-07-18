@@ -51,6 +51,37 @@ func migrateCmd() *cobra.Command {
 	}
 }
 
+func sweepTiersCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "sweep-tiers",
+		Short: "Archive hot chunks older than tiering.max_hot_age to the cold tier (#231)",
+		Long: "Demotes hot chunks older than tiering.max_hot_age (env TIERING_MAX_HOT_AGE)\n" +
+			"to the cold archive, keeping the hot vector index within RAM. Cold chunks keep\n" +
+			"their text + embedding (out of the default search path, re-promotable). No-op\n" +
+			"unless max_hot_age is configured. Run periodically (cron) on a large KB.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			out := cmd.OutOrStdout()
+			maxAge := cfg.MaxHotAgeDuration()
+			if maxAge <= 0 {
+				fmt.Fprintln(out, "sweep-tiers: tiering.max_hot_age not set — nothing to do")
+				return nil
+			}
+			n, err := buildCore(cfg, pool).SweepColdTier(ctx, maxAge)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "sweep-tiers: demoted %d hot chunk(s) older than %s to cold\n", n, maxAge)
+			return nil
+		},
+	}
+}
+
 func eraseCmd() *cobra.Command {
 	var nodeID, source string
 	var force bool

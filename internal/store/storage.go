@@ -66,6 +66,20 @@ func SetChunkTier(ctx context.Context, db DBTX, id string, tier model.Tier) erro
 	return err
 }
 
+// DemoteStaleHotChunks archives every hot chunk created before olderThan to the
+// cold tier (#231): the automated hot→cold half of tiering that keeps the hot
+// vector index within RAM. Cold chunks keep their text + embedding (recoverable by
+// re-promotion / reindex), they just leave the default hot search path. Returns
+// how many were demoted.
+func DemoteStaleHotChunks(ctx context.Context, db DBTX, olderThan time.Time) (int64, error) {
+	tag, err := db.Exec(ctx,
+		`UPDATE chunks SET tier = 'cold' WHERE tier = 'hot' AND created_at < $1`, olderThan)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 // ChunkHashesBySourceURI returns the set of content hashes currently stored for
 // a source, so re-ingest can keep unchanged chunks and reconcile the rest.
 func ChunkHashesBySourceURI(ctx context.Context, db DBTX, uri string) (map[string]bool, error) {

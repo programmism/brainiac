@@ -326,6 +326,32 @@ func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
 	}
 }
 
+func TestTieringMaxHotAgeEnvAndValidation(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	// Default: unset → disabled (0).
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.MaxHotAgeDuration() != 0 {
+		t.Fatalf("default max_hot_age should be 0 (disabled), got %v", c.MaxHotAgeDuration())
+	}
+	// Env sets a parseable duration.
+	t.Setenv("TIERING_MAX_HOT_AGE", "4320h")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.MaxHotAgeDuration() != 4320*time.Hour {
+		t.Fatalf("max_hot_age env not applied: %v", c.MaxHotAgeDuration())
+	}
+	// A malformed / non-positive duration is rejected.
+	t.Setenv("TIERING_MAX_HOT_AGE", "later")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for unparseable max_hot_age")
+	}
+}
+
 func TestHNSWIndexParamsEnvAndValidation(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	// Defaults match pgvector.

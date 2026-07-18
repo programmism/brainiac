@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
@@ -66,4 +67,22 @@ func (c *Core) SetChunkTier(ctx context.Context, chunkID string, tier model.Tier
 		return fmt.Errorf("invalid tier %q", tier)
 	}
 	return store.SetChunkTier(ctx, c.pool, chunkID, tier)
+}
+
+// SweepColdTier demotes every hot chunk older than maxHotAge to the cold archive
+// (#231) — the automated hot→cold policy that bounds the hot vector index so it
+// stays within RAM (SYSTEM.md §9 ★ ratio). Cold chunks keep their text + embedding
+// and can be re-promoted; they just leave the default hot search path. maxHotAge
+// must be > 0 (the caller decides whether tiering is enabled). Audited. Returns
+// how many chunks were demoted.
+func (c *Core) SweepColdTier(ctx context.Context, maxHotAge time.Duration) (int, error) {
+	if maxHotAge <= 0 {
+		return 0, fmt.Errorf("sweep cold tier: max_hot_age must be > 0")
+	}
+	n, err := store.DemoteStaleHotChunks(ctx, c.pool, time.Now().Add(-maxHotAge))
+	if err != nil {
+		return 0, err
+	}
+	c.audit(ctx, "sweep_cold_tier", maxHotAge.String(), "")
+	return int(n), nil
 }
