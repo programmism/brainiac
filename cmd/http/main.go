@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -267,31 +268,31 @@ func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every tim
 			log.Printf("auto-import: embedded %d chunks of %s", p.Embedded, p.Doc)
 		}
 	}
-	// Opt-in deletion propagation (#247/#323). Prune is scoped by URI scheme, and
-	// every markdown dir shares the markdown:// scheme, so pruning after one dir's
-	// sweep would wrongly delete another dir's docs. Only enable it for the single
-	// -dir case (the minimal single-user /data/docs setup); multi-dir prune is a
-	// follow-up (#391).
-	pruneMissing := cfg.Ingest.PruneDeleted && len(dirs) == 1
-	if cfg.Ingest.PruneDeleted && len(dirs) > 1 {
-		log.Printf("auto-import: INGEST_PRUNE_DELETED ignored — deletion propagation needs a single docs dir (%d configured); see #391", len(dirs))
+	// All docs dirs are swept by ONE multi-root connector (#391) so a single sweep's
+	// seen-set covers every file — which is what makes deletion propagation (#247)
+	// correct across more than one dir (a per-dir sweep would see the other dirs'
+	// files as "missing"). A single dir keeps the markdown://<rel> URIs unchanged.
+	dirList := make([]string, 0, len(dirs))
+	for d := range dirs {
+		dirList = append(dirList, d)
 	}
+	sort.Strings(dirList)
+	pruneMissing := cfg.Ingest.PruneDeleted
 	run := func() {
-		for dir := range dirs {
-			stats, err := c.Ingest(ctx, markdown.New(dir), core.IngestOptions{OnProgress: onProgress, Incremental: true, PruneMissing: pruneMissing})
-			if err != nil {
-				log.Printf("auto-import %s: %v", dir, err)
-				continue
-			}
-			if stats.Kept+stats.Queued+stats.Deleted > 0 {
-				log.Printf("auto-import %s: +%d kept, %d deleted", dir, stats.Kept+stats.Queued, stats.Deleted)
-			}
-			if stats.DeletedDocs > 0 {
-				log.Printf("auto-import %s: %d document(s) removed (source-side deletion propagated, #247)", dir, stats.DeletedDocs)
-			}
-			if stats.FetchErrors > 0 {
-				log.Printf("auto-import %s: %d fetch error(s) skipped (import continued) (#241)", dir, stats.FetchErrors)
-			}
+		conn := markdown.NewMulti(dirList)
+		stats, err := c.Ingest(ctx, conn, core.IngestOptions{OnProgress: onProgress, Incremental: true, PruneMissing: pruneMissing})
+		if err != nil {
+			log.Printf("auto-import: %v", err)
+			return
+		}
+		if stats.Kept+stats.Queued+stats.Deleted > 0 {
+			log.Printf("auto-import: +%d kept, %d deleted", stats.Kept+stats.Queued, stats.Deleted)
+		}
+		if stats.DeletedDocs > 0 {
+			log.Printf("auto-import: %d document(s) removed (source-side deletion propagated, #247)", stats.DeletedDocs)
+		}
+		if stats.FetchErrors > 0 {
+			log.Printf("auto-import: %d fetch error(s) skipped (import continued) (#241)", stats.FetchErrors)
 		}
 	}
 	log.Printf("auto-import enabled every %s (watching /data/docs)", every)

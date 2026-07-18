@@ -383,6 +383,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Multi-dir deletion propagation via a multi-root markdown connector (#391, ingestion P2).**
+  Deletion propagation (#247) was gated to a single docs dir because every markdown dir shared the
+  `markdown://` scheme, so a per-dir sweep saw the other dirs' files as "missing". The markdown connector is
+  now **multi-root** (`markdown.NewMulti(dirs)`; `New(dir)` delegates to it), and auto-import runs **one
+  sweep over all docs dirs** — so the seen-set covers everything and prune is correct with any number of
+  dirs (the `len(dirs)==1` gate is removed). A **single** root keeps the historical `markdown://<rel>` URI
+  unchanged (existing single-dir data/behavior identical); with **several** roots each URI is namespaced by
+  its root (`markdown://<root>/<rel>`) so same-relative-path files in different dirs don't collide. Note:
+  an existing *multi-dir* deployment's URIs change on the next sweep (one-time re-ingest; multi-dir was
+  effectively unusable before this anyway). Push-based file watching (fsnotify) remains #395's scope.
 - **2026-07-18** — **Encrypt node summary + rollup at rest (#403 part 1, security P2).** Extends the encryption
   seam (#377/#399) to `nodes.summary` and `nodes.rollup`. Writes encrypt at all three sites (`InsertNode`,
   `UpdateNodeSummary`, `UpdateNodeRollup`); reads decrypt at all three (`scanNode`, `FindSimilarNodes`, and
