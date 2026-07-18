@@ -400,11 +400,23 @@ type SourceConfig struct {
 // SourceTrust returns the configured trust level for a source type ("" when no
 // such source or it's unset, which the core treats as untrusted).
 func (c *Config) SourceTrust(typ string) string {
-	if sc := c.Source(typ); sc != nil {
+	if sc := c.Source(typ); sc != nil && sc.Trust != "" {
 		return sc.Trust
+	}
+	// Local files (markdown, ./data/docs) are placed by the operator, so they are
+	// trusted by default — this keeps the single-user local auto-extraction path
+	// working with zero extra config. Remote connector firehoses stay untrusted by
+	// default (fail-closed); "" lets the core apply that default. An explicit
+	// sources[].trust / <TYPE>_TRUST always wins (#361, #367).
+	if typ == "markdown" {
+		return TrustTrusted
 	}
 	return ""
 }
+
+// TrustTrusted mirrors model.TrustTrusted so config need not import core/model just
+// for the default; kept in sync by the trust check in Validate.
+const TrustTrusted = "trusted"
 
 // Source returns the first configured source of the given type, or nil.
 func (c *Config) Source(typ string) *SourceConfig {

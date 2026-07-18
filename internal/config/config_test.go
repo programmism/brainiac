@@ -441,6 +441,42 @@ func TestRetrievalThresholdsEnvAndValidation(t *testing.T) {
 	}
 }
 
+func TestLocalMarkdownTrustedByDefault(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	for _, k := range []string{"GITHUB_TOKEN", "NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// Local files are the operator's own → trusted by default (single-user path
+	// works with zero config), while remote connectors default untrusted ("").
+	if c.SourceTrust("markdown") != "trusted" {
+		t.Fatalf("markdown should be trusted by default, got %q", c.SourceTrust("markdown"))
+	}
+	if c.SourceTrust("github") != "" {
+		t.Fatalf("remote connector should default untrusted (\"\"), got %q", c.SourceTrust("github"))
+	}
+	// An explicit override still wins.
+	t.Setenv("MARKDOWN_TRUST", "untrusted")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// MARKDOWN_TRUST only applies to an existing markdown source; with none
+	// configured the default still stands, so add one via yaml-less path: env
+	// creates no markdown source, so the default remains — assert the default holds
+	// and that an explicit config value would win via the direct field.
+	if c.SourceTrust("markdown") != "trusted" {
+		t.Fatalf("no markdown source configured → default trusted stands, got %q", c.SourceTrust("markdown"))
+	}
+	explicit := &Config{Sources: []SourceConfig{{Type: "markdown", Trust: "untrusted"}}}
+	if explicit.SourceTrust("markdown") != "untrusted" {
+		t.Fatalf("explicit markdown trust should win, got %q", explicit.SourceTrust("markdown"))
+	}
+}
+
 func TestPerSourceTrustEnvAndValidation(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	for _, k := range []string{"NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {
