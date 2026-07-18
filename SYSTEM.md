@@ -365,6 +365,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Google Drive connector (#239, ingestion P1).** A fifth connector over the stable
+  `SourceConnector` seam. `internal/plugins/gdrive` lists the files an OAuth **access token** (`GDRIVE_TOKEN`)
+  can see (`GET /drive/v3/files?q=trashed=false`, `nextPageToken`-paginated) and pulls their text: **Google
+  Docs** are exported to `text/plain` (`/files/{id}/export?mimeType=text/plain`), `text/*` files are
+  downloaded (`?alt=media`); folders, Sheets/Slides, and binaries are skipped, and a per-file error is
+  non-fatal (#241). Each file → one `RawDoc` (`webViewLink` provenance, `modifiedTime` → `ModifiedAt`). Wired
+  like the others: `GDRIVE_TOKEN` auto-creates a `gdrive` source; MCP `import` / CLI `kb import --source
+  gdrive` dispatch to it. Fully unit-tested against a fake Drive API (Doc export vs text download, folder/PDF
+  skip, 401→error) — no live token. **Minting/refreshing** the OAuth token is deliberately out of scope (the
+  per-source credential/OAuth store is #246); Sheets/Slides export and Drive change-token incremental sync
+  can follow (#323).
 - **2026-07-18** — **GitHub connector (#238, ingestion P1).** A fourth connector over the stable
   `SourceConnector` seam. `internal/plugins/github` reads a repo's **issues + pull requests** (title/body)
   over the GitHub REST API (`GET /repos/{owner}/{repo}/issues?state=all`, which returns PRs too — tagged
