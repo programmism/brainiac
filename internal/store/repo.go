@@ -92,6 +92,22 @@ func ChunkExistsByHash(ctx context.Context, db DBTX, hash string) (bool, error) 
 	return exists, err
 }
 
+// ChunkIDByHash returns the id of any stored chunk with the given content hash
+// (false if none). Global content dedup (#389) uses it to reuse an existing chunk
+// across sources — recording the new source's membership instead of re-embedding
+// and re-storing identical content.
+func ChunkIDByHash(ctx context.Context, db DBTX, hash string) (string, bool, error) {
+	var id string
+	err := db.QueryRow(ctx, `SELECT id FROM chunks WHERE content_hash = $1 LIMIT 1`, hash).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}
+
 // SearchChunks returns the k nearest chunks to embedding by cosine distance, with
 // provenance. By default only the hot (HNSW-indexed) tier is searched; includeCold
 // also scans cold-tier chunks (#365) — a sequential scan with no vector index, so

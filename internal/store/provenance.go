@@ -20,6 +20,32 @@ func RecordChunkSource(ctx context.Context, db DBTX, chunkID, sourceURI string) 
 	return err
 }
 
+// SourceMemberHashes returns the content hashes a source currently vouches for,
+// via membership (not the chunks.source_uri column) — so a source that shares a
+// deduped chunk with another source still counts it as "already have this" and a
+// re-ingest skips it. This is the global-dedup (#389) analog of
+// ChunkHashesBySourceURI; for a single-source chunk the two return the same set.
+func SourceMemberHashes(ctx context.Context, db DBTX, uri string) (map[string]bool, error) {
+	rows, err := db.Query(ctx, `
+		SELECT c.content_hash
+		FROM chunk_sources cs
+		JOIN chunks c ON c.id = cs.chunk_id
+		WHERE cs.source_uri = $1 AND c.content_hash IS NOT NULL`, uri)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var h string
+		if err := rows.Scan(&h); err != nil {
+			return nil, err
+		}
+		out[h] = true
+	}
+	return out, rows.Err()
+}
+
 // ChunkSourceURIs returns the sources a chunk belongs to, sorted. Used by the
 // membership-based prune and tests to reason about how many sources still vouch
 // for a chunk.

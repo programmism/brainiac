@@ -98,6 +98,7 @@ type IngestStats struct {
 	Queued      int // stored cold (borderline; excluded from default search)
 	Dropped     int // rejected by the selector
 	Skipped     int // unchanged (content hash already present for this source)
+	Deduped     int // reused an existing chunk by content hash across sources (#389) — not re-embedded
 	SkippedDocs int // whole documents skipped by incremental mtime check (#236)
 	Deleted     int // stale chunks removed (source content edited away/removed)
 	DeletedDocs int // whole documents removed by PruneMissing (source-side deletions, #247)
@@ -273,12 +274,15 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 		hashes[i] = hashText(p.Text)
 	}
 
-	existing, err := store.ChunkHashesBySourceURI(ctx, c.pool, doc.SourceURI)
+	// Membership-based "already have it" set (#389): hashes this source vouches
+	// for, including chunks it shares (deduped) with other sources — so a re-ingest
+	// skips them. For a single-source chunk this equals the old per-source hash set.
+	existing, err := store.SourceMemberHashes(ctx, c.pool, doc.SourceURI)
 	if err != nil {
 		return err
 	}
 
-	// Pass 1: decide skip/drop/keep per chunk and collect the ones that need
+	// Pass 1: decide skip/link/drop/keep per chunk and collect the ones that need
 	// embedding, so they can be embedded in one batch instead of one round-trip
 	// each (embedding dominates bulk-ingest cost — #140).
 	type pending struct {
@@ -289,10 +293,21 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 		locator map[string]any
 	}
 	var toEmbed []pending
-	skipped, dropped, kept, queued := 0, 0, 0, 0
+	var toLink []string // ids of existing chunks this source should also vouch for (#389)
+	skipped, dropped, kept, queued, deduped := 0, 0, 0, 0, 0
 	for i, ck := range chunks {
 		if existing[hashes[i]] {
-			skipped++ // unchanged — already stored for this source
+			skipped++ // unchanged — this source already vouches for this content
+			continue
+		}
+		// Global content dedup (#389): identical content already stored under any
+		// source is reused — record this source's membership and skip re-embedding
+		// and re-storing it. The chunk survives until its LAST source drops it.
+		if id, ok, err := store.ChunkIDByHash(ctx, c.pool, hashes[i]); err != nil {
+			return err
+		} else if ok {
+			toLink = append(toLink, id)
+			deduped++
 			continue
 		}
 		score := c.selector.Score(ck)
@@ -325,6 +340,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 		}
 		stats.Chunks += len(chunks)
 		stats.Skipped += skipped
+		stats.Deduped += deduped
 		stats.Dropped += dropped
 		stats.Kept += kept
 		stats.Queued += queued
@@ -380,6 +396,13 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 				return err
 			}
 		}
+		// Global dedup (#389): this source also vouches for content already stored
+		// under another source — record membership without re-storing the chunk.
+		for _, id := range toLink {
+			if err := store.RecordChunkSource(ctx, db, id, doc.SourceURI); err != nil {
+				return err
+			}
+		}
 		// Record the sync point so a later incremental run can skip this document
 		// if its source hasn't advanced (#236). Atomic with the reconcile above.
 		return store.UpsertSourceSync(ctx, db, doc.SourceURI, doc.ModifiedAt)
@@ -390,6 +413,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 
 	stats.Chunks += len(chunks)
 	stats.Skipped += skipped
+	stats.Deduped += deduped
 	stats.Dropped += dropped
 	stats.Kept += kept
 	stats.Queued += queued
