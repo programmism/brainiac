@@ -28,7 +28,7 @@ func TestFreshnessBreaksTies(t *testing.T) {
 		t.Fatalf("insert fresh: %v", err)
 	}
 
-	hits, err := c.Search(ctx, text, 10, "")
+	hits, err := c.Search(ctx, text, 10, "", false)
 	if err != nil || len(hits) < 1 {
 		t.Fatalf("search: hits=%d err=%v", len(hits), err)
 	}

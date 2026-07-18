@@ -143,9 +143,10 @@ type chunkDTO struct {
 }
 
 type searchIn struct {
-	Query   string `json:"query" jsonschema:"the search query"`
-	K       int    `json:"k,omitempty" jsonschema:"maximum number of results (default 10)"`
-	Project string `json:"project,omitempty" jsonschema:"scope results to this project + global; omit to search across all projects"`
+	Query       string `json:"query" jsonschema:"the search query"`
+	K           int    `json:"k,omitempty" jsonschema:"maximum number of results (default 10)"`
+	Project     string `json:"project,omitempty" jsonschema:"scope results to this project + global; omit to search across all projects"`
+	IncludeCold bool   `json:"include_cold,omitempty" jsonschema:"also search the cold archive (slower, no index) when the hot tier misses; default false"`
 }
 type searchOut struct {
 	Chunks []chunkDTO `json:"chunks"`
@@ -313,7 +314,7 @@ type supersedeOut struct {
 
 func searchTool(c *core.Core) mcp.ToolHandlerFor[searchIn, searchOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in searchIn) (*mcp.CallToolResult, searchOut, error) {
-		hits, err := c.Search(ctx, in.Query, in.K, in.Project)
+		hits, err := c.Search(ctx, in.Query, in.K, in.Project, in.IncludeCold)
 		if err != nil {
 			return nil, searchOut{}, err
 		}

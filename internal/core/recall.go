@@ -81,7 +81,7 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 
 	// 1. Hybrid search over chunks: dense vector + lexical FTS, fused (scoped to
 	//    the lens). Reuses the query embedding computed above (#211, #221).
-	chunks, err := c.hybridSearch(ctx, emb, query, DefaultRecallChunks, project)
+	chunks, err := c.hybridSearch(ctx, emb, query, DefaultRecallChunks, project, false)
 	if err != nil {
 		return nil, err
 	}

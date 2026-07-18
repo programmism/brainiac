@@ -36,11 +36,12 @@ const MaxRelevantDistance = 0.75
 // default, overridable per deployment via WithRetrievalThresholds / config (#332).
 const ChunkDistanceGap = 0.15
 
-// Search embeds the query and returns hot-tier chunks within MaxRelevantDistance,
-// nearest first (§10 step 1). It is the vector half of retrieval. The project
-// scopes the soft retrieval lens (project + global); an empty project spans all
-// scopes, preserving cross-project search (#119).
-func (c *Core) Search(ctx context.Context, query string, k int, project string) ([]model.ChunkHit, error) {
+// Search embeds the query and returns chunks within MaxRelevantDistance, nearest
+// first (§10 step 1). It is the vector half of retrieval. The project scopes the
+// soft retrieval lens (project + global); an empty project spans all scopes,
+// preserving cross-project search (#119). includeCold also searches the cold
+// archive (#365) — slower (no vector index), for when the hot tier misses.
+func (c *Core) Search(ctx context.Context, query string, k int, project string, includeCold bool) ([]model.ChunkHit, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return nil, nil
@@ -49,7 +50,7 @@ func (c *Core) Search(ctx context.Context, query string, k int, project string) 
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrEmbed, err)
 	}
-	return c.hybridSearch(ctx, emb, query, k, project)
+	return c.hybridSearch(ctx, emb, query, k, project, includeCold)
 }
 
 // rrfK is the reciprocal-rank-fusion constant (the standard 60): a larger value
@@ -61,7 +62,7 @@ const rrfK = 60
 // config keys) that dense vectors miss are still surfaced. It embeds nothing — the
 // caller passes the precomputed query vector (so recall embeds once, #221) and the
 // raw query text for the FTS side.
-func (c *Core) hybridSearch(ctx context.Context, emb []float32, query string, k int, project string) ([]model.ChunkHit, error) {
+func (c *Core) hybridSearch(ctx context.Context, emb []float32, query string, k int, project string, includeCold bool) ([]model.ChunkHit, error) {
 	if k <= 0 {
 		k = DefaultSearchK
 	}
@@ -71,12 +72,12 @@ func (c *Core) hybridSearch(ctx context.Context, emb []float32, query string, k 
 	if pool < 20 {
 		pool = 20
 	}
-	dense, err := store.SearchChunks(ctx, c.pool, emb, pool, scope, wall)
+	dense, err := store.SearchChunks(ctx, c.pool, emb, pool, scope, wall, includeCold)
 	if err != nil {
 		return nil, err
 	}
 	dense = filterByDistance(dense, c.retrieval.MaxChunkDistance, c.retrieval.ChunkDistanceGap)
-	lexical, err := store.SearchChunksLexical(ctx, c.pool, query, pool, scope, wall)
+	lexical, err := store.SearchChunksLexical(ctx, c.pool, query, pool, scope, wall, includeCold)
 	if err != nil {
 		return nil, err
 	}

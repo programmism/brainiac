@@ -43,7 +43,7 @@ func TestIngestTrustTagging(t *testing.T) {
 	}
 
 	// The tag rides through retrieval so a client can weigh recalled text.
-	hits, err := c.Search(ctx, "OrderService Kafka durability", 5, "")
+	hits, err := c.Search(ctx, "OrderService Kafka durability", 5, "", false)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

@@ -30,7 +30,7 @@ func TestSearchCollapsesNearDuplicates(t *testing.T) {
 		t.Fatalf("insert other: %v", err)
 	}
 
-	hits, err := c.Search(ctx, "backoff retry", 10, "")
+	hits, err := c.Search(ctx, "backoff retry", 10, "", false)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

@@ -88,7 +88,7 @@ func TestRepositories(t *testing.T) {
 			t.Fatalf("insert chunk %s: %v", c.text, err)
 		}
 	}
-	hits, err := SearchChunks(ctx, pool, vec(5), 2, AllScopes(), NoWall())
+	hits, err := SearchChunks(ctx, pool, vec(5), 2, AllScopes(), NoWall(), false)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

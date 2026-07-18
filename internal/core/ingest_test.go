@@ -238,7 +238,7 @@ func TestSearchLensScopesByProject(t *testing.T) {
 	}
 
 	// Lens for alpha sees alpha + global, not beta.
-	hits, err := c.Search(ctx, body, 10, "alpha")
+	hits, err := c.Search(ctx, body, 10, "alpha", false)
 	if err != nil {
 		t.Fatalf("search alpha: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestSearchLensScopesByProject(t *testing.T) {
 	}
 
 	// No project → spans all scopes.
-	all, err := c.Search(ctx, body, 10, "")
+	all, err := c.Search(ctx, body, 10, "", false)
 	if err != nil {
 		t.Fatalf("search all: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestRecallScopeProvenance(t *testing.T) {
 	}
 
 	// Search under alpha: hits carry a scope label — alpha's own vs the global doc.
-	hits, err := c.Search(ctx, body, 10, "alpha")
+	hits, err := c.Search(ctx, body, 10, "alpha", false)
 	if err != nil {
 		t.Fatalf("search alpha: %v", err)
 	}

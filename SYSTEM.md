@@ -383,6 +383,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **On-demand cold-tier search (#365, scale P2).** #231 archives aged chunks to the cold tier
+  but `SearchChunks`/`SearchChunksLexical` hard-coded `tier = 'hot'`, so cold content was unsearchable without
+  re-promotion. Threaded an `includeCold` flag through `core.Search` → `hybridSearch` → both store search
+  funcs (a `tierPredicate` helper drops the hot filter when set), so an operator can search the archive
+  on-demand — a **sequential scan, no vector index, documented as slower** (the cold tier has no HNSW). Recall
+  stays hot-only. Surfaced via `kb search --include-cold`, the MCP `search` tool's `include_cold` arg, and
+  `GET /api/search?include_cold=true`; results already carry `tier`, and the CLI tags cold hits `[cold]`.
+  DB-gated test (a demoted chunk is invisible to the default search but returned, tagged cold, with
+  include-cold). An optional cold HNSW index (queryable cold without a scan, at RAM cost) stays a noted
+  future option in #365's thread.
 - **2026-07-18** — **Historical-row retention sweep (#363, security/ops P2).** Supersede/merge keep rows, so
   under the keep-everything default the superseded churn (historical nodes/edges) grows unbounded. Added an
   **opt-in** retention pass: `store.PurgeHistoricalOlderThan(cutoff)` + `core.SweepRetention(maxAge)` +
