@@ -231,6 +231,9 @@ func GetChunksBySourceURI(ctx context.Context, db DBTX, uri string, limit int, w
 			&contentHash, &c.CreatedAt, &c.SourceModifiedAt); err != nil {
 			return nil, err
 		}
+		if err := decryptInto(&c.Text); err != nil {
+			return nil, err
+		}
 		c.Tier = model.Tier(tier)
 		if contentHash != nil {
 			c.ContentHash = *contentHash

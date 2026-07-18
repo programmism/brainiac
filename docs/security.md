@@ -96,11 +96,18 @@ pointing it at real data or a network.
    - **Backups:** `scripts/backup.sh` writes `*.sql.gz` — store them on encrypted
      object storage (SSE) too, since a dump is the whole DB in the clear.
 
-   This covers the common threat (a stolen disk / leaked volume snapshot).
-   **App-level column encryption** (encrypting `why` / chunk `text` with an
-   app-held key, for defense against a DB-role compromise) is deliberately **not**
-   built in — it breaks FTS/vector indexing and adds key management; tracked as a
-   larger opt-in follow-up (#377).
+   This covers the common threat (a stolen disk / leaked volume snapshot) and is
+   the **recommended** posture. **Optional app-level chunk-text encryption**
+   (#377) adds defense-in-depth against a DB-role compromise on a shared/managed
+   Postgres: set `ENCRYPTION_KEY` to a base64 32-byte AES-256 key
+   (`openssl rand -base64 32`) and chunk `text` is stored AES-256-GCM encrypted at
+   rest. It's **off by default** and needs no migration (old plaintext rows stay
+   readable; only new writes are encrypted). Trade-offs: **vector search is
+   unaffected** (embeddings are computed from plaintext before storage), but
+   **lexical/FTS search can't match encrypted chunks**; and **losing the key makes
+   encrypted text unrecoverable** (there is no recovery path — back the key up
+   separately from the DB). Node/edge field encryption + key rotation are a
+   follow-up (#399).
 6. **Right-to-erasure at fact granularity — shipped (#272, #363).** `kb erase
    --node <id>` / `--source <uri>` hard-deletes a specific entity+edges or a
    document's chunks+edges (real delete, audited, wall-checked); `kb

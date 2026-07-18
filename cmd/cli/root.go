@@ -81,6 +81,14 @@ func connect(ctx context.Context) (*config.Config, *pgxpool.Pool, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// Optional app-level chunk-text encryption (#377); no-op when unset.
+	encKey, err := cfg.ChunkEncryptionKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := store.SetChunkCipher(encKey); err != nil {
+		return nil, nil, err
+	}
 	pool, err := store.Connect(ctx, cfg.Storage.DSN)
 	if err != nil {
 		return nil, nil, fmt.Errorf("connect db: %w", err)

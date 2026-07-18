@@ -2,12 +2,48 @@ package config
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestChunkEncryptionKey(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-dsn")
+	none := func() string { return filepath.Join(t.TempDir(), "none.yaml") }
+
+	// Default: OFF (nil key, no error) — plaintext, as before.
+	c, err := Load(none())
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if k, err := c.ChunkEncryptionKey(); err != nil || k != nil {
+		t.Fatalf("default key = (%v, %v), want (nil, nil)", k, err)
+	}
+
+	// Valid 32-byte base64 key decodes.
+	t.Setenv("ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	c, _ = Load(none())
+	if k, err := c.ChunkEncryptionKey(); err != nil || len(k) != 32 {
+		t.Fatalf("valid key = (len %d, %v), want (32, nil)", len(k), err)
+	}
+
+	// Wrong length is rejected (fail fast).
+	t.Setenv("ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 16)))
+	c, _ = Load(none())
+	if _, err := c.ChunkEncryptionKey(); err == nil {
+		t.Fatal("16-byte key should be rejected")
+	}
+
+	// Non-base64 is rejected.
+	t.Setenv("ENCRYPTION_KEY", "not valid base64 !!!")
+	c, _ = Load(none())
+	if _, err := c.ChunkEncryptionKey(); err == nil {
+		t.Fatal("non-base64 key should be rejected")
+	}
+}
 
 func TestDefaultIsSane(t *testing.T) {
 	c := Default()

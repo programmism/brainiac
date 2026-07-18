@@ -33,6 +33,9 @@ func AllChunkTexts(ctx context.Context, db DBTX) ([]ChunkText, error) {
 		if err := rows.Scan(&c.ID, &c.Text); err != nil {
 			return nil, err
 		}
+		if err := decryptInto(&c.Text); err != nil {
+			return nil, err
+		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
