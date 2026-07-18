@@ -51,6 +51,21 @@ Demoted chunks keep their text + embedding — cold is **archival and re-promota
 (`SetChunkTier` / a reindex), not deleted. It's a no-op until `max_hot_age` is set.
 An on-demand cold-search path (query the archive when hot misses) is tracked in #365.
 
+## Retention of historical rows (#363)
+
+Supersede/merge keep the old node/edge as history ("why we changed our minds"),
+which is valuable but grows forever. Optionally bound it: set `retention.max_age`
+(env `RETENTION_MAX_AGE`, a Go duration like `8760h` = 1y) and run periodically:
+
+```bash
+kb sweep-retention   # hard-deletes historical rows older than max_age
+```
+
+It only touches **historical** (superseded) rows whose valid-time is known and
+older than the window — **current** memory is never affected, and a historical
+node still referenced by an edge is kept until its edges age out. No-op until
+`max_age` is set. At-rest encryption is tracked in #371.
+
 ## Right-to-erasure (#272)
 
 Supersede/merge keep history; for a GDPR erasure you need a real delete. Hard-delete

@@ -3,9 +3,32 @@ package core
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/programmism/brainiac/internal/store"
 )
+
+// SweepRetention hard-deletes historical nodes/edges whose valid-time is older
+// than maxAge (#363) — a bounded retention pass so superseded churn doesn't grow
+// forever under the keep-everything default. It never touches current rows and is
+// FK-safe (see store.PurgeHistoricalOlderThan). Audited. maxAge must be > 0.
+func (c *Core) SweepRetention(ctx context.Context, maxAge time.Duration) (store.DeleteCounts, error) {
+	if maxAge <= 0 {
+		return store.DeleteCounts{}, fmt.Errorf("sweep retention: max_age must be > 0")
+	}
+	cutoff := time.Now().Add(-maxAge)
+	var counts store.DeleteCounts
+	err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+		var err error
+		counts, err = store.PurgeHistoricalOlderThan(ctx, db, cutoff)
+		return err
+	})
+	if err != nil {
+		return counts, err
+	}
+	c.audit(ctx, "sweep_retention", maxAge.String(), "")
+	return counts, nil
+}
 
 // EraseNode hard-deletes a node and all its edges (GDPR right-to-erasure, #272) —
 // a real delete, unlike supersede/merge which keep the rows as history. It is

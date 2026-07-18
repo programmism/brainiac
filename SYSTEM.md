@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Historical-row retention sweep (#363, security/ops P2).** Supersede/merge keep rows, so
+  under the keep-everything default the superseded churn (historical nodes/edges) grows unbounded. Added an
+  **opt-in** retention pass: `store.PurgeHistoricalOlderThan(cutoff)` + `core.SweepRetention(maxAge)` +
+  `kb sweep-retention`, config `retention.max_age` (Go duration, env `RETENTION_MAX_AGE`; empty/0 = disabled,
+  validated positive). It only ever touches `status='historical'` rows with a known valid-time
+  (`superseded_at IS NOT NULL AND superseded_at < cutoff`) — **current** rows and pre-valid-time historical
+  rows (superseded_at NULL, #200) are never affected. FK-safe: aged historical **edges** go first (nothing
+  references an edge), then aged historical **nodes with no remaining edge reference**, so a live `supersedes`
+  edge pointing at an old node is never orphaned (a still-referenced historical node is kept until its edges
+  age out). Audited (`sweep_retention`). DB-gated test (aged historical node/edge purged; current rows and a
+  still-referenced historical node kept; counts exact). **At-rest encryption** (or documented volume-
+  encryption reliance) — the other half of the original #363 — moves to follow-up #371.
 - **2026-07-18** — **Structured splitting of oversized code/table blocks (#350, ingestion P2).** #242 keeps a
   fenced code block or table whole when it fits within `maxSize`, but a block that both *starts* a chunk and
   exceeds `maxSize` still fell back to an arbitrary rolling-hash cut mid-block. `avoidSplit` now routes that
