@@ -196,6 +196,124 @@ func TestSplitWithProvenance(t *testing.T) {
 	}
 }
 
+// prose returns n paragraphs of filler so a fenced block placed between them
+// straddles what would otherwise be a natural chunk boundary.
+func prose(n int) string {
+	var sb strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&sb, "Paragraph %d: the quick brown fox jumps over the lazy dog by the river. ", i)
+		if i%4 == 3 {
+			sb.WriteString("\n\n")
+		}
+	}
+	return sb.String()
+}
+
+func TestAtomicRegionsDetection(t *testing.T) {
+	text := "before\n```go\nfunc f() {}\nx := 1\n```\nafter\n"
+	regs := atomicRegions([]byte(text))
+	if len(regs) != 1 {
+		t.Fatalf("want 1 region, got %d: %+v", len(regs), regs)
+	}
+	got := text[regs[0].lo:regs[0].hi]
+	want := "```go\nfunc f() {}\nx := 1\n```\n"
+	if got != want {
+		t.Fatalf("region = %q, want %q", got, want)
+	}
+	// A lone pipe line is not a table; two consecutive rows are.
+	if r := atomicRegions([]byte("a | b is prose\nmore\n")); len(r) != 0 {
+		t.Fatalf("lone pipe line should not be atomic: %+v", r)
+	}
+	tbl := "| a | b |\n|---|---|\n| 1 | 2 |\n"
+	if r := atomicRegions([]byte(tbl)); len(r) != 1 || tbl[r[0].lo:r[0].hi] != tbl {
+		t.Fatalf("table not detected as one region: %+v", r)
+	}
+	// An unterminated fence runs to EOF so a half-open block still isn't split.
+	if r := atomicRegions([]byte("x\n```\nunclosed\n")); len(r) != 1 || r[0].hi != len("x\n```\nunclosed\n") {
+		t.Fatalf("unterminated fence should extend to EOF: %+v", r)
+	}
+}
+
+// A fenced code block that fits within maxSize must land whole inside a single
+// chunk even when surrounded by enough prose to force several chunks (#242).
+func TestFencedBlockNotSplit(t *testing.T) {
+	fence := "```go\n"
+	for i := 0; i < 12; i++ {
+		fence += fmt.Sprintf("line%02d := compute(%d) // keep this whole\n", i, i)
+	}
+	fence += "```"
+	text := prose(30) + "\n\n" + fence + "\n\n" + prose(30)
+
+	chunks := Split(text)
+	if len(chunks) < 3 {
+		t.Fatalf("expected several chunks, got %d", len(chunks))
+	}
+	whole := false
+	for _, c := range chunks {
+		if strings.Contains(c, fence) {
+			whole = true
+		}
+		// No chunk should contain an opening fence without its close (a mid-split).
+		if n := strings.Count(c, "```"); n%2 != 0 {
+			t.Errorf("chunk splits a code fence (odd ``` count): %q", c)
+		}
+	}
+	if !whole {
+		t.Fatalf("fenced block was not kept whole in any chunk")
+	}
+}
+
+// A Markdown table that fits within maxSize is likewise kept intact.
+func TestTableNotSplit(t *testing.T) {
+	var tb strings.Builder
+	tb.WriteString("| id | name | note |\n|----|------|------|\n")
+	for i := 0; i < 12; i++ {
+		fmt.Fprintf(&tb, "| %d | row-%02d | keep this row intact |\n", i, i)
+	}
+	table := strings.TrimRight(tb.String(), "\n")
+	text := prose(30) + "\n\n" + table + "\n\n" + prose(30)
+
+	for _, c := range Split(text) {
+		if strings.Contains(c, "| id | name | note |") && !strings.Contains(c, "row-11") {
+			t.Fatalf("table header separated from its last row — split mid-table:\n%q", c)
+		}
+	}
+}
+
+func TestFenceCharAndClosing(t *testing.T) {
+	if _, ok := fenceChar([]byte("```go")); !ok {
+		t.Error("```go should open a fence")
+	}
+	if _, ok := fenceChar([]byte("  ~~~")); !ok {
+		t.Error("indented ~~~ should open a fence")
+	}
+	if _, ok := fenceChar([]byte("``x")); ok {
+		t.Error("two backticks is not a fence")
+	}
+	if !isClosingFence([]byte("```\n"), '`') {
+		t.Error("``` should close a backtick fence")
+	}
+	if isClosingFence([]byte("```go\n"), '`') {
+		t.Error("a fence with an info string does not close")
+	}
+	if isClosingFence([]byte("~~~\n"), '`') {
+		t.Error("~~~ must not close a backtick fence")
+	}
+}
+
+func TestStructureAwareStillDeterministic(t *testing.T) {
+	text := prose(20) + "\n\n```\ncode block here\nsecond line\n```\n\n" + prose(20)
+	a, b := Split(text), Split(text)
+	if len(a) != len(b) {
+		t.Fatalf("non-deterministic length: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			t.Fatalf("chunk %d differs across runs", i)
+		}
+	}
+}
+
 func TestATXHeading(t *testing.T) {
 	cases := map[string]string{
 		"# Title":          "Title",

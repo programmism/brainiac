@@ -238,6 +238,10 @@ chunk after the first is prefixed with a bounded (≤ `overlapMax` = 256 B), sen
 previous chunk, so a fact straddling a boundary lands whole in at least one chunk. The overlap is a function
 of local content, so the self-healing property holds — an edit's blast radius just grows by one chunk (the
 one whose overlap changed); near-duplicate results the overlap creates are collapsed at retrieval (#217).
+Chunking is **structure-aware** (#242): a boundary is never placed inside a fenced code block or a Markdown
+table when the block fits within `maxSize`, so code/tables aren't halved mid-structure (which mangles both
+rendering and the embedding); an oversized block instead begins its own chunk. Atomic regions are a pure
+function of content, so self-healing is preserved.
 `IngestOptions.DryRun` (CLI `kb import --dry-run`) runs chunk + select only — no embed, no write — and
 reports what *would* happen (chunk count, kept/queued/dropped/skipped, would-delete), to preview a large or
 wrongly-scoped import before committing (#142). `IngestOptions.OnProgress` emits a running
@@ -371,6 +375,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Structure-aware chunking: don't split code fences / tables (#242, ingestion P1).** One
+  CDC chunker cut everything by rolling-hash boundaries, so a fenced code block or a Markdown table straddling
+  a cut was halved mid-structure — mangling both its rendering and its embedding. The chunker now computes the
+  document's **atomic regions** (fenced ```` ``` ````/`~~~` blocks — including unterminated ones, to EOF — and
+  runs of ≥2 pipe rows) as a pure function of content, and `avoidSplit` reroutes any cut that lands inside
+  one: keep the block whole when `[start,block_end] ≤ maxSize`, else cut *before* the block so it begins the
+  next chunk (its own shot at staying whole); only a block that both starts the chunk and exceeds `maxSize` is
+  split. The `maxSize` core bound is therefore unchanged, so overlap/size invariants and the self-healing
+  property all hold. Pure chunk unit tests (region detection incl. tables/unterminated fences, a fence and a
+  table kept whole across a multi-chunk split, determinism). Deferred to #350: dedicated code-by-symbol and
+  table-by-row chunkers + per-source Selection strategy routing (this slice keeps blocks intact but doesn't
+  yet chunk *within* a large code file by symbol).
 - **2026-07-18** — **Structured JSON app logger + stdlib bridge (#258, observability P1).** The access-log
   half of #258 already emitted JSON to stdout with a `request_id` (2026-07-17); the **application** logger was
   still stdlib `log` in plain text on **stderr**, so the durable machine-parseable log covered requests but
