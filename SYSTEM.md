@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **GitHub Discussions + Link-header pagination (#381, ingestion P2).** The GitHub connector
+  paginated issues by requesting `page=N` until a short page — which mis-stops if the last page is exactly
+  `per_page` long. It now follows GitHub's `Link: rel="next"` header (`nextLink` parses it) and stops when
+  there's no next link. Added opt-in GitHub **Discussions** ingestion (`WithDiscussions` /
+  `GITHUB_DISCUSSIONS`, default OFF): Discussions live only in the GraphQL API, so it POSTs a `discussions`
+  query and paginates by GraphQL cursor (`pageInfo.hasNextPage`/`endCursor`), yielding one RawDoc per
+  discussion (`kind:"discussion"`). Blind-implemented and unit-tested against a fake REST+GraphQL server
+  (Link-header paging, cursor paging, off-by-default). No default behavior change — issues/PRs still ingest
+  exactly as before; Discussions require the opt-in.
 - **2026-07-18** — **Watch()-driven deletion capability (#323, ingestion P1).** Connectors implement `Watch()`
   (streaming source-side changes) but nothing consumed it. New `Core.ApplyChanges(conn, opts)` consumes the
   `Watch()` stream: a `deleted` change propagates the deletion via the shared `propagateDelete` helper

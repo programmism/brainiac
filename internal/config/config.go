@@ -403,6 +403,9 @@ type SourceConfig struct {
 	Path      string   `yaml:"path,omitempty"`  // for file-based connectors (markdown)
 	Repos     []string `yaml:"repos,omitempty"` // "owner/repo" list for the github connector (#238)
 	Files     []string `yaml:"files,omitempty"` // opt-in path globs for repo file ingestion (github, #354)
+	// Discussions opts into ingesting a github repo's Discussions via GraphQL
+	// (#381). Off by default (issues/PRs only).
+	Discussions bool `yaml:"discussions,omitempty"`
 	// BaseURL and Email configure the Atlassian connectors (jira, confluence, #343):
 	// the site base URL and the account email for Basic email:token auth.
 	BaseURL string `yaml:"base_url,omitempty"`
@@ -643,6 +646,13 @@ func (c *Config) applyEnvOverrides() {
 		for i := range c.Sources {
 			if c.Sources[i].Type == "github" {
 				c.Sources[i].Files = splitCSV(v)
+			}
+		}
+	}
+	if v := os.Getenv("GITHUB_DISCUSSIONS"); v == "true" || v == "1" {
+		for i := range c.Sources {
+			if c.Sources[i].Type == "github" {
+				c.Sources[i].Discussions = true
 			}
 		}
 	}

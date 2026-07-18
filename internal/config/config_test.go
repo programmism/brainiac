@@ -294,6 +294,35 @@ func TestLoadMissingFileUsesDefaultsPlusEnv(t *testing.T) {
 	}
 }
 
+func TestGithubDiscussionsOptIn(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-dsn")
+	t.Setenv("GITHUB_TOKEN", "ghp-abc")
+	t.Setenv("GITHUB_REPOS", "octo/mem")
+
+	// Default: OFF — issues/PRs only.
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	sc := c.Source("github")
+	if sc == nil {
+		t.Fatal("github source not created from token")
+	}
+	if sc.Discussions {
+		t.Fatal("Discussions must default to false (opt-in)")
+	}
+
+	// Env opts in.
+	t.Setenv("GITHUB_DISCUSSIONS", "true")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !c.Source("github").Discussions {
+		t.Fatal("GITHUB_DISCUSSIONS=true did not enable discussions")
+	}
+}
+
 func TestIngestPruneDeletedDefaultsOffAndEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://env-dsn")
 	// Default: OFF — the retention default keeps deleted content (#107), so the

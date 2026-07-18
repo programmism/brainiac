@@ -4,10 +4,10 @@
 // blind connector — unit-tested against a fake GitHub API, not a live token.
 //
 // Auth is a GitHub token (classic or fine-grained PAT) with `repo` read scope;
-// pass it via GITHUB_TOKEN. Read-only. Beyond issues + PRs, it can (opt-in, via
-// WithFiles / GITHUB_FILES) also ingest a repo's tracked files matching path globs
-// as documents (#354). GitHub Discussions (GraphQL) and Link-header pagination are
-// tracked as follow-ups.
+// pass it via GITHUB_TOKEN. Read-only. Issue/PR pages are followed via the
+// Link: rel="next" header (#381). Beyond issues + PRs it can (opt-in) also ingest a
+// repo's tracked files matching path globs (WithFiles / GITHUB_FILES, #354) and its
+// GitHub Discussions via GraphQL (WithDiscussions / GITHUB_DISCUSSIONS, #381).
 package github
 
 import (
@@ -32,11 +32,12 @@ const (
 // Connector reads issues + PRs from the given "owner/repo" repositories, and
 // (opt-in) tracked files matching a set of path globs.
 type Connector struct {
-	token   string
-	baseURL string
-	client  *http.Client
-	repos   []string
-	files   []string // path globs to also ingest as documents (#354); empty = off
+	token       string
+	baseURL     string
+	client      *http.Client
+	repos       []string
+	files       []string // path globs to also ingest as documents (#354); empty = off
+	discussions bool     // opt-in: also ingest GitHub Discussions via GraphQL (#381)
 }
 
 // Option customizes a Connector.
@@ -57,6 +58,13 @@ func WithHTTPClient(h *http.Client) Option { return func(c *Connector) { c.clien
 // matches the basename.
 func WithFiles(globs []string) Option {
 	return func(c *Connector) { c.files = append(c.files, globs...) }
+}
+
+// WithDiscussions opts into ingesting a repo's GitHub Discussions (title + body)
+// as documents, in addition to issues/PRs (#381). Discussions are only exposed via
+// the GraphQL API, so this issues a GraphQL query. Off by default.
+func WithDiscussions() Option {
+	return func(c *Connector) { c.discussions = true }
 }
 
 // New builds a GitHub connector for the given token and "owner/repo" list.
@@ -93,8 +101,12 @@ func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] 
 			if ctx.Err() != nil {
 				return
 			}
-			for page := 1; ; page++ {
-				items, err := c.issuesPage(ctx, repo, page)
+			// Follow GitHub's Link: rel="next" header across pages rather than
+			// guessing from page size (#381) — robust to a final page that happens
+			// to be exactly per_page long.
+			url := fmt.Sprintf("%s/repos/%s/issues?state=all&per_page=%d", c.baseURL, repo, perPage)
+			for url != "" {
+				items, next, err := c.issuesPage(ctx, repo, url)
 				if err != nil {
 					if !yield(plugins.RawDoc{}, err) {
 						return
@@ -110,8 +122,12 @@ func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] 
 						return
 					}
 				}
-				if len(items) < perPage {
-					break
+				url = next
+			}
+			// Opt-in: also ingest a repo's Discussions via GraphQL (#381).
+			if c.discussions {
+				if !c.fetchDiscussions(ctx, repo, yield) {
+					return
 				}
 			}
 			// Opt-in: also ingest tracked files matching the configured globs (#354).
@@ -179,12 +195,12 @@ func parseTime(s string) *time.Time {
 }
 
 // issuesPage fetches one page of a repo's issues (which the REST API returns
-// together with pull requests).
-func (c *Connector) issuesPage(ctx context.Context, repo string, page int) ([]issue, error) {
-	url := fmt.Sprintf("%s/repos/%s/issues?state=all&per_page=%d&page=%d", c.baseURL, repo, perPage, page)
+// together with pull requests) from url, and returns the next page's URL parsed
+// from the Link header ("" when there is no next page).
+func (c *Connector) issuesPage(ctx context.Context, repo, url string) ([]issue, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	req.Header.Set("Authorization", "Bearer "+c.token)
 	req.Header.Set("Accept", "application/vnd.github+json")
@@ -192,16 +208,47 @@ func (c *Connector) issuesPage(ctx context.Context, repo string, page int) ([]is
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("github issues request: %w", err)
+		return nil, "", fmt.Errorf("github issues request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<12))
-		return nil, fmt.Errorf("github %s issues: status %d: %s", repo, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, "", fmt.Errorf("github %s issues: status %d: %s", repo, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var out []issue
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode github response: %w", err)
+		return nil, "", fmt.Errorf("decode github response: %w", err)
 	}
-	return out, nil
+	return out, nextLink(resp.Header.Get("Link")), nil
+}
+
+// nextLink extracts the rel="next" URL from a GitHub Link header (#381), or "" if
+// there is none. The header looks like:
+//
+//	<https://api.github.com/…&page=2>; rel="next", <…&page=9>; rel="last"
+func nextLink(header string) string {
+	if header == "" {
+		return ""
+	}
+	for _, part := range strings.Split(header, ",") {
+		segs := strings.Split(part, ";")
+		if len(segs) < 2 {
+			continue
+		}
+		isNext := false
+		for _, s := range segs[1:] {
+			if strings.TrimSpace(s) == `rel="next"` {
+				isNext = true
+				break
+			}
+		}
+		if !isNext {
+			continue
+		}
+		u := strings.TrimSpace(segs[0])
+		u = strings.TrimPrefix(u, "<")
+		u = strings.TrimSuffix(u, ">")
+		return u
+	}
+	return ""
 }
