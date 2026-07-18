@@ -280,6 +280,41 @@ func TestTableNotSplit(t *testing.T) {
 	}
 }
 
+// A table too large to fit one chunk splits across chunks, and every continuation
+// fragment repeats the header + separator so each is a self-describing table (#369).
+func TestTableHeaderRepeatedOnSplit(t *testing.T) {
+	const header = "| id | owner | service |"
+	const sep = "|----|-------|---------|"
+	var tb strings.Builder
+	tb.WriteString(header + "\n" + sep + "\n")
+	for i := 0; i < 120; i++ { // large enough to exceed maxSize and split
+		fmt.Fprintf(&tb, "| %03d | owner-%03d | service-payments-team-%03d |\n", i, i, i)
+	}
+	text := strings.TrimRight(tb.String(), "\n")
+
+	pieces := SplitWithProvenance(text)
+	if len(pieces) < 2 {
+		t.Fatalf("a >maxSize table should split into >=2 chunks, got %d", len(pieces))
+	}
+	bound := maxSize + overlapMax + 1
+	fragments := 0
+	for _, p := range pieces {
+		if len(p.Text) > bound {
+			t.Fatalf("chunk exceeds size bound %d: got %d", bound, len(p.Text))
+		}
+		if !strings.Contains(p.Text, "owner-") {
+			continue // not a body-bearing fragment
+		}
+		fragments++
+		if !strings.Contains(p.Text, header) {
+			t.Fatalf("table fragment missing repeated header:\n%q", p.Text)
+		}
+	}
+	if fragments < 2 {
+		t.Fatalf("expected the header carried across >=2 table fragments, got %d", fragments)
+	}
+}
+
 func TestFenceCharAndClosing(t *testing.T) {
 	if _, ok := fenceChar([]byte("```go")); !ok {
 		t.Error("```go should open a fence")
