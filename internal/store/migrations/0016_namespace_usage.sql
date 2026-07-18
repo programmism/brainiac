@@ -10,10 +10,12 @@
 -- equal to count(*) regardless of which code path (remember, ingest, merge,
 -- split, prune, namespace delete) caused the change. A row can also change
 -- namespace when its discriminators are re-scoped (disambiguate) — `project` is a
--- STORED generated column of discriminators — so an UPDATE-of-discriminators
--- trigger moves the count between namespaces. Non-discriminator updates
--- (re-embed, tier change, status change) can't move `project`, so those triggers
--- deliberately do not fire on them.
+-- STORED generated column of discriminators — so an UPDATE trigger nets the move
+-- between namespaces. Postgres forbids a column list (UPDATE OF discriminators)
+-- on a trigger that also uses transition tables, so the UPDATE trigger fires on
+-- every update; its aggregate has `HAVING sum(delta) <> 0`, so an update that
+-- doesn't move `project` (re-embed, tier/status change) produces no rows and never
+-- touches — or locks — the counter.
 
 CREATE TABLE namespace_usage (
     project text PRIMARY KEY,
@@ -32,13 +34,13 @@ BEGIN
         INSERT INTO namespace_usage (project, nodes)
             SELECT project, count(*)::bigint FROM old_rows GROUP BY project
             ON CONFLICT (project) DO UPDATE SET nodes = namespace_usage.nodes - EXCLUDED.nodes;
-    ELSE -- UPDATE OF discriminators: -1 for each old project, +1 for each new
+    ELSE -- UPDATE: -1 for each old project, +1 for each new; skip net-zero moves
         INSERT INTO namespace_usage (project, nodes)
             SELECT project, sum(delta)::bigint FROM (
                 SELECT project, -1 AS delta FROM old_rows
                 UNION ALL
                 SELECT project,  1 AS delta FROM new_rows
-            ) d GROUP BY project
+            ) d GROUP BY project HAVING sum(delta) <> 0
             ON CONFLICT (project) DO UPDATE SET nodes = namespace_usage.nodes + EXCLUDED.nodes;
     END IF;
     RETURN NULL;
@@ -48,7 +50,7 @@ CREATE TRIGGER nodes_usage_ins AFTER INSERT ON nodes
     REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION namespace_usage_nodes();
 CREATE TRIGGER nodes_usage_del AFTER DELETE ON nodes
     REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION namespace_usage_nodes();
-CREATE TRIGGER nodes_usage_upd AFTER UPDATE OF discriminators ON nodes
+CREATE TRIGGER nodes_usage_upd AFTER UPDATE ON nodes
     REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION namespace_usage_nodes();
 
 -- chunks counter: identical shape.
@@ -62,13 +64,13 @@ BEGIN
         INSERT INTO namespace_usage (project, chunks)
             SELECT project, count(*)::bigint FROM old_rows GROUP BY project
             ON CONFLICT (project) DO UPDATE SET chunks = namespace_usage.chunks - EXCLUDED.chunks;
-    ELSE -- UPDATE OF discriminators
+    ELSE -- UPDATE: skip net-zero moves so unrelated updates don't touch the counter
         INSERT INTO namespace_usage (project, chunks)
             SELECT project, sum(delta)::bigint FROM (
                 SELECT project, -1 AS delta FROM old_rows
                 UNION ALL
                 SELECT project,  1 AS delta FROM new_rows
-            ) d GROUP BY project
+            ) d GROUP BY project HAVING sum(delta) <> 0
             ON CONFLICT (project) DO UPDATE SET chunks = namespace_usage.chunks + EXCLUDED.chunks;
     END IF;
     RETURN NULL;
@@ -78,7 +80,7 @@ CREATE TRIGGER chunks_usage_ins AFTER INSERT ON chunks
     REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION namespace_usage_chunks();
 CREATE TRIGGER chunks_usage_del AFTER DELETE ON chunks
     REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION namespace_usage_chunks();
-CREATE TRIGGER chunks_usage_upd AFTER UPDATE OF discriminators ON chunks
+CREATE TRIGGER chunks_usage_upd AFTER UPDATE ON chunks
     REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION namespace_usage_chunks();
 
 -- Backfill from the current truth. Migrations are serialized under an advisory

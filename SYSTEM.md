@@ -181,9 +181,10 @@ memory of *decisions*, not a fact dump.
 **`namespace_usage` (counters)** — `(project, nodes, chunks)`, an O(1) per-namespace row count maintained
 in-transaction by triggers on `nodes`/`chunks` (#229). It exists so the write-time storage quota check
 (#186) is a primary-key lookup instead of a `count(*)` aggregate that grows with the namespace. The triggers
-mirror actual row INSERT/DELETE 1:1 — and follow an `UPDATE OF discriminators` (a re-scope moves a row's
-generated `project`) — so the counters stay exactly equal to `count(*)`; `count(*)` remains the source of
-truth for the migration's backfill and reconciliation.
+mirror actual row INSERT/DELETE 1:1 — and an UPDATE trigger nets a re-scope that moves a row's generated
+`project` (guarded by `HAVING sum(delta) <> 0`, so unrelated updates never touch the counter) — so the
+counters stay exactly equal to `count(*)`; `count(*)` remains the source of truth for the migration's
+backfill and reconciliation.
 
 ---
 
@@ -386,8 +387,10 @@ Newest first.
   `checkChunkQuota` ran `SELECT count(*) WHERE project = $1` on *every* write — a filtered aggregate whose
   cost grows with the namespace even with the `project` index (#226). Added a `namespace_usage(project,
   nodes, chunks)` table maintained in-transaction by statement-level triggers (with transition tables, so a
-  bulk delete is one grouped update, not N) on `nodes`/`chunks` INSERT/DELETE plus `UPDATE OF discriminators`
-  (a disambiguate re-scope moves a row's generated `project` between namespaces). The quota check is now a
+  bulk delete is one grouped update, not N) on `nodes`/`chunks` INSERT/DELETE plus UPDATE (a disambiguate
+  re-scope moves a row's generated `project`; Postgres forbids a column list alongside transition tables, so
+  the UPDATE trigger fires on every update but `HAVING sum(delta) <> 0` makes an update that doesn't move
+  `project` a no-op that never touches the counter). The quota check is now a
   primary-key lookup (`store.NamespaceUsage`), reading the caller's own uncommitted inserts inside a link tx
   so the two-endpoint case still counts correctly. Because the triggers mirror row INSERT/DELETE exactly, the
   counters stay equal to `count(*)` across every code path (remember/ingest/merge/split/prune/handoff);
