@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **General poll-based source-watch primitive (#395, ingestion P2).** `core.SyncDeletions(conn,
+  scheme, opts)` is the source-agnostic "watch for deletions" mechanism: it lists a connector's *current*
+  documents cheaply via `Watch()` (a file source walks names without reading bytes), diffs them against what
+  was previously synced under the URI scheme (`source_sync`), and propagates a deletion for any vanished
+  document — re-reading and re-embedding nothing (unlike a full Ingest sweep), so it's cheap to run
+  periodically for *any* connector, including ones whose `Watch()` doesn't itself emit deletes. Opt-in
+  (`PruneMissing`) and fail-safe (skips pruning if the listing hit any error) like the Ingest prune (#247),
+  scheme-scoped, and membership-based (#387 — a shared chunk survives until its last source is gone).
+  Together with `ApplyChanges` (#323, push-consume) this is the reusable general-watch layer over the
+  `plugins.Change` event — works uniformly for files, S3, Notion, etc. A background scheduler that runs it
+  per configured connector, upsert re-ingest (a changed doc needs a Fetch), per-connector cursors, and
+  push adapters (fsnotify/webhooks) are follow-up #415.
 - **2026-07-18** — **Multi-dir deletion propagation via a multi-root markdown connector (#391, ingestion P2).**
   Deletion propagation (#247) was gated to a single docs dir because every markdown dir shared the
   `markdown://` scheme, so a per-dir sweep saw the other dirs' files as "missing". The markdown connector is
