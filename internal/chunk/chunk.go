@@ -13,6 +13,13 @@
 // core's tail), so the self-healing property holds — an edit's blast radius just
 // grows by one: the chunk whose overlap it changed. Near-duplicate results the
 // overlap can produce are collapsed at retrieval time (#217).
+//
+// Chunking is also structure-aware (#242): a boundary is never placed inside a
+// fenced code block or a Markdown table when the block fits within maxSize, so
+// code and tables aren't halved mid-structure (which mangles both the rendering
+// and the embedding). A block larger than maxSize instead begins its own chunk;
+// only a block that both starts a chunk and exceeds maxSize is split. Atomic
+// regions are a pure function of content, so the self-healing property is kept.
 package chunk
 
 import (
@@ -81,8 +88,9 @@ func splitCores(b []byte) []string {
 // splitCoresWithOffsets is splitCores that also returns each core's byte offset in
 // b (the untrimmed start), for passage-level provenance (#243).
 func splitCoresWithOffsets(b []byte) (cores []string, offsets []int) {
+	regions := atomicRegions(b) // structure that must not be split mid-block (#242)
 	for start := 0; start < len(b); {
-		end := nextCut(b, start)
+		end := nextCut(b, start, regions)
 		if piece := strings.TrimSpace(string(b[start:end])); piece != "" {
 			cores = append(cores, piece)
 			offsets = append(offsets, start)
@@ -201,7 +209,7 @@ func overlapStart(w []byte) int {
 }
 
 // nextCut returns the byte offset where the chunk beginning at start should end.
-func nextCut(b []byte, start int) int {
+func nextCut(b []byte, start int, regions []region) int {
 	n := len(b)
 	if n-start <= minSize {
 		return n
@@ -228,7 +236,131 @@ func nextCut(b []byte, start int) int {
 			break
 		}
 	}
-	return snap(b, start+minSize, i)
+	return avoidSplit(start, snap(b, start+minSize, i), regions)
+}
+
+// region is a byte range [lo,hi) covering an atomic structure — a fenced code
+// block or a Markdown table — that should not be split mid-block (#242). lo and
+// hi are line-aligned (the start of the opening line and the end of the closing
+// line), so cutting at either is clean.
+type region struct{ lo, hi int }
+
+// avoidSplit moves a proposed cut that lands *inside* an atomic region to a clean
+// boundary, so code fences and tables aren't halved. Preference: keep the whole
+// block in this chunk when it still fits within maxSize; otherwise cut just
+// before the block so it starts the next chunk (where it gets its own shot at
+// staying whole). Only a block that already spans from the chunk's start and
+// exceeds maxSize is split mid-block — unavoidable without an oversized chunk.
+func avoidSplit(start, cut int, regions []region) int {
+	for _, r := range regions {
+		if r.lo >= cut {
+			break // regions are sorted; none can contain cut past here
+		}
+		if cut > r.lo && cut < r.hi { // cut strictly inside this region
+			if r.hi-start <= maxSize {
+				return r.hi // keep the block whole
+			}
+			if r.lo > start {
+				return r.lo // cut before the block; it begins the next chunk
+			}
+			return cut // block fills the chunk and is too big — must split
+		}
+	}
+	return cut
+}
+
+// atomicRegions finds the fenced code blocks and Markdown tables in b, as
+// line-aligned [lo,hi) ranges sorted by lo and non-overlapping. A table needs at
+// least two consecutive pipe rows (header + separator) to count, so a lone
+// pipe-bearing prose line isn't treated as structure.
+func atomicRegions(b []byte) []region {
+	lines := lineSpans(b)
+	var regs []region
+	for i := 0; i < len(lines); {
+		ls, le := lines[i][0], lines[i][1]
+		if fc, ok := fenceChar(b[ls:le]); ok {
+			j, hi := i+1, len(b)
+			for ; j < len(lines); j++ {
+				if isClosingFence(b[lines[j][0]:lines[j][1]], fc) {
+					hi = lines[j][1]
+					j++ // consume the closing line
+					break
+				}
+			}
+			regs = append(regs, region{ls, hi})
+			i = j
+			continue
+		}
+		if isTableRow(b[ls:le]) {
+			j := i + 1
+			for j < len(lines) && isTableRow(b[lines[j][0]:lines[j][1]]) {
+				j++
+			}
+			if j-i >= 2 {
+				regs = append(regs, region{ls, lines[j-1][1]})
+			}
+			i = j
+			continue
+		}
+		i++
+	}
+	return regs
+}
+
+// lineSpans returns each line's [start, end) where end is just past its trailing
+// newline (or len(b) for the last line).
+func lineSpans(b []byte) [][2]int {
+	var spans [][2]int
+	start := 0
+	for i := 0; i < len(b); i++ {
+		if b[i] == '\n' {
+			spans = append(spans, [2]int{start, i + 1})
+			start = i + 1
+		}
+	}
+	if start < len(b) {
+		spans = append(spans, [2]int{start, len(b)})
+	}
+	return spans
+}
+
+// fenceChar reports whether line opens a code fence (>=3 leading '`' or '~',
+// after optional indentation) and which char it uses. An info string (```go) is
+// allowed after the run.
+func fenceChar(line []byte) (byte, bool) {
+	s := strings.TrimLeft(string(line), " ")
+	for _, fc := range []byte{'`', '~'} {
+		n := 0
+		for n < len(s) && s[n] == fc {
+			n++
+		}
+		if n >= 3 {
+			return fc, true
+		}
+	}
+	return 0, false
+}
+
+// isClosingFence reports whether line is a closing fence for char fc: only fc
+// repeated >=3 times, with no info string (per CommonMark).
+func isClosingFence(line []byte, fc byte) bool {
+	s := strings.TrimSpace(string(line))
+	if len(s) < 3 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] != fc {
+			return false
+		}
+	}
+	return true
+}
+
+// isTableRow reports whether line looks like a Markdown table row: after
+// optional indentation it starts with a pipe.
+func isTableRow(line []byte) bool {
+	s := strings.TrimLeft(string(line), " \t")
+	return len(s) > 0 && s[0] == '|'
 }
 
 // snap moves a cut back to the nearest line break (preferred) or whitespace
