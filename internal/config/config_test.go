@@ -441,6 +441,33 @@ func TestRetrievalThresholdsEnvAndValidation(t *testing.T) {
 	}
 }
 
+func TestOCRConfigEnvAndValidation(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	// Default: OFF (pluggability — no OCR without explicit opt-in).
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.OCR.Enabled {
+		t.Fatal("OCR must be OFF by default")
+	}
+	// Enabled + command → applied.
+	t.Setenv("OCR_ENABLED", "true")
+	t.Setenv("OCR_COMMAND", "tesseract")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !c.OCR.Enabled || c.OCR.Command != "tesseract" {
+		t.Fatalf("OCR env not applied: %+v", c.OCR)
+	}
+	// Enabled without a command is rejected.
+	t.Setenv("OCR_COMMAND", "")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for ocr.enabled without ocr.command")
+	}
+}
+
 func TestLocalMarkdownTrustedByDefault(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	for _, k := range []string{"GITHUB_TOKEN", "NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {

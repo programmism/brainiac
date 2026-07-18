@@ -4,9 +4,11 @@
 // Markdown pass through, HTML is stripped with a small hand-rolled tokenizer, and
 // DOCX is unzipped and its runs pulled from the WordprocessingML with the
 // standard library. The one exception is PDF (#321): robust parsing is beyond a
-// hand-rolled tokenizer, so it uses rsc.io/pdf to pull the text layer. A format
-// with no converter still returns ErrUnsupported so the caller can skip and count
-// it rather than ingest binary.
+// hand-rolled tokenizer, so it uses rsc.io/pdf to pull the text layer. A scanned /
+// image-only PDF has no text layer; `ToTextOCR` takes an opt-in caller-supplied
+// OCRFunc for that case (#356) — the OCR itself shells out in the app layer, so
+// doctext stays dependency-free. A format with no converter still returns
+// ErrUnsupported so the caller can skip and count it rather than ingest binary.
 package doctext
 
 import (
@@ -32,11 +34,26 @@ func Supported(name string) bool {
 	}
 }
 
+// OCRFunc converts a PDF's bytes to text via optical character recognition — the
+// opt-in fallback for scanned/image-only PDFs that carry no text layer (#356). It
+// is supplied by the caller (the app wires it to a configured external tool), so
+// doctext stays dependency-free and this file never shells out itself. Nil = OCR
+// off (the default), in which case an image-only PDF yields "".
+type OCRFunc func(pdf []byte) (string, error)
+
 // ToText extracts plain text from a document's bytes, dispatching on the file
 // extension. Markdown and plain text pass through unchanged (the chunker and
 // normalizer handle their structure). Returns ErrUnsupported for formats without
 // a converter.
 func ToText(name string, data []byte) (string, error) {
+	return ToTextOCR(name, data, nil)
+}
+
+// ToTextOCR is ToText with an optional OCR fallback (#356): when a PDF's embedded
+// text layer is empty (a scan/image-only PDF) and ocr is non-nil, ocr(data) is
+// used instead. All other formats ignore ocr. ocr is only consulted for the empty
+// case, so a text PDF never invokes it.
+func ToTextOCR(name string, data []byte, ocr OCRFunc) (string, error) {
 	switch ext(name) {
 	case ".txt", ".text", ".md", ".markdown":
 		return string(data), nil
@@ -45,7 +62,14 @@ func ToText(name string, data []byte) (string, error) {
 	case ".docx":
 		return docxToText(data)
 	case ".pdf":
-		return pdfToText(data)
+		text, err := pdfToText(data)
+		if err != nil {
+			return "", err
+		}
+		if text == "" && ocr != nil {
+			return ocr(data)
+		}
+		return text, nil
 	default:
 		return "", fmt.Errorf("%w: %q", ErrUnsupported, filepath.Ext(name))
 	}

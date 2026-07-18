@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Opt-in OCR for scanned/image-only PDFs (#356, ingestion P2).** #321 extracts a PDF's text
+  layer; an image-only scan has none, so it ingested as empty. Added an **opt-in** OCR fallback that keeps
+  doctext's dependency-free posture: `doctext.OCRFunc` (a `func([]byte)(string,error)` the caller supplies)
+  and `ToTextOCR(name,data,ocr)` — when a PDF's text layer is empty *and* an OCR func is set, it's used;
+  otherwise the PDF yields "" (skipped), and a text PDF never invokes OCR. The app wires the func from config
+  `ocr.enabled` + `ocr.command` (env `OCR_ENABLED`/`OCR_COMMAND`, **off by default**, validated: enabled
+  requires a command), shelling out via `exec.Command(cmd, tmpfile, "stdout")` — explicit args, never a shell
+  string (injection-safe), tesseract's CLI (wrap other tools in a script). Only the local-file (markdown)
+  connector, which reads `.pdf`, carries the OCRFunc (`markdown.WithOCR`); `go.mod` gains **no** new dep.
+  Pure doctext unit test with a stub OCR func + a blank (no-text) PDF fixture (image-only → "" without OCR,
+  → the OCR text with it, text PDF skips OCR, OCR error surfaces) + a config test (off by default, env,
+  enabled-requires-command).
 - **2026-07-18** — **Local markdown ingest is trusted by default (pluggability invariant).** #273 made *all*
   ingest untrusted by default (fail-closed). For a single-user local deploy that opts into the extractor over
   its own `./data/docs`, that forced every extraction to the review queue — friction for the "minimal config,

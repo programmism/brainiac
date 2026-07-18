@@ -21,10 +21,23 @@ import (
 // Connector reads Markdown files from a root directory (recursively).
 type Connector struct {
 	root string
+	ocr  doctext.OCRFunc // optional OCR fallback for scanned PDFs (#356); nil = off
 }
 
+// Option customizes a Connector.
+type Option func(*Connector)
+
+// WithOCR sets the opt-in OCR fallback used for image-only PDFs (#356).
+func WithOCR(fn doctext.OCRFunc) Option { return func(c *Connector) { c.ocr = fn } }
+
 // New builds a Markdown connector rooted at dir.
-func New(dir string) *Connector { return &Connector{root: dir} }
+func New(dir string, opts ...Option) *Connector {
+	c := &Connector{root: dir}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
+}
 
 var _ plugins.SourceConnector = (*Connector)(nil)
 
@@ -57,7 +70,7 @@ func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] 
 				}
 				return nil
 			}
-			text, convErr := doctext.ToText(d.Name(), data)
+			text, convErr := doctext.ToTextOCR(d.Name(), data, c.ocr)
 			if convErr != nil {
 				if !yield(plugins.RawDoc{}, convErr) {
 					return fs.SkipAll

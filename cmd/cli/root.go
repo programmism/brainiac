@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/doctext"
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
 	"github.com/programmism/brainiac/internal/store"
@@ -97,6 +99,37 @@ func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
 	}
 	opts = append(opts, retrievalOption(cfg))
 	return core.New(pool, embedder, density.New(), opts...)
+}
+
+// ocrFunc builds the opt-in OCR fallback for scanned PDFs (#356) from config, or
+// nil when disabled. It shells out to the configured command with the PDF written
+// to a temp file — exec with explicit args (never a shell string), so a
+// filename/command can't inject. The command's stdout is the recognized text
+// (tesseract's `<cmd> <file> stdout` CLI).
+func ocrFunc(cfg *config.Config) doctext.OCRFunc {
+	if !cfg.OCR.Enabled || cfg.OCR.Command == "" {
+		return nil
+	}
+	command := cfg.OCR.Command
+	return func(pdf []byte) (string, error) {
+		f, err := os.CreateTemp("", "brainiac-ocr-*.pdf")
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = os.Remove(f.Name()) }()
+		if _, err := f.Write(pdf); err != nil {
+			_ = f.Close()
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", err
+		}
+		out, err := exec.Command(command, f.Name(), "stdout").Output() //nolint:gosec // operator-configured command, explicit args
+		if err != nil {
+			return "", fmt.Errorf("ocr %q: %w", command, err)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
 }
 
 // retrievalOption maps the config retrieval thresholds (#332) onto the core
