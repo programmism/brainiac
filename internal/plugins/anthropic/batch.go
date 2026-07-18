@@ -95,18 +95,51 @@ func (e *Extractor) createBatch(ctx context.Context, items []BatchItem) (string,
 	return st.ID, nil
 }
 
+// CreateBatch submits items as one Message Batch and returns the provider's batch
+// id, without waiting for it to finish (#383) — for an async ingest job that stores
+// the id and polls it later with FetchBatchResults, instead of the synchronous
+// BatchExtract that blocks until the batch ends.
+func (e *Extractor) CreateBatch(ctx context.Context, items []BatchItem) (string, error) {
+	return e.createBatch(ctx, items)
+}
+
+// FetchBatchResults checks a batch once (non-blocking): while it's still processing
+// it returns (nil, false, nil); once it has ended it returns the succeeded results
+// keyed by custom_id and ended=true. The async counterpart of BatchExtract's
+// internal poll loop, for a caller that owns the polling cadence (#383).
+func (e *Extractor) FetchBatchResults(ctx context.Context, batchID string) (map[string]plugins.Extraction, bool, error) {
+	resultsURL, ended, err := e.checkBatch(ctx, batchID)
+	if err != nil || !ended {
+		return nil, ended, err
+	}
+	out, err := e.fetchResults(ctx, resultsURL)
+	return out, true, err
+}
+
+// checkBatch does a single status read: (resultsURL, ended, err). A batch that has
+// ended with no results_url is an error.
+func (e *Extractor) checkBatch(ctx context.Context, id string) (string, bool, error) {
+	var st batchStatus
+	if err := e.doJSON(ctx, http.MethodGet, fmt.Sprintf("%s/v1/messages/batches/%s", e.baseURL, id), nil, &st); err != nil {
+		return "", false, fmt.Errorf("poll batch %s: %w", id, err)
+	}
+	if st.ProcessingStatus != "ended" {
+		return "", false, nil
+	}
+	if st.ResultsURL == "" {
+		return "", false, fmt.Errorf("batch %s ended with no results_url", id)
+	}
+	return st.ResultsURL, true, nil
+}
+
 func (e *Extractor) pollBatch(ctx context.Context, id string) (string, error) {
-	url := fmt.Sprintf("%s/v1/messages/batches/%s", e.baseURL, id)
 	for i := 0; i < maxBatchPolls; i++ {
-		var st batchStatus
-		if err := e.doJSON(ctx, http.MethodGet, url, nil, &st); err != nil {
-			return "", fmt.Errorf("poll batch %s: %w", id, err)
+		resultsURL, ended, err := e.checkBatch(ctx, id)
+		if err != nil {
+			return "", err
 		}
-		if st.ProcessingStatus == "ended" {
-			if st.ResultsURL == "" {
-				return "", fmt.Errorf("batch %s ended with no results_url", id)
-			}
-			return st.ResultsURL, nil
+		if ended {
+			return resultsURL, nil
 		}
 		select {
 		case <-ctx.Done():

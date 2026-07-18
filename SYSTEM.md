@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Async batch-extraction infrastructure: separable submit/poll + job ledger (#383 part 1,
+  ingestion P2).** #326's `BatchExtract` *blocks* (submit → internal poll loop → fetch), so it can't back a
+  true async job. Split it: `Extractor.CreateBatch(items)` submits and returns the provider batch id
+  immediately, and `FetchBatchResults(id)` is a single **non-blocking** check — `(nil,false,nil)` while
+  processing, `(results,true,nil)` once ended — so a caller owns the polling cadence (`BatchExtract` now
+  layers its blocking loop over these). Migration 0022 adds an `extraction_batches` job ledger
+  (provider_batch_id + lifecycle status submitted→ended→applied/failed) with store CRUD
+  (`InsertExtractionBatch`, `SetExtractionBatchStatus`, `ExtractionBatchesByStatus`) — the work queue a
+  background poller reads. Additive: nothing writes the ledger yet, so no default behavior changes. Wiring
+  the ingest submit path (with a custom_id↔chunk mapping), the background poller that applies results to the
+  graph, the scheduler, and cross-doc entity resolution are follow-up #420.
 - **2026-07-18** — **`kb compact` maintenance command; declarative partitioning deferred (#385, scale P2).**
   #385 asked for current/historical table partitioning to bound heap bloat. A full declarative-partition
   conversion is a table rewrite whose real risk is *correctness* (faithfully recreating every index, unique
