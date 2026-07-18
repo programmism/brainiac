@@ -326,6 +326,29 @@ func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
 	}
 }
 
+func TestRetentionMaxAgeEnvAndValidation(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.MaxAgeDuration() != 0 {
+		t.Fatalf("default retention.max_age should be 0 (disabled), got %v", c.MaxAgeDuration())
+	}
+	t.Setenv("RETENTION_MAX_AGE", "8760h")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.MaxAgeDuration() != 8760*time.Hour {
+		t.Fatalf("retention.max_age env not applied: %v", c.MaxAgeDuration())
+	}
+	t.Setenv("RETENTION_MAX_AGE", "forever")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for unparseable retention.max_age")
+	}
+}
+
 func TestTieringMaxHotAgeEnvAndValidation(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	// Default: unset → disabled (0).

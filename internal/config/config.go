@@ -38,6 +38,7 @@ type Config struct {
 	Retrieval     RetrievalConfig     `yaml:"retrieval"`
 	Index         IndexConfig         `yaml:"index"`
 	Tiering       TieringConfig       `yaml:"tiering"`
+	Retention     RetentionConfig     `yaml:"retention"`
 	// Principals is the opt-in Layer 2 hard-isolation roster (#120). Empty =
 	// Layer 1 (open reads, single AUTH_TOKEN gates writes) — unchanged. When set,
 	// every /api call requires a principal's bearer token, reads are walled to its
@@ -212,6 +213,26 @@ type IngestConfig struct {
 // AutoImportInterval returns the parsed interval, or 0 if unset/invalid.
 func (c *Config) AutoImportInterval() time.Duration {
 	d, err := time.ParseDuration(c.Ingest.Interval)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+// RetentionConfig controls the historical-row retention sweep (#363). MaxAge is a
+// Go duration ("8760h" = 1y); empty/zero disables it (keep everything). When set,
+// `kb sweep-retention` hard-deletes historical (superseded) nodes/edges older than
+// it — current rows are never affected.
+type RetentionConfig struct {
+	MaxAge string `yaml:"max_age,omitempty"`
+}
+
+// MaxAgeDuration parses Retention.MaxAge; 0 (disabled) on empty or unparseable.
+func (c *Config) MaxAgeDuration() time.Duration {
+	if c.Retention.MaxAge == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(c.Retention.MaxAge)
 	if err != nil {
 		return 0
 	}
@@ -505,6 +526,9 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("TIERING_MAX_HOT_AGE"); v != "" {
 		c.Tiering.MaxHotAge = v
 	}
+	if v := os.Getenv("RETENTION_MAX_AGE"); v != "" {
+		c.Retention.MaxAge = v
+	}
 	// Local-LLM extractor (opt-in). EXTRACTOR=local-llm turns it on; the model is
 	// required in that case, the URL defaults to the embedding Ollama.
 	if v := os.Getenv("EXTRACTOR"); v != "" {
@@ -774,6 +798,13 @@ func (c *Config) Validate() error {
 		d, err := time.ParseDuration(c.Tiering.MaxHotAge)
 		if err != nil || d <= 0 {
 			return fmt.Errorf("tiering.max_hot_age must be a positive duration (e.g. \"4320h\"), got %q", c.Tiering.MaxHotAge)
+		}
+	}
+	// Retention (#363): if set, max_age must be a positive Go duration.
+	if c.Retention.MaxAge != "" {
+		d, err := time.ParseDuration(c.Retention.MaxAge)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("retention.max_age must be a positive duration (e.g. \"8760h\"), got %q", c.Retention.MaxAge)
 		}
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {

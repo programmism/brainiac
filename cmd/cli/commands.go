@@ -51,6 +51,38 @@ func migrateCmd() *cobra.Command {
 	}
 }
 
+func sweepRetentionCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "sweep-retention",
+		Short: "Hard-delete historical rows older than retention.max_age (#363)",
+		Long: "Purges superseded (historical) nodes/edges older than retention.max_age\n" +
+			"(env RETENTION_MAX_AGE), bounding the keep-everything churn. Current rows are\n" +
+			"never touched; a historical node still referenced by an edge is kept until its\n" +
+			"edges age out. No-op unless max_age is configured. Run periodically (cron).",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			out := cmd.OutOrStdout()
+			maxAge := cfg.MaxAgeDuration()
+			if maxAge <= 0 {
+				fmt.Fprintln(out, "sweep-retention: retention.max_age not set — nothing to do")
+				return nil
+			}
+			counts, err := buildCore(cfg, pool).SweepRetention(ctx, maxAge)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "sweep-retention: purged %d historical node(s) + %d edge(s) older than %s\n",
+				counts.Nodes, counts.Edges, maxAge)
+			return nil
+		},
+	}
+}
+
 func sweepTiersCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "sweep-tiers",
