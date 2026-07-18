@@ -2,9 +2,69 @@ package core
 
 import (
 	"context"
+	"strings"
 
 	"github.com/programmism/brainiac/internal/plugins"
+	"github.com/programmism/brainiac/internal/store"
 )
+
+// SyncDeletions is the general, poll-based source-watch primitive (#395): it lists
+// a connector's *current* documents (cheaply, via Watch() — for a file source that
+// walks names without reading bytes) and diffs them against what was previously
+// synced under the given URI scheme (source_sync), propagating a deletion for any
+// document that has vanished. Unlike a full Ingest sweep it re-reads and re-embeds
+// nothing — it only reconciles deletions — so it's cheap to run periodically for
+// any connector, including ones whose Watch() doesn't itself emit deletes.
+//
+// Opt-in and fail-safe, matching the Ingest prune (#247): deletions are propagated
+// only when opts.PruneMissing is set, and are skipped entirely if listing hit any
+// error, so a transient glitch never looks like a deletion. scheme (e.g.
+// "markdown://") scopes it so one connector never deletes another's documents.
+// Membership-based (#387): a shared chunk survives until its last source is gone.
+//
+// Upsert re-ingest (a changed doc needs a Fetch), a background scheduler that runs
+// this per configured connector, per-connector cursors, and push adapters
+// (fsnotify/webhooks) are follow-ups.
+func (c *Core) SyncDeletions(ctx context.Context, conn plugins.SourceConnector, scheme string, opts IngestOptions) (IngestStats, error) {
+	var stats IngestStats
+	seen := map[string]bool{}
+	hadError := false
+	for change, err := range conn.Watch(ctx) {
+		if err != nil {
+			if ctx.Err() != nil {
+				return stats, ctx.Err()
+			}
+			stats.FetchErrors++
+			hadError = true
+			continue
+		}
+		if change.SourceURI == "" || change.Kind == plugins.ChangeDeleted {
+			continue // a delete the connector already knows about isn't "still present"
+		}
+		seen[change.SourceURI] = true
+	}
+
+	// Fail-safe: never prune on a partial/failed listing.
+	if !opts.PruneMissing || hadError {
+		return stats, nil
+	}
+	uris, err := store.SourceSyncURIsWithScheme(ctx, c.pool, scheme)
+	if err != nil {
+		return stats, err
+	}
+	for _, uri := range uris {
+		if seen[uri] || !strings.HasPrefix(uri, scheme) {
+			continue
+		}
+		deleted, derr := c.propagateDelete(ctx, uri)
+		if derr != nil {
+			return stats, derr
+		}
+		stats.Deleted += int(deleted)
+		stats.DeletedDocs++
+	}
+	return stats, nil
+}
 
 // ApplyChanges consumes a connector's Watch() stream and applies source-side
 // changes to memory (#323). A "deleted" change propagates the deletion —
