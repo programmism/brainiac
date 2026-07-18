@@ -13,8 +13,34 @@ import (
 // recall's semantic discovery. It answers "I already know this entity; give me its
 // full record and relationships" without a query.
 type NodeDetail struct {
-	Node  model.Node `json:"node"`
+	Node model.Node `json:"node"`
+	// Trust is the node's derived trust (#375): TrustUntrusted when the entity is
+	// known *only* through untrusted content (every current edge is untrusted),
+	// else TrustTrusted. A node accrues from many sources, so trust is computed
+	// from its live edges rather than stored — treat an untrusted entity's
+	// attributes as claims to weigh, not established fact.
+	Trust string     `json:"trust"`
 	Edges []EdgeView `json:"edges"`
+}
+
+// deriveNodeTrust computes a node's trust from its current edges (#375): untrusted
+// only when the node has at least one current edge and every current edge is
+// untrusted. A node with no current edges carries no untrusted signal (trusted).
+func deriveNodeTrust(edges []EdgeView) string {
+	current := 0
+	for _, e := range edges {
+		if e.Edge.Status != model.StatusCurrent {
+			continue
+		}
+		current++
+		if e.Edge.Trust != model.TrustUntrusted {
+			return model.TrustTrusted // one trusted current edge → trusted
+		}
+	}
+	if current == 0 {
+		return model.TrustTrusted
+	}
+	return model.TrustUntrusted // ≥1 current edge and all untrusted
 }
 
 // GetNode looks up one entity — by id when non-empty, otherwise by canonical name
@@ -30,7 +56,8 @@ func (c *Core) GetNode(ctx context.Context, id, name, project string) (*NodeDeta
 	if err != nil {
 		return nil, fmt.Errorf("get node edges: %w", err)
 	}
-	return &NodeDetail{Node: *node, Edges: c.edgeViews(ctx, node, edges)}, nil
+	views := c.edgeViews(ctx, node, edges)
+	return &NodeDetail{Node: *node, Trust: deriveNodeTrust(views), Edges: views}, nil
 }
 
 // GetNodeAsOf answers "what did we think about X on date Y": the entity and only
@@ -48,7 +75,8 @@ func (c *Core) GetNodeAsOf(ctx context.Context, id, name, project string, asOf t
 	if err != nil {
 		return nil, fmt.Errorf("get node edges as-of: %w", err)
 	}
-	return &NodeDetail{Node: *node, Edges: c.edgeViews(ctx, node, edges)}, nil
+	views := c.edgeViews(ctx, node, edges)
+	return &NodeDetail{Node: *node, Trust: deriveNodeTrust(views), Edges: views}, nil
 }
 
 // resolveNode looks up one entity by id or name (name honoring the read wall /

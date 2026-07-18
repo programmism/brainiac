@@ -241,6 +241,7 @@ type addDocumentIn struct {
 	SourceURI string `json:"source_uri" jsonschema:"stable identifier for citation, e.g. the page URL"`
 	Text      string `json:"text" jsonschema:"the document's text content to store"`
 	Project   string `json:"project,omitempty" jsonschema:"the project this document belongs to (scopes it for the retrieval lens); omit for universal/global content"`
+	Trust     string `json:"trust,omitempty" jsonschema:"'trusted' or 'untrusted' (default): mark this specific document trusted only if you vouch for its content; untrusted text is flagged on recall and its extracted facts go to review"`
 }
 
 type ingestIn struct {
@@ -456,8 +457,11 @@ type getNodeIn struct {
 	AsOf    string `json:"as_of,omitempty" jsonschema:"answer as of a past instant (RFC3339 or YYYY-MM-DD): only relationships live at that time — 'what did we think about X on date Y'"`
 }
 type getNodeOut struct {
-	Found bool      `json:"found"`
-	Node  *nodeDTO  `json:"node,omitempty"`
+	Found bool     `json:"found"`
+	Node  *nodeDTO `json:"node,omitempty"`
+	// Trust is "untrusted" when this entity is known only through untrusted content
+	// (#375) — treat its attributes as claims to weigh; omitted when trusted.
+	Trust string    `json:"trust,omitempty"`
 	Edges []edgeDTO `json:"edges"`
 }
 
@@ -489,6 +493,7 @@ func getNodeTool(c *core.Core) mcp.ToolHandlerFor[getNodeIn, getNodeOut] {
 		out := getNodeOut{
 			Found: true,
 			Node:  &dto,
+			Trust: untrustedTag(det.Trust),
 			Edges: make([]edgeDTO, 0, len(det.Edges)),
 		}
 		for _, e := range det.Edges {
@@ -545,7 +550,7 @@ func disambiguateTool(c *core.Core) mcp.ToolHandlerFor[disambiguateIn, disambigu
 
 func addDocumentTool(c *core.Core) mcp.ToolHandlerFor[addDocumentIn, ingestOut] {
 	return func(ctx context.Context, _ *mcp.CallToolRequest, in addDocumentIn) (*mcp.CallToolResult, ingestOut, error) {
-		st, err := c.IngestText(ctx, in.SourceURI, in.Text, in.Project)
+		st, err := c.IngestTextWithTrust(ctx, in.SourceURI, in.Text, in.Project, in.Trust)
 		if err != nil {
 			return nil, ingestOut{}, err
 		}

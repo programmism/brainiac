@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Node-level trust + per-call document trust (#375, security P2).** Two additions completing
+  #367's trust story. (1) **Per-call trust:** `Core.IngestTextWithTrust(…, trust)` and the MCP `add_document`
+  `trust` arg let a client mark a *specific* pushed document trusted without a per-source config entry;
+  empty/omitted stays untrusted (fail-closed, #273), and an invalid value is rejected. Plain `IngestText`
+  is unchanged (untrusted). (2) **Node-level trust:** a node accrues from many sources, so its trust is
+  *derived*, not stored — `deriveNodeTrust` marks a node untrusted only when it has ≥1 current edge and
+  *every* current edge is untrusted (a single trusted current edge, or no current edges, ⇒ trusted).
+  Surfaced as `NodeDetail.Trust` and on the MCP `get_node` result (`"trust":"untrusted"`, omitted when
+  trusted, via `untrustedTag`). No migration (computed from live edges); no default behavior change.
 - **2026-07-18** — **GitHub Discussions + Link-header pagination (#381, ingestion P2).** The GitHub connector
   paginated issues by requesting `page=N` until a short page — which mis-stops if the last page is exactly
   `per_page` long. It now follows GitHub's `Link: rel="next"` header (`nextLink` parses it) and stops when
