@@ -83,11 +83,29 @@ pointing it at real data or a network.
 
    Keep trusted memory (chat-captured facts) and untrusted recall in **separate,
    clearly-labelled sections** of the prompt so the model can tell provenance apart.
-5. **Encryption at rest.** Not built in — rely on **encrypted volumes / an
-   encrypted managed Postgres** for at-rest protection.
-6. **Right-to-erasure at fact granularity.** Supersede/merge keep history; only
-   whole-namespace `namespace delete` hard-deletes. Per-node/per-chunk erasure is a
-   roadmap item — for GDPR today, isolate erasable data into its own namespace.
+5. **Encryption at rest — rely on the storage layer (#371).** Brainiac keeps *all*
+   durable state — the graph, the `halfvec` embeddings, provenance, and the
+   `pg_dump` backups — inside the **one Postgres data volume**. So encrypt that
+   volume; there is no separate store to key. The **supported at-rest posture** is:
+   - **Self-hosted:** put the DB volume on an encrypted disk — **LUKS/dm-crypt**
+     (Linux), an encrypted ZFS/APFS dataset, or a cloud provider's encrypted block
+     device (EBS/PD encryption). The Docker volume then inherits it.
+   - **Managed Postgres:** enable the provider's at-rest encryption (on by default
+     for RDS/Cloud SQL/Neon/Supabase). See `docs/managed-postgres.md` to point
+     `DATABASE_URL` at it.
+   - **Backups:** `scripts/backup.sh` writes `*.sql.gz` — store them on encrypted
+     object storage (SSE) too, since a dump is the whole DB in the clear.
+
+   This covers the common threat (a stolen disk / leaked volume snapshot).
+   **App-level column encryption** (encrypting `why` / chunk `text` with an
+   app-held key, for defense against a DB-role compromise) is deliberately **not**
+   built in — it breaks FTS/vector indexing and adds key management; tracked as a
+   larger opt-in follow-up (#377).
+6. **Right-to-erasure at fact granularity — shipped (#272, #363).** `kb erase
+   --node <id>` / `--source <uri>` hard-deletes a specific entity+edges or a
+   document's chunks+edges (real delete, audited, wall-checked); `kb
+   sweep-retention` purges aged historical rows. Whole-namespace `namespace delete`
+   still exists for bulk. So GDPR erasure no longer requires namespace isolation.
 7. **Request-rate / DoS (#270).** Storage quotas cap rows, not request rate, and
    each search triggers an Ollama embed. The app now has two opt-in controls:
    **per-client rate limiting** (`http.rate_limit_rps` + `rate_limit_burst`, or
@@ -113,10 +131,12 @@ pointing it at real data or a network.
 - [ ] Extraction review **on** for any untrusted ingested source.
 - [ ] `http.rate_limit_rps` and `embedding.max_concurrency` set for any
       multi-client / exposed deployment (plus proxy-level rate limiting).
-- [ ] Postgres on an **encrypted volume**; backups (`--profile backup`) shipped
-      **off-box**.
+- [ ] Postgres data volume on an **encrypted disk** (LUKS / cloud disk encryption
+      / managed-PG encryption — see §5 "Encryption at rest"); backups
+      (`--profile backup`) shipped **off-box to encrypted storage**.
 - [ ] `brainiac audit` reviewed periodically; ship the access logs off the box.
 
 See also: [deployment.md](deployment.md) (proxy/TLS setup), [operations.md](operations.md)
-(backups), and the roadmap epics for the security follow-ups (audit reads,
-per-human identity, encryption at rest, per-fact erasure).
+(backups, retention, right-to-erasure), [managed-postgres.md](managed-postgres.md)
+(encrypted managed Postgres), and the roadmap epics for the remaining security
+follow-ups.

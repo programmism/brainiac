@@ -383,6 +383,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **At-rest encryption posture documented (#371, security P2).** All durable state — graph,
+  `halfvec` embeddings, provenance, and the `pg_dump` backups — lives in the single Postgres data volume, so
+  at-rest protection is a **storage-layer** concern, not an app one. `docs/security.md` now documents the
+  supported posture as the answer: encrypt the DB volume (LUKS/dm-crypt, encrypted cloud block device, or a
+  managed-Postgres provider's default encryption) + encrypted off-box backups. App-level column encryption
+  (encrypting `why`/chunk `text` with an app key) is deliberately not built in — it breaks FTS/vector
+  indexing and adds key management — and is tracked as opt-in follow-up #377. Also corrected the stale
+  "right-to-erasure is a roadmap item" note (shipped in #272/#363). Docs-only.
 - **2026-07-18** — **Edge trust propagation from source chunks (#367, security P2).** #273 tagged chunk trust
   and forced untrusted extraction through review, but once an operator approved such an edge it became a live
   "fact" with no marker of its untrusted origin — a recalled edge whose `why` came from a poisoned document
