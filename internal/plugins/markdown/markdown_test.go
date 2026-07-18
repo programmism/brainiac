@@ -80,3 +80,45 @@ func TestFetchMissingDirIsNoOp(t *testing.T) {
 		t.Fatalf("expected no docs from a missing dir, got %d", n)
 	}
 }
+
+// TestMultiRootNamespacesURIs: several roots are swept together, and same-rel-path
+// files in different roots get distinct namespaced URIs (#391), while a single root
+// keeps the historical bare markdown://<rel>.
+func TestMultiRootNamespacesURIs(t *testing.T) {
+	a := t.TempDir()
+	b := t.TempDir()
+	write(t, a, "notes.md", "# from A\n\nalpha content here")
+	write(t, b, "notes.md", "# from B\n\nbeta content here") // same rel path, different root
+
+	c := NewMulti([]string{a, b})
+	byURI := map[string]plugins.RawDoc{}
+	for d, err := range c.Fetch(context.Background()) {
+		if err != nil {
+			t.Fatalf("fetch: %v", err)
+		}
+		byURI[d.SourceURI] = d
+	}
+	if len(byURI) != 2 {
+		t.Fatalf("same-rel-path files in two roots collided: %v", keys(byURI))
+	}
+	for uri := range byURI {
+		if uri == "markdown://notes.md" {
+			t.Fatalf("multi-root URI not namespaced: %q", uri)
+		}
+		if !strings.HasPrefix(uri, "markdown://") || !strings.HasSuffix(uri, "notes.md") {
+			t.Fatalf("unexpected URI %q", uri)
+		}
+	}
+
+	// Single root keeps the historical bare URI (back-compat).
+	got := map[string]bool{}
+	for d, err := range New(a).Fetch(context.Background()) {
+		if err != nil {
+			t.Fatalf("fetch single: %v", err)
+		}
+		got[d.SourceURI] = true
+	}
+	if !got["markdown://notes.md"] {
+		t.Fatalf("single-root URI changed: %v", got)
+	}
+}
