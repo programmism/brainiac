@@ -178,6 +178,14 @@ memory of *decisions*, not a fact dump.
 **Supersession, not deletion:** changed decisions add a `supersedes` edge and mark the old node/edge
 `status='historical'`. "Why we changed our minds" is the most valued content for onboarding.
 
+**`namespace_usage` (counters)** — `(project, nodes, chunks)`, an O(1) per-namespace row count maintained
+in-transaction by triggers on `nodes`/`chunks` (#229). It exists so the write-time storage quota check
+(#186) is a primary-key lookup instead of a `count(*)` aggregate that grows with the namespace. The triggers
+mirror actual row INSERT/DELETE 1:1 — and an UPDATE trigger nets a re-scope that moves a row's generated
+`project` (guarded by `HAVING sum(delta) <> 0`, so unrelated updates never touch the counter) — so the
+counters stay exactly equal to `count(*)`; `count(*)` remains the source of truth for the migration's
+backfill and reconciliation.
+
 ---
 
 ## 6. Core operation set (the shared API)
@@ -375,6 +383,21 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Incremental per-namespace usage counters (#229, scale P1).** `checkNodeQuota` /
+  `checkChunkQuota` ran `SELECT count(*) WHERE project = $1` on *every* write — a filtered aggregate whose
+  cost grows with the namespace even with the `project` index (#226). Added a `namespace_usage(project,
+  nodes, chunks)` table maintained in-transaction by statement-level triggers (with transition tables, so a
+  bulk delete is one grouped update, not N) on `nodes`/`chunks` INSERT/DELETE plus UPDATE (a disambiguate
+  re-scope moves a row's generated `project`; Postgres forbids a column list alongside transition tables, so
+  the UPDATE trigger fires on every update but `HAVING sum(delta) <> 0` makes an update that doesn't move
+  `project` a no-op that never touches the counter). The quota check is now a
+  primary-key lookup (`store.NamespaceUsage`), reading the caller's own uncommitted inserts inside a link tx
+  so the two-endpoint case still counts correctly. Because the triggers mirror row INSERT/DELETE exactly, the
+  counters stay equal to `count(*)` across every code path (remember/ingest/merge/split/prune/handoff);
+  `count(*)` stays the source of truth for the migration backfill and a reconciliation assertion. The handoff
+  emptiness precondition keeps using the authoritative `count(*)`. DB-gated store test (insert/delete/
+  re-scope/bulk-delete/backfill all match `count(*)`); the existing `quota_test.go` covers enforcement. All
+  test truncations now reset `namespace_usage` too (TRUNCATE doesn't fire the DELETE triggers).
 - **2026-07-18** — **Structure-aware chunking: don't split code fences / tables (#242, ingestion P1).** One
   CDC chunker cut everything by rolling-hash boundaries, so a fenced code block or a Markdown table straddling
   a cut was halved mid-structure — mangling both its rendering and its embedding. The chunker now computes the

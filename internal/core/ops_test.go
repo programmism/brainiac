@@ -54,7 +54,7 @@ func newTestCore(t *testing.T) (*Core, *pgxpool.Pool) {
 	if err := store.Migrate(ctx, pool); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks, namespace_usage"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 	return New(pool, hashEmbedder{}, density.New()), pool
