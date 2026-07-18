@@ -17,9 +17,12 @@
 // Chunking is also structure-aware (#242): a boundary is never placed inside a
 // fenced code block or a Markdown table when the block fits within maxSize, so
 // code and tables aren't halved mid-structure (which mangles both the rendering
-// and the embedding). A block larger than maxSize instead begins its own chunk;
-// only a block that both starts a chunk and exceeds maxSize is split. Atomic
-// regions are a pure function of content, so the self-healing property is kept.
+// and the embedding). A block larger than maxSize instead begins its own chunk; a
+// block that both starts a chunk and still exceeds maxSize is split at a
+// *structured* boundary — a blank line, else a top-level line start (a symbol
+// boundary, and every row start of a pipe table) — rather than an arbitrary
+// rolling-hash cut, so a big code file or table breaks into coherent pieces
+// (#350). Atomic regions are a pure function of content, so self-healing holds.
 package chunk
 
 import (
@@ -236,7 +239,7 @@ func nextCut(b []byte, start int, regions []region) int {
 			break
 		}
 	}
-	return avoidSplit(start, snap(b, start+minSize, i), regions)
+	return avoidSplit(b, start, snap(b, start+minSize, i), regions)
 }
 
 // region is a byte range [lo,hi) covering an atomic structure — a fenced code
@@ -249,9 +252,11 @@ type region struct{ lo, hi int }
 // boundary, so code fences and tables aren't halved. Preference: keep the whole
 // block in this chunk when it still fits within maxSize; otherwise cut just
 // before the block so it starts the next chunk (where it gets its own shot at
-// staying whole). Only a block that already spans from the chunk's start and
-// exceeds maxSize is split mid-block — unavoidable without an oversized chunk.
-func avoidSplit(start, cut int, regions []region) int {
+// staying whole). A block that already spans from the chunk's start and exceeds
+// maxSize *must* be split — but at a structured boundary (a blank line or a
+// top-level line start / table row) rather than an arbitrary rolling-hash cut, so
+// a big code file or table breaks into coherent pieces (#350).
+func avoidSplit(b []byte, start, cut int, regions []region) int {
 	for _, r := range regions {
 		if r.lo >= cut {
 			break // regions are sorted; none can contain cut past here
@@ -263,8 +268,49 @@ func avoidSplit(start, cut int, regions []region) int {
 			if r.lo > start {
 				return r.lo // cut before the block; it begins the next chunk
 			}
-			return cut // block fills the chunk and is too big — must split
+			return structuredCut(b, start+minSize, cut) // oversized from chunk start
 		}
+	}
+	return cut
+}
+
+// structuredCut picks the best split point in (lo, cut] for an oversized code/
+// table block (#350): the position just after the last blank line (a natural
+// break between functions/paragraphs), else the last top-level line start (a
+// newline followed by a non-indented, non-empty line — a symbol boundary, and for
+// a pipe table every row start), else cut unchanged. Result is always in [lo, cut]
+// so the maxSize bound holds and no line is split mid-way.
+func structuredCut(b []byte, lo, cut int) int {
+	if cut > len(b) {
+		cut = len(b)
+	}
+	blank, topLevel := -1, -1
+	for i := cut - 1; i > lo; i-- {
+		if b[i] != '\n' {
+			continue
+		}
+		next := i + 1
+		if next >= cut { // the newline is the last byte before the cut — no content after
+			continue
+		}
+		switch {
+		case b[next] == '\n':
+			// b[i] then an empty line → a blank-line break; split after the empty line.
+			if blank < 0 && next+1 <= cut {
+				blank = next + 1
+			}
+		case b[next] != ' ' && b[next] != '\t':
+			// a new line starting at column 0 — a likely top-level symbol / table row.
+			if topLevel < 0 {
+				topLevel = next
+			}
+		}
+	}
+	if blank > lo && blank <= cut {
+		return blank
+	}
+	if topLevel > lo && topLevel <= cut {
+		return topLevel
 	}
 	return cut
 }

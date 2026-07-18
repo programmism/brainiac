@@ -314,6 +314,99 @@ func TestStructureAwareStillDeterministic(t *testing.T) {
 	}
 }
 
+func TestStructuredCut(t *testing.T) {
+	// Prefers the position just after a blank line over a later top-level start.
+	b := []byte("aaaa\n\nbbbb\ncccc")
+	// blank line is the "\n\n" at indices 4,5 → split after → index 6 ("bbbb").
+	if got := structuredCut(b, 0, len(b)); got != 6 {
+		t.Fatalf("blank-line cut = %d, want 6 (%q)", got, string(b[:got]))
+	}
+	// No blank line → falls back to the last top-level line start (a newline
+	// followed by a non-indented char).
+	b2 := []byte("func a() {\n  body\n}\nfunc b() {")
+	// last top-level line start is "func b" at index 20 (just after the \n at 19),
+	// so the cut leaves func a() whole in the previous chunk.
+	if got := structuredCut(b2, 0, len(b2)); got != 20 {
+		t.Fatalf("symbol cut = %d, want 20 (%q)", got, string(b2[:got]))
+	}
+	// Indented-only tail (no top-level boundary, no blank) → cut unchanged.
+	b3 := []byte("x\n  a\n  b\n  c")
+	if got := structuredCut(b3, 0, len(b3)); got != len(b3) {
+		t.Fatalf("no-boundary cut = %d, want %d", got, len(b3))
+	}
+}
+
+// A fenced code block larger than maxSize must split into multiple chunks at line
+// boundaries — no source line is broken mid-way (#350).
+func TestOversizedCodeBlockSplitsAtLineBoundaries(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("```go\n")
+	var markers []string
+	for i := 0; i < 40; i++ {
+		m := fmt.Sprintf("func Handler%02d(ctx Context) error { // marker-%02d unique", i, i)
+		markers = append(markers, m)
+		sb.WriteString(m + "\n")
+		sb.WriteString("    return process(ctx, someLongArgumentNameForPadding, another, third)\n\n")
+	}
+	sb.WriteString("```")
+	chunks := Split(sb.String())
+
+	if len(chunks) < 2 {
+		t.Fatalf("a >maxSize code block should split, got %d chunk(s)", len(chunks))
+	}
+	bound := maxSize + overlapMax + 1
+	for i, c := range chunks {
+		if len(c) > bound {
+			t.Errorf("chunk %d exceeds size bound: %d > %d", i, len(c), bound)
+		}
+	}
+	// Every marker (a whole source line) must survive intact in some chunk — proof
+	// that splits landed at line boundaries, not mid-line.
+	for _, m := range markers {
+		found := false
+		for _, c := range chunks {
+			if strings.Contains(c, m) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("marker line was split across chunks (not intact anywhere): %q", m)
+		}
+	}
+}
+
+// A Markdown table larger than maxSize splits on row boundaries — each row stays
+// intact (#350). Table rows start at column 0, so structuredCut treats each row
+// start as a clean split point.
+func TestOversizedTableSplitsAtRowBoundaries(t *testing.T) {
+	var sb strings.Builder
+	sb.WriteString("| id | name | note |\n|----|------|------|\n")
+	var rows []string
+	for i := 0; i < 60; i++ {
+		r := fmt.Sprintf("| %02d | entity-%02d | a reasonably long note cell keeping the row wide, marker-%02d |", i, i, i)
+		rows = append(rows, r)
+		sb.WriteString(r + "\n")
+	}
+	chunks := Split(strings.TrimRight(sb.String(), "\n"))
+
+	if len(chunks) < 2 {
+		t.Fatalf("a >maxSize table should split, got %d chunk(s)", len(chunks))
+	}
+	for _, r := range rows {
+		found := false
+		for _, c := range chunks {
+			if strings.Contains(c, r) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("table row was split across chunks (not intact anywhere): %q", r)
+		}
+	}
+}
+
 func TestATXHeading(t *testing.T) {
 	cases := map[string]string{
 		"# Title":          "Title",
