@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Claude Message Batches extraction path (#326, ingestion P1).** Bulk ingest calls the
+  Claude extractor once per chunk (one Messages request each). Added `BatchExtractor.BatchExtract(items)` on
+  `internal/plugins/anthropic` — submit all chunks (each with a `custom_id`) to the **Message Batches API**
+  (`/v1/messages/batches`, ~50% cheaper, async), poll `…/batches/{id}` until `processing_status=ended`,
+  fetch the JSONL `results_url`, and map each `succeeded` result back to a `plugins.Extraction` by
+  `custom_id` (items that errored/expired are absent → the caller treats them as failed extraction, like
+  Extract erroring on one chunk). The per-request build + response parse are refactored into shared
+  `buildRequest`/`parseMessage` so the batch path reuses Extract's exact structured-output shape. It is a
+  **standalone capability**, not wired into the synchronous ingest loop (the batch flow is async and needs a
+  job model) — so nothing's default behavior changes. httptest covers create → poll (in_progress then ended)
+  → JSONL results (one succeeded, one errored). Async ingest-job wiring + cross-doc entity resolution are
+  follow-up #383.
 - **2026-07-18** — **Opt-in repo tracked-file ingestion in the GitHub connector (#354, ingestion P2).** The
   GitHub connector read only issues/PRs. Added an **opt-in** file mode (`github.WithFiles(globs)`, config
   `sources[].files` / env `GITHUB_FILES`, **default off** so issues/PRs behavior is unchanged): it lists the
