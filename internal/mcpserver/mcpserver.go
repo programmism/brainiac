@@ -226,7 +226,7 @@ type addDocumentIn struct {
 }
 
 type ingestIn struct {
-	Source  string `json:"source" jsonschema:"where to import from: notion, slack, github, gdrive, linear, jira, confluence, or markdown"`
+	Source  string `json:"source" jsonschema:"where to import from: notion, slack, github, gdrive, linear, gitlab, jira, confluence, or markdown"`
 	Target  string `json:"target,omitempty" jsonschema:"a Notion page URL/id, or a path; empty imports the whole source"`
 	Project string `json:"project,omitempty" jsonschema:"the project these documents belong to (scopes them for the retrieval lens); omit for universal/global content"`
 }

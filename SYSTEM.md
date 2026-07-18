@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **GitLab connector (#340, ingestion P1).** The ninth connector over the stable
+  `SourceConnector` seam, the GitLab sibling of the GitHub connector (#238): `internal/plugins/gitlab` reads a
+  project's **issues + merge requests** (title + Markdown description — no format conversion, like Linear) via
+  `/api/v4/projects/:id/{issues,merge_requests}`, auth by the `PRIVATE-TOKEN` header. The **host is
+  configurable** (`GITLAB_BASE_URL`, default gitlab.com) for self-managed instances, and the "group/project"
+  path is URL-encoded into the `:id` slot. A failure on one project is non-fatal — it surfaces the error and
+  moves to the next (matching the GitHub connector). Wired like the others: `GITLAB_TOKEN` +
+  `GITLAB_PROJECTS` (+ optional `GITLAB_BASE_URL`) auto-create a source; MCP `import` / CLI `kb import
+  --source gitlab --path group/project` dispatch to it (reusing `SourceConfig.Repos` for the project list,
+  `BaseURL` for the host). httptest coverage (issues + MRs, URL-encoded path, PRIVATE-TOKEN header, empty-item
+  skip, per-project non-fatal error) + a config auto-create test. **Code/file ingestion, GitHub/GitLab
+  Discussions (GraphQL), and Link-header pagination** are the remaining #340 scope, deferred to #354.
 - **2026-07-18** — **Jira + Confluence connectors (#343, ingestion P1).** The seventh and eighth connectors
   over the stable `SourceConnector` seam, completing the Atlassian trio (Linear shipped in #240). Both use
   Basic `email:token` auth against Atlassian Cloud REST and offset-paginate: **Jira** reads issues via

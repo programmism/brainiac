@@ -22,6 +22,7 @@ import (
 	"github.com/programmism/brainiac/internal/plugins/confluence"
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
+	"github.com/programmism/brainiac/internal/plugins/gitlab"
 	"github.com/programmism/brainiac/internal/plugins/jira"
 	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
@@ -688,7 +689,7 @@ func importCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: "Ingest documents from a configured source (notion | slack | github | gdrive | linear | jira | confluence | markdown)",
+		Short: "Ingest documents from a configured source (notion | slack | github | gdrive | linear | gitlab | jira | confluence | markdown)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, pool, err := connect(ctx)
@@ -726,7 +727,7 @@ func importCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | github | gdrive | linear | jira | confluence | markdown)")
+	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | github | gdrive | linear | gitlab | jira | confluence | markdown)")
 	cmd.Flags().StringVar(&path, "path", "", "root directory for the markdown source (overrides config)")
 	cmd.Flags().StringVar(&project, "project", "", "project to scope imported documents to (omit for global)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview chunk/keep/drop counts without embedding or writing")
@@ -778,6 +779,19 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 			return nil, fmt.Errorf("linear source not configured (set an API key via LINEAR_TOKEN)")
 		}
 		return linear.New(sc.Token), nil
+	case "gitlab":
+		sc := cfg.Source("gitlab")
+		if sc == nil || sc.Token == "" {
+			return nil, fmt.Errorf("gitlab source not configured (set an access token via GITLAB_TOKEN)")
+		}
+		projects := sc.Repos
+		if path != "" { // --path holds a group/project for a targeted import
+			projects = []string{path}
+		}
+		if len(projects) == 0 {
+			return nil, fmt.Errorf("gitlab needs a project: --path group/project, or sources[].repos / GITLAB_PROJECTS")
+		}
+		return gitlab.New(sc.Token, sc.BaseURL, projects), nil
 	case "jira":
 		sc := cfg.Source("jira")
 		if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
