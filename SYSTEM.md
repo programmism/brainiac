@@ -365,6 +365,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **One-shot `capture` macro + verb tiering (#281, DX P1).** The write surface exposed
+  `remember` + `link` as co-equal primitives, so recording an everyday decision meant two calls (create
+  entity, create entity, link) and a mental model of nodes-vs-edges before you could save anything. Added a
+  **`capture`** MCP verb that wraps the core (optional `Remember` for each endpoint's one-line summary, then
+  `Link` for the relationship + `why`) into a single call — both entities created and linked at once, the
+  simplest path to memory. Docs (`concepts-and-workflows.md`) now split the verbs into **everyday**
+  (`capture`/`search`/`recall`, with `remember`/`link` as the finer writes underneath) and **advanced
+  curation** (`disambiguate`/`supersede`/`rollup`/`as_of`) that the consolidation pass and operators own —
+  agents shouldn't reach for them mid-conversation. Pure logic stays in the core (`capture` composes existing
+  `Remember`/`Link`, no new business logic in the adapter); covered by the DB-gated MCP round-trip test
+  (capture → recall sees the edge; the optional summary makes the entity searchable).
 - **2026-07-18** — **Passage-level provenance (#243, ingestion P1).** A chunk's `source_locator` carried only
   the document-level pointer (path / page id), so a citation could name the doc but not *where in it*. The
   chunker now exposes `SplitWithProvenance` — same overlapped chunk text as `Split` (so content hashes /

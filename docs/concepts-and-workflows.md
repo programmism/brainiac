@@ -38,8 +38,12 @@ behind it. Layer 2 is where a fact can go stale, be superseded, or conflict; Lay
 
 ## The verbs — what each does and when to use it
 
+Reach for the **everyday verbs** by default (`capture`, `search`, `recall`); the rest are finer-grained
+controls you only need when the everyday path isn't enough. See "Everyday vs advanced" below.
+
 | Verb | Layer | What it does | Reach for it when… |
 |---|---|---|---|
+| **capture** | 2 | One-shot: creates both entities (with optional one-line summaries) and links them with `why` in a single call | The everyday "record this decision/fact" — the simplest way to write memory |
 | **search** | 1 | Vector search over chunks, cited | You want relevant passages on a topic |
 | **recall** | 1+2 | Vector + graph traversal + evidence bundle | You want the *why/how*, with rationale and citations |
 | **remember** | 2 | Upsert an entity (node); returns dup candidates, never auto-merges | Saving a new entity (service, decision, person, …) |
@@ -56,10 +60,22 @@ behind it. Layer 2 is where a fact can go stale, be superseded, or conflict; Lay
 | **proposals** | 2 | List pending nodes/edges the optional local-LLM extractor suggested (empty unless it's enabled) | Reviewing what bulk extraction proposed |
 | **review_proposal** | 2 | Approve (→ live) or reject (→ historical) a proposed node/edge | Curating the extractor's output before it enters the memory |
 
-`search`/`recall`/`remember`/`link`/`supersede`/`disambiguate` are available over **MCP** (Claude drives
-them) and **CLI**. `proposals`/`review_proposal` are on **MCP + WebUI** (the extractor review queue).
+`capture`/`search`/`recall`/`remember`/`link`/`supersede`/`disambiguate` are available over **MCP** (Claude
+drives them) and **CLI**. `proposals`/`review_proposal` are on **MCP + WebUI** (the extractor review queue).
 `consolidate`/`merge`/`split`/`retire-edge`/`confirm` are **operator** verbs — the review-and-repair
 surface (CLI + WebUI), not things Claude does mid-conversation.
+
+### Everyday vs advanced
+
+Most capture is one verb: **`capture`** (record a decision/fact — both entities + the why in one call),
+plus **`search`** and **`recall`** to read it back. `remember` and `link` are the finer-grained writes
+underneath `capture` — reach for them only when you need to create an entity without a relationship, or
+add a link between entities that already exist.
+
+Everything else is **advanced curation** you shouldn't reach for in normal use — the agent (via the
+consolidation pass) and operators handle it: `disambiguate` and `supersede` (re-scope / replace an entity),
+`rollup` (summarize a busy hub into a "current state of X"), and `as_of` (time-travel reads). They exist for
+when curation must be explicit; day-to-day, let `capture` write and consolidation tidy up in the background.
 
 ### Type conventions
 

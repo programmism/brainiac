@@ -65,6 +65,11 @@ func New(c *core.Core, importFn ImportFunc, principal *core.Principal) *mcp.Serv
 	}, linkTool(c))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "capture",
+		Description: "One-shot capture of a decision or fact: the two entities involved and WHY. Creates both entities (with optional one-line summaries) and links them in a single call — the simplest way to record memory. Prefer this over separate remember+link for everyday capture; reach for the individual verbs only when you need finer control.",
+	}, captureTool(c))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "recall",
 		Description: "Answer 'why/how' questions: returns relevant chunks, entities, relationships (with rationale) and the raw evidence behind them. Cite every claim by source.",
 	}, recallTool(c))
@@ -337,6 +342,54 @@ func linkTool(c *core.Core) mcp.ToolHandlerFor[linkIn, linkOut] {
 			return nil, linkOut{}, err
 		}
 		return text(fmt.Sprintf("linked %s -%s-> %s", in.From, in.Type, in.To)), linkOut{EdgeID: edge.ID}, nil
+	}
+}
+
+// captureIn is the one-shot decision-capture macro (#281): both entities + the
+// rationale in a single call, so the everyday "record this" path doesn't require
+// learning remember + link separately.
+type captureIn struct {
+	Subject        string `json:"subject" jsonschema:"the main entity (created if new)"`
+	Relation       string `json:"relation" jsonschema:"how subject relates to object (snake_case; reuse an existing type): writes_to, depends_on, chose, rejected, supersedes, ..."`
+	Object         string `json:"object" jsonschema:"the related entity (created if new)"`
+	Why            string `json:"why" jsonschema:"the rationale — why it is this way (the whole point of the memory)"`
+	SubjectSummary string `json:"subject_summary,omitempty" jsonschema:"optional one-line description of the subject entity"`
+	ObjectSummary  string `json:"object_summary,omitempty" jsonschema:"optional one-line description of the object entity"`
+	SourceURI      string `json:"source_uri,omitempty" jsonschema:"provenance: file, PR, page, thread"`
+	Author         string `json:"author,omitempty"`
+	Project        string `json:"project,omitempty" jsonschema:"the project both entities belong to (scopes identity); omit for universal/global"`
+}
+
+type captureOut struct {
+	EdgeID  string `json:"edge_id"`
+	Subject string `json:"subject"`
+	Object  string `json:"object"`
+}
+
+func captureTool(c *core.Core) mcp.ToolHandlerFor[captureIn, captureOut] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in captureIn) (*mcp.CallToolResult, captureOut, error) {
+		disc := core.Discriminators(in.Project, nil)
+		// Optional summaries so entities aren't bare; Link creates them anyway, but a
+		// summary makes them semantically searchable.
+		if in.SubjectSummary != "" {
+			if _, err := c.Remember(ctx, core.RememberInput{CanonicalName: in.Subject, Summary: in.SubjectSummary, Discriminators: disc}); err != nil {
+				return nil, captureOut{}, err
+			}
+		}
+		if in.ObjectSummary != "" {
+			if _, err := c.Remember(ctx, core.RememberInput{CanonicalName: in.Object, Summary: in.ObjectSummary, Discriminators: disc}); err != nil {
+				return nil, captureOut{}, err
+			}
+		}
+		edge, err := c.Link(ctx, core.LinkInput{
+			From: in.Subject, Type: in.Relation, To: in.Object, Why: in.Why,
+			SourceURI: in.SourceURI, Author: in.Author, Discriminators: disc,
+		})
+		if err != nil {
+			return nil, captureOut{}, err
+		}
+		return text(fmt.Sprintf("captured: %s -%s-> %s", in.Subject, in.Relation, in.Object)),
+			captureOut{EdgeID: edge.ID, Subject: in.Subject, Object: in.Object}, nil
 	}
 }
 
