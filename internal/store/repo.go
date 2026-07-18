@@ -56,13 +56,17 @@ func InsertChunk(ctx context.Context, db DBTX, c *model.Chunk) error {
 	if err != nil {
 		return err
 	}
+	trust := c.Trust
+	if trust == "" {
+		trust = model.TrustTrusted // matches the column default; core sets it explicitly
+	}
 	err = db.QueryRow(ctx, `
-		INSERT INTO chunks (text, embedding, source_uri, source_locator, quality_score, tier, content_hash, source_modified_at, discriminators, scope_key)
-		VALUES ($1, $2::halfvec, $3, $4::jsonb, $5::real, $6, $7, $8, $9::jsonb, $10)
+		INSERT INTO chunks (text, embedding, source_uri, source_locator, quality_score, tier, content_hash, source_modified_at, discriminators, scope_key, trust)
+		VALUES ($1, $2::halfvec, $3, $4::jsonb, $5::real, $6, $7, $8, $9::jsonb, $10, $11)
 		ON CONFLICT (source_uri, content_hash) WHERE content_hash IS NOT NULL DO NOTHING
 		RETURNING id, created_at`,
 		c.Text, encodeVec(c.Embedding), c.SourceURI, locator, c.QualityScore,
-		string(tier), nullStr(c.ContentHash), c.SourceModifiedAt, discJSON, model.ScopeKey(c.Discriminators),
+		string(tier), nullStr(c.ContentHash), c.SourceModifiedAt, discJSON, model.ScopeKey(c.Discriminators), trust,
 	).Scan(&c.ID, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// A concurrent ingest already stored this exact (source_uri, content_hash);
@@ -86,7 +90,7 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 	vec := pgvector.NewHalfVector(embedding).String()
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
-		       content_hash, created_at, source_modified_at, discriminators,
+		       content_hash, created_at, source_modified_at, discriminators, trust,
 		       (embedding <=> $1::halfvec)::float8 AS distance
 		FROM chunks
 		WHERE tier = 'hot' AND embedding IS NOT NULL
@@ -109,7 +113,7 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 			disc        []byte
 		)
 		if err := rows.Scan(&h.ID, &h.Text, &h.SourceURI, &locator, &h.QualityScore, &tier,
-			&contentHash, &h.CreatedAt, &h.SourceModifiedAt, &disc, &h.Distance); err != nil {
+			&contentHash, &h.CreatedAt, &h.SourceModifiedAt, &disc, &h.Trust, &h.Distance); err != nil {
 			return nil, err
 		}
 		h.Tier = model.Tier(tier)
@@ -135,7 +139,7 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 func SearchChunksLexical(ctx context.Context, db DBTX, query string, k int, scope ScopeFilter, wall Wall) ([]model.ChunkHit, error) {
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
-		       content_hash, created_at, source_modified_at, discriminators
+		       content_hash, created_at, source_modified_at, discriminators, trust
 		FROM chunks
 		WHERE tier = 'hot' AND tsv @@ plainto_tsquery('english', $1)
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
@@ -157,7 +161,7 @@ func SearchChunksLexical(ctx context.Context, db DBTX, query string, k int, scop
 			disc        []byte
 		)
 		if err := rows.Scan(&h.ID, &h.Text, &h.SourceURI, &locator, &h.QualityScore, &tier,
-			&contentHash, &h.CreatedAt, &h.SourceModifiedAt, &disc); err != nil {
+			&contentHash, &h.CreatedAt, &h.SourceModifiedAt, &disc, &h.Trust); err != nil {
 			return nil, err
 		}
 		h.Tier = model.Tier(tier)

@@ -383,6 +383,20 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Chunk trust tagging + forced review for untrusted extraction (#273, security P2).** Bulk-
+  ingested document text is untrusted input — the optional extractor consumes it, and recalled chunk text
+  reaches downstream agents, both **indirect prompt-injection** vectors — yet `EXTRACTION_REVIEW=false` let
+  extracted nodes/edges from *any* source write live. Added a `trust` column on chunks (`model.Chunk.Trust`,
+  expand migration `NOT NULL DEFAULT 'trusted'` to grandfather existing rows). Ingest is **untrusted by
+  default (fail-closed)** — connector `Ingest` and `IngestText` both leave it untrusted; trusted is explicit
+  opt-in via `IngestOptions.Trust` (per-source config is the follow-up #361). Untrusted content **forces
+  extraction through the review queue** (`extractedStatus(forceReview)`), so it can never auto-write live
+  facts regardless of the review setting. Trust is surfaced through retrieval (`ChunkHit.Trust`, and the MCP
+  `search`/`recall` chunk DTO shows `"trust":"untrusted"`) so a client treats recalled text as data, not
+  instructions. Bounded to the write + retrieval-read sites (InsertChunk, SearchChunks/Lexical); other chunk
+  scans leave `Trust` empty. DB-gated core tests (trust tag persisted + surfaced in search; untrusted forces
+  `proposed` while trusted honors review-off). Follow-up #361: per-source trusted config, node/edge trust
+  propagation, and client-prompt hardening guidance.
 - **2026-07-18** — **HNSW build params as config + online reindex (#233, scale P2).** Both HNSW indexes were
   created in migrations with pgvector's defaults (`m=16`, `ef_construction=64`), which under-build recall at a
   10M+ tier — and the params are baked into `CREATE INDEX`, unreadable from runtime config. Added
