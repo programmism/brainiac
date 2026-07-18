@@ -35,6 +35,7 @@ type Config struct {
 	Clients       ClientsConfig       `yaml:"clients"`
 	Ingest        IngestConfig        `yaml:"ingest"`
 	Logging       LoggingConfig       `yaml:"logging"`
+	Retrieval     RetrievalConfig     `yaml:"retrieval"`
 	// Principals is the opt-in Layer 2 hard-isolation roster (#120). Empty =
 	// Layer 1 (open reads, single AUTH_TOKEN gates writes) — unchanged. When set,
 	// every /api call requires a principal's bearer token, reads are walled to its
@@ -213,6 +214,16 @@ func (c *Config) AutoImportInterval() time.Duration {
 		return 0
 	}
 	return d
+}
+
+// RetrievalConfig tunes the cosine-distance gates for retrieval (#332) so a
+// deployment can calibrate for its embedding model/domain without a rebuild. Zero
+// means "use the built-in default"; cosine distance runs 0..2, gaps are >= 0.
+type RetrievalConfig struct {
+	MaxChunkDistance float64 `yaml:"max_chunk_distance,omitempty"` // Search absolute cutoff
+	ChunkDistanceGap float64 `yaml:"chunk_distance_gap,omitempty"` // Search relative gap
+	MaxNodeDistance  float64 `yaml:"max_node_distance,omitempty"`  // Recall absolute cutoff
+	NodeDistanceGap  float64 `yaml:"node_distance_gap,omitempty"`  // Recall relative gap
 }
 
 // LoggingConfig controls the application logger (#258). The access log is always
@@ -438,6 +449,10 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("LOG_LEVEL"); v != "" {
 		c.Logging.Level = v
 	}
+	setFloatEnv("RETRIEVAL_MAX_CHUNK_DISTANCE", &c.Retrieval.MaxChunkDistance)
+	setFloatEnv("RETRIEVAL_CHUNK_DISTANCE_GAP", &c.Retrieval.ChunkDistanceGap)
+	setFloatEnv("RETRIEVAL_MAX_NODE_DISTANCE", &c.Retrieval.MaxNodeDistance)
+	setFloatEnv("RETRIEVAL_NODE_DISTANCE_GAP", &c.Retrieval.NodeDistanceGap)
 	// Local-LLM extractor (opt-in). EXTRACTOR=local-llm turns it on; the model is
 	// required in that case, the URL defaults to the embedding Ollama.
 	if v := os.Getenv("EXTRACTOR"); v != "" {
@@ -597,6 +612,16 @@ func (c *Config) atlassianFromEnv(typ, baseEnv, emailEnv, tokenEnv string) {
 	}
 }
 
+// setFloatEnv overwrites *dst with the float value of env var key when it is set
+// and parses cleanly; a malformed value is ignored (leaving the default).
+func setFloatEnv(key string, dst *float64) {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			*dst = f
+		}
+	}
+}
+
 // splitCSV splits a comma-separated env value into trimmed, non-empty items.
 func splitCSV(s string) []string {
 	var out []string
@@ -639,6 +664,25 @@ func (c *Config) Validate() error {
 	}
 	if f := strings.ToLower(strings.TrimSpace(c.Logging.Format)); f != "" && f != "json" && f != "text" {
 		return fmt.Errorf("logging.format must be 'json' or 'text', got %q", c.Logging.Format)
+	}
+	// Retrieval thresholds (#332): cosine distance runs 0..2; a gap is >= 0. Zero
+	// means "use the built-in default", so only reject out-of-range non-zero values.
+	for _, d := range []struct {
+		name string
+		val  float64
+	}{
+		{"retrieval.max_chunk_distance", c.Retrieval.MaxChunkDistance},
+		{"retrieval.max_node_distance", c.Retrieval.MaxNodeDistance},
+	} {
+		if d.val < 0 || d.val > 2 {
+			return fmt.Errorf("%s must be within [0, 2] (cosine distance), got %g", d.name, d.val)
+		}
+	}
+	if c.Retrieval.ChunkDistanceGap < 0 {
+		return fmt.Errorf("retrieval.chunk_distance_gap must be >= 0, got %g", c.Retrieval.ChunkDistanceGap)
+	}
+	if c.Retrieval.NodeDistanceGap < 0 {
+		return fmt.Errorf("retrieval.node_distance_gap must be >= 0, got %g", c.Retrieval.NodeDistanceGap)
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {
 	case "", "debug", "info", "warn", "warning", "error":

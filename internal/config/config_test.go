@@ -326,6 +326,38 @@ func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
 	}
 }
 
+func TestRetrievalThresholdsEnvAndValidation(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	// Default: unset (zero) → core applies its built-in defaults.
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Retrieval != (RetrievalConfig{}) {
+		t.Fatalf("retrieval should default to zero (use core defaults), got %+v", c.Retrieval)
+	}
+	// Env overrides parse into the fields.
+	t.Setenv("RETRIEVAL_MAX_CHUNK_DISTANCE", "0.80")
+	t.Setenv("RETRIEVAL_NODE_DISTANCE_GAP", "0.05")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Retrieval.MaxChunkDistance != 0.80 || c.Retrieval.NodeDistanceGap != 0.05 {
+		t.Fatalf("retrieval env not applied: %+v", c.Retrieval)
+	}
+	// Out-of-range distance is rejected.
+	t.Setenv("RETRIEVAL_MAX_CHUNK_DISTANCE", "2.5")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for max_chunk_distance > 2")
+	}
+	t.Setenv("RETRIEVAL_MAX_CHUNK_DISTANCE", "0.80")
+	t.Setenv("RETRIEVAL_NODE_DISTANCE_GAP", "-0.1")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for negative node_distance_gap")
+	}
+}
+
 func TestGitLabEnvAutoCreatesSource(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	for _, k := range []string{"GITHUB_TOKEN", "NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {

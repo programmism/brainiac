@@ -35,6 +35,12 @@ type Core struct {
 	// relevance (SYSTEM.md §7, #213). Nil = the RRF-fused order is returned as is.
 	reranker plugins.Reranker
 
+	// retrieval holds the tunable distance thresholds (#332). Defaults are the
+	// package consts (MaxRelevantDistance/ChunkDistanceGap/MaxNodeDistance/
+	// NodeDistanceGap); a deployment can override them per model/domain without a
+	// rebuild via WithRetrievalThresholds (config-wired in the adapters).
+	retrieval RetrievalThresholds
+
 	// Process-lifetime ingest/extraction counters exposed as Prometheus counters
 	// (#319), so throughput and extraction-failure rate are observable via rate().
 	// Monotonic within a process; they reset on restart, which counters tolerate.
@@ -68,11 +74,52 @@ func WithReranker(r plugins.Reranker) Option {
 	return func(c *Core) { c.reranker = r }
 }
 
+// RetrievalThresholds are the tunable cosine-distance gates for retrieval (#332):
+// the absolute cutoff and relative gap for chunk hits (Search) and for node hits
+// (Recall). Cosine distance runs 0..2; a gap is >= 0.
+type RetrievalThresholds struct {
+	MaxChunkDistance float64
+	ChunkDistanceGap float64
+	MaxNodeDistance  float64
+	NodeDistanceGap  float64
+}
+
+// DefaultRetrievalThresholds returns the measured defaults (the package consts),
+// used when a caller passes no override.
+func DefaultRetrievalThresholds() RetrievalThresholds {
+	return RetrievalThresholds{
+		MaxChunkDistance: MaxRelevantDistance,
+		ChunkDistanceGap: ChunkDistanceGap,
+		MaxNodeDistance:  MaxNodeDistance,
+		NodeDistanceGap:  NodeDistanceGap,
+	}
+}
+
+// WithRetrievalThresholds overrides the retrieval distance gates (#332). Any
+// zero-valued field is left at its default so a partial override is safe.
+func WithRetrievalThresholds(t RetrievalThresholds) Option {
+	return func(c *Core) {
+		if t.MaxChunkDistance > 0 {
+			c.retrieval.MaxChunkDistance = t.MaxChunkDistance
+		}
+		if t.ChunkDistanceGap > 0 {
+			c.retrieval.ChunkDistanceGap = t.ChunkDistanceGap
+		}
+		if t.MaxNodeDistance > 0 {
+			c.retrieval.MaxNodeDistance = t.MaxNodeDistance
+		}
+		if t.NodeDistanceGap > 0 {
+			c.retrieval.NodeDistanceGap = t.NodeDistanceGap
+		}
+	}
+}
+
 // New constructs a Core over a database pool, an embedder, and a selector.
 // selector may be nil for surfaces that never ingest (it is only used by Ingest).
 // Options enable opt-in features such as the local-LLM extractor.
 func New(pool *pgxpool.Pool, embedder plugins.Embedder, selector plugins.Selector, opts ...Option) *Core {
-	c := &Core{pool: pool, embedder: embedder, selector: selector, startedAt: time.Now(), extractReview: true}
+	c := &Core{pool: pool, embedder: embedder, selector: selector, startedAt: time.Now(), extractReview: true,
+		retrieval: DefaultRetrievalThresholds()}
 	for _, o := range opts {
 		o(c)
 	}

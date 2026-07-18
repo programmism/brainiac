@@ -78,7 +78,7 @@ func run() error {
 	}
 
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize), ollama.WithMaxConcurrency(cfg.Embedding.MaxConcurrency))
-	c := core.New(pool, embedder, density.New(), extractorOptions(cfg)...)
+	c := core.New(pool, embedder, density.New(), append(extractorOptions(cfg), retrievalOption(cfg))...)
 
 	writable := cfg.Clients.WebUI == "interactive"
 	if writable && cfg.HTTP.AuthToken == "" {
@@ -301,6 +301,17 @@ func extractorOptions(cfg *config.Config) []core.Option {
 	default:
 		return nil
 	}
+}
+
+// retrievalOption maps the config retrieval thresholds (#332) onto the core
+// option; zero fields fall back to core's built-in defaults.
+func retrievalOption(cfg *config.Config) core.Option {
+	return core.WithRetrievalThresholds(core.RetrievalThresholds{
+		MaxChunkDistance: cfg.Retrieval.MaxChunkDistance,
+		ChunkDistanceGap: cfg.Retrieval.ChunkDistanceGap,
+		MaxNodeDistance:  cfg.Retrieval.MaxNodeDistance,
+		NodeDistanceGap:  cfg.Retrieval.NodeDistanceGap,
+	})
 }
 
 func ollamaChecker(baseURL, model string) server.Checker {
