@@ -39,11 +39,12 @@ const (
 // Extractor turns a text chunk into graph nodes/edges by prompting the Claude
 // Messages API with a JSON-schema structured output.
 type Extractor struct {
-	apiKey  string
-	baseURL string
-	model   string
-	client  *http.Client
-	retries int
+	apiKey       string
+	baseURL      string
+	model        string
+	client       *http.Client
+	retries      int
+	batchPollIvl time.Duration // how often BatchExtract polls the batch status (#326)
 }
 
 // Option customizes an Extractor.
@@ -55,6 +56,16 @@ func WithHTTPClient(c *http.Client) Option { return func(e *Extractor) { e.clien
 // WithBaseURL overrides the API base URL (used in tests).
 func WithBaseURL(u string) Option {
 	return func(e *Extractor) { e.baseURL = strings.TrimRight(u, "/") }
+}
+
+// WithBatchPollInterval overrides how often BatchExtract polls the batch status
+// (#326) — used in tests to poll fast.
+func WithBatchPollInterval(d time.Duration) Option {
+	return func(e *Extractor) {
+		if d > 0 {
+			e.batchPollIvl = d
+		}
+	}
 }
 
 // WithRetries sets how many attempts Extract makes on transient failures (<=0
@@ -73,11 +84,12 @@ func NewExtractor(apiKey, model string, opts ...Option) *Extractor {
 		model = DefaultModel
 	}
 	e := &Extractor{
-		apiKey:  apiKey,
-		baseURL: defaultBaseURL,
-		model:   model,
-		client:  &http.Client{Timeout: 2 * time.Minute},
-		retries: DefaultRetries,
+		apiKey:       apiKey,
+		baseURL:      defaultBaseURL,
+		model:        model,
+		client:       &http.Client{Timeout: 2 * time.Minute},
+		retries:      DefaultRetries,
+		batchPollIvl: 10 * time.Second,
 	}
 	for _, o := range opts {
 		o(e)
@@ -158,14 +170,37 @@ type messageResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func (e *Extractor) extractOnce(ctx context.Context, chunk string) (plugins.Extraction, error) {
-	payload, err := json.Marshal(messageRequest{
+// buildRequest is the structured-output Messages request for one chunk — shared by
+// the synchronous Extract and the Message Batches path (#326).
+func (e *Extractor) buildRequest(chunk string) messageRequest {
+	return messageRequest{
 		Model:        e.model,
 		MaxTokens:    maxTokens,
 		System:       extractSystemPrompt,
 		Messages:     []message{{Role: "user", Content: chunk}},
 		OutputConfig: outputConfig{Format: outputFormat{Type: "json_schema", Schema: extractionSchema}},
-	})
+	}
+}
+
+// parseMessage turns one Messages response into an Extraction — the shared decode
+// used by both the synchronous and batch paths (#326).
+func (e *Extractor) parseMessage(out messageResponse) (plugins.Extraction, error) {
+	if out.StopReason == "refusal" {
+		return plugins.Extraction{}, fmt.Errorf("anthropic declined to extract this chunk (stop_reason refusal)")
+	}
+	text := firstText(out)
+	if text == "" {
+		return plugins.Extraction{}, fmt.Errorf("anthropic returned no text content")
+	}
+	var raw rawExtraction
+	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+		return plugins.Extraction{}, fmt.Errorf("parse extraction JSON from model %q: %w", e.model, err)
+	}
+	return toExtraction(raw), nil
+}
+
+func (e *Extractor) extractOnce(ctx context.Context, chunk string) (plugins.Extraction, error) {
+	payload, err := json.Marshal(e.buildRequest(chunk))
 	if err != nil {
 		return plugins.Extraction{}, err
 	}
@@ -192,18 +227,7 @@ func (e *Extractor) extractOnce(ctx context.Context, chunk string) (plugins.Extr
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return plugins.Extraction{}, fmt.Errorf("decode anthropic response: %w", err)
 	}
-	if out.StopReason == "refusal" {
-		return plugins.Extraction{}, fmt.Errorf("anthropic declined to extract this chunk (stop_reason refusal)")
-	}
-	text := firstText(out)
-	if text == "" {
-		return plugins.Extraction{}, fmt.Errorf("anthropic returned no text content")
-	}
-	var raw rawExtraction
-	if err := json.Unmarshal([]byte(text), &raw); err != nil {
-		return plugins.Extraction{}, fmt.Errorf("parse extraction JSON from model %q: %w", e.model, err)
-	}
-	return toExtraction(raw), nil
+	return e.parseMessage(out)
 }
 
 // firstText returns the first text content block's text, joining any additional
