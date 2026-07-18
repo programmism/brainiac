@@ -4,9 +4,10 @@
 // blind connector — unit-tested against a fake GitHub API, not a live token.
 //
 // Auth is a GitHub token (classic or fine-grained PAT) with `repo` read scope;
-// pass it via GITHUB_TOKEN. Read-only. GitLab, code/file ingestion, and the
-// Discussions GraphQL API are tracked as follow-ups (this slice is issues + PRs
-// over REST).
+// pass it via GITHUB_TOKEN. Read-only. Beyond issues + PRs, it can (opt-in, via
+// WithFiles / GITHUB_FILES) also ingest a repo's tracked files matching path globs
+// as documents (#354). GitHub Discussions (GraphQL) and Link-header pagination are
+// tracked as follow-ups.
 package github
 
 import (
@@ -28,12 +29,14 @@ const (
 	perPage        = 100
 )
 
-// Connector reads issues + PRs from the given "owner/repo" repositories.
+// Connector reads issues + PRs from the given "owner/repo" repositories, and
+// (opt-in) tracked files matching a set of path globs.
 type Connector struct {
 	token   string
 	baseURL string
 	client  *http.Client
 	repos   []string
+	files   []string // path globs to also ingest as documents (#354); empty = off
 }
 
 // Option customizes a Connector.
@@ -46,6 +49,15 @@ func WithBaseURL(u string) Option {
 
 // WithHTTPClient overrides the HTTP client.
 func WithHTTPClient(h *http.Client) Option { return func(c *Connector) { c.client = h } }
+
+// WithFiles opts into ingesting a repo's tracked files whose path matches any of
+// the given globs (e.g. "README*", "docs/**", "*.md") as documents, in addition to
+// issues/PRs (#354). Empty = off (issues/PRs only, the default). Globs: "dir/**"
+// matches a subtree, a glob with "/" is path.Match on the full path, otherwise it
+// matches the basename.
+func WithFiles(globs []string) Option {
+	return func(c *Connector) { c.files = append(c.files, globs...) }
+}
 
 // New builds a GitHub connector for the given token and "owner/repo" list.
 func New(token string, repos []string, opts ...Option) *Connector {
@@ -100,6 +112,12 @@ func (c *Connector) Fetch(ctx context.Context) iter.Seq2[plugins.RawDoc, error] 
 				}
 				if len(items) < perPage {
 					break
+				}
+			}
+			// Opt-in: also ingest tracked files matching the configured globs (#354).
+			if len(c.files) > 0 {
+				if !c.fetchFiles(ctx, repo, yield) {
+					return
 				}
 			}
 		}

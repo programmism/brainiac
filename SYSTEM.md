@@ -383,6 +383,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Opt-in repo tracked-file ingestion in the GitHub connector (#354, ingestion P2).** The
+  GitHub connector read only issues/PRs. Added an **opt-in** file mode (`github.WithFiles(globs)`, config
+  `sources[].files` / env `GITHUB_FILES`, **default off** so issues/PRs behavior is unchanged): it lists the
+  repo's default-branch tree (`git/trees/{branch}?recursive=1`), filters blobs to the configured path globs
+  *and* to formats `doctext` can convert, fetches each blob (`git/blobs/{sha}`, base64), and yields a RawDoc
+  (`github://{repo}/{path}`). Glob forms: `dir/**` (subtree), a glob with `/` (path.Match on the full path),
+  else basename (`README*`, `*.md`, `ADR*`). Best-effort per file (a bad blob is surfaced then skipped, #241).
+  Blind + httptest (mocked tree/blob/issues: `README*`+`docs/**` ingest README.md + docs/guide.md, a `.go`
+  file and an unmatched `.txt` excluded; the default connector never touches the file endpoints) + a matchGlob
+  unit test. GitHub Discussions (GraphQL) + Link-header pagination remain in follow-up #381.
 - **2026-07-18** — **Opt-in OCR for scanned/image-only PDFs (#356, ingestion P2).** #321 extracts a PDF's text
   layer; an image-only scan has none, so it ingested as empty. Added an **opt-in** OCR fallback that keeps
   doctext's dependency-free posture: `doctext.OCRFunc` (a `func([]byte)(string,error)` the caller supplies)

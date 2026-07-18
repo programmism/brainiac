@@ -397,6 +397,7 @@ type SourceConfig struct {
 	Token     string   `yaml:"token,omitempty"`
 	Path      string   `yaml:"path,omitempty"`  // for file-based connectors (markdown)
 	Repos     []string `yaml:"repos,omitempty"` // "owner/repo" list for the github connector (#238)
+	Files     []string `yaml:"files,omitempty"` // opt-in path globs for repo file ingestion (github, #354)
 	// BaseURL and Email configure the Atlassian connectors (jira, confluence, #343):
 	// the site base URL and the account email for Basic email:token auth.
 	BaseURL string `yaml:"base_url,omitempty"`
@@ -627,6 +628,13 @@ func (c *Config) applyEnvOverrides() {
 		for i := range c.Sources {
 			if c.Sources[i].Type == "github" {
 				c.Sources[i].Repos = splitCSV(v)
+			}
+		}
+	}
+	if v := os.Getenv("GITHUB_FILES"); v != "" {
+		for i := range c.Sources {
+			if c.Sources[i].Type == "github" {
+				c.Sources[i].Files = splitCSV(v)
 			}
 		}
 	}
