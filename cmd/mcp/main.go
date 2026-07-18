@@ -16,6 +16,7 @@ import (
 	"github.com/programmism/brainiac/internal/mcpserver"
 	"github.com/programmism/brainiac/internal/plugins/anthropic"
 	"github.com/programmism/brainiac/internal/plugins/density"
+	"github.com/programmism/brainiac/internal/plugins/github"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
@@ -135,8 +136,21 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 				return c.Ingest(ctx, slack.New(sc.Token), opts)
 			}
 			return c.Ingest(ctx, slack.NewForChannels(sc.Token, []string{target}), opts)
+		case "github":
+			sc := cfg.Source("github")
+			if sc == nil || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("github is not configured (set GITHUB_TOKEN)")
+			}
+			repos := sc.Repos
+			if target != "" {
+				repos = []string{target}
+			}
+			if len(repos) == 0 {
+				return core.IngestStats{}, fmt.Errorf("github needs a repo: pass owner/repo as the target, or set sources[].repos / GITHUB_REPOS")
+			}
+			return c.Ingest(ctx, github.New(sc.Token, repos), opts)
 		default:
-			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, or markdown)", source)
+			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, or markdown)", source)
 		}
 	}
 }

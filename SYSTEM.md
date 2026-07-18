@@ -365,6 +365,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **GitHub connector (#238, ingestion P1).** A fourth connector over the stable
+  `SourceConnector` seam. `internal/plugins/github` reads a repo's **issues + pull requests** (title/body)
+  over the GitHub REST API (`GET /repos/{owner}/{repo}/issues?state=all`, which returns PRs too — tagged
+  `kind: pr` by the `pull_request` field), page-paginated (stop on a short page), token-auth (`Authorization:
+  Bearer`, `X-GitHub-Api-Version`). Each issue/PR → one `RawDoc` (`html_url` provenance, `updated_at` →
+  `ModifiedAt`); empty ones skipped, and a per-page fetch error is non-fatal (#241). Wired like the other
+  connectors: `GITHUB_TOKEN` auto-creates a `github` source, repos come from `sources[].repos` /
+  `GITHUB_REPOS` / the import target, dispatched by MCP `import` and CLI `kb import --source github [--path
+  owner/repo]`. A new `SourceConfig.Repos` field carries the repo list. Fully unit-tested against an httptest
+  fake GitHub API (pagination, PR vs issue tagging, empty-skip, 401→error) — no live token. **Note:** the
+  ambient `GITHUB_TOKEN` in CI/Actions meant the config tests had to clear it to stay deterministic. GitLab,
+  code/file ingestion, and Discussions (GraphQL) are tracked as follow-up #340.
 - **2026-07-17** — **Postgres tuning-at-scale guide (#232, scale P2).** `pgxpool` was fully defaulted and
   there was no guidance for the churn Brainiac generates. Added a **"Tuning Postgres at scale"** section to
   `operations.md`: (1) **autovacuum** — supersede/merge flip rows `current→historical` and ingest deletes

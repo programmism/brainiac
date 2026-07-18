@@ -48,6 +48,10 @@ sources:
   # - type: slack              # kb import --source slack [--path CHANNEL_ID] (#237)
   #   selection: density-filter
   #   # token: xoxb-…          # prefer SLACK_TOKEN; bot needs channels:read + channels:history
+  # - type: github             # kb import --source github [--path owner/repo] (#238) — issues + PRs
+  #   selection: density-filter
+  #   repos: [owner/repo]      # or GITHUB_REPOS=owner/repo,owner/other
+  #   # token: ghp_…           # prefer GITHUB_TOKEN; PAT with repo read scope
   # - type: markdown           # kb import --source markdown [--path DIR]
   #   selection: density-filter
   #   path: ./docs

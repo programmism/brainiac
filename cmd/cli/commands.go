@@ -19,6 +19,7 @@ import (
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
+	"github.com/programmism/brainiac/internal/plugins/github"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/plugins/slack"
@@ -683,7 +684,7 @@ func importCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: "Ingest documents from a configured source (notion | slack | markdown)",
+		Short: "Ingest documents from a configured source (notion | slack | github | markdown)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, pool, err := connect(ctx)
@@ -721,7 +722,7 @@ func importCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | markdown)")
+	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | github | markdown)")
 	cmd.Flags().StringVar(&path, "path", "", "root directory for the markdown source (overrides config)")
 	cmd.Flags().StringVar(&project, "project", "", "project to scope imported documents to (omit for global)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview chunk/keep/drop counts without embedding or writing")
@@ -748,6 +749,19 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 			return slack.NewForChannels(sc.Token, []string{path}), nil
 		}
 		return slack.New(sc.Token), nil
+	case "github":
+		sc := cfg.Source("github")
+		if sc == nil || sc.Token == "" {
+			return nil, fmt.Errorf("github source not configured (set a token via GITHUB_TOKEN or config.yaml)")
+		}
+		repos := sc.Repos
+		if path != "" { // --path holds an owner/repo for a targeted import
+			repos = []string{path}
+		}
+		if len(repos) == 0 {
+			return nil, fmt.Errorf("github needs a repo: --path owner/repo, or sources[].repos / GITHUB_REPOS")
+		}
+		return github.New(sc.Token, repos), nil
 	case "markdown":
 		dir := path
 		if dir == "" {

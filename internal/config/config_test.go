@@ -333,6 +333,12 @@ sources:
 	if err := os.WriteFile(path, []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// Isolate from ambient connector-token env vars (CI/Actions sets GITHUB_TOKEN),
+	// which would otherwise auto-inject extra sources.
+	t.Setenv("GITHUB_TOKEN", "")
+	t.Setenv("GITHUB_REPOS", "")
+	t.Setenv("NOTION_TOKEN", "")
+	t.Setenv("SLACK_TOKEN", "")
 	// Env override must beat the file value for the DSN.
 	t.Setenv("DATABASE_URL", "postgres://from-env")
 
@@ -366,6 +372,25 @@ func TestAutoImportInterval(t *testing.T) {
 	c.Ingest.Interval = "garbage"
 	if c.AutoImportInterval() != 0 {
 		t.Error("invalid interval should be 0")
+	}
+}
+
+func TestGitHubTokenAndReposAutoCreateSource(t *testing.T) {
+	t.Setenv("NOTION_TOKEN", "")
+	t.Setenv("SLACK_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "ghp-abc")
+	t.Setenv("GITHUB_REPOS", "octo/mem, octo/other ,")
+	t.Setenv("DATABASE_URL", "postgres://x")
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	s := c.Source("github")
+	if s == nil || s.Token != "ghp-abc" {
+		t.Fatalf("github source not created: %+v", s)
+	}
+	if len(s.Repos) != 2 || s.Repos[0] != "octo/mem" || s.Repos[1] != "octo/other" {
+		t.Errorf("GITHUB_REPOS not parsed/trimmed: %v", s.Repos)
 	}
 }
 
