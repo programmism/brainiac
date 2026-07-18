@@ -9,12 +9,12 @@ import (
 )
 
 func TestSupported(t *testing.T) {
-	for _, ok := range []string{"a.txt", "A.MD", "notes.markdown", "page.HTML", "p.htm", "doc.docx"} {
+	for _, ok := range []string{"a.txt", "A.MD", "notes.markdown", "page.HTML", "p.htm", "doc.docx", "report.PDF"} {
 		if !Supported(ok) {
 			t.Errorf("Supported(%q) = false, want true", ok)
 		}
 	}
-	for _, no := range []string{"a.pdf", "b.png", "c", "d.xlsx"} {
+	for _, no := range []string{"b.png", "c", "d.xlsx"} {
 		if Supported(no) {
 			t.Errorf("Supported(%q) = true, want false", no)
 		}
@@ -114,8 +114,8 @@ func TestDocxInvalidZip(t *testing.T) {
 }
 
 func TestUnsupported(t *testing.T) {
-	_, err := ToText("scan.pdf", []byte("%PDF-1.7"))
+	_, err := ToText("sheet.xlsx", []byte("PK\x03\x04"))
 	if !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("pdf should be ErrUnsupported, got %v", err)
+		t.Fatalf("xlsx should be ErrUnsupported, got %v", err)
 	}
 }
