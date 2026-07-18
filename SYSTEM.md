@@ -383,6 +383,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Structured splitting of oversized code/table blocks (#350, ingestion P2).** #242 keeps a
+  fenced code block or table whole when it fits within `maxSize`, but a block that both *starts* a chunk and
+  exceeds `maxSize` still fell back to an arbitrary rolling-hash cut mid-block. `avoidSplit` now routes that
+  case to `structuredCut`, which splits at the last blank line (a function/paragraph break), else the last
+  top-level line start (a non-indented line — a symbol boundary, and every row start of a pipe table), else
+  the snapped cut. So a big code file breaks at symbol boundaries and a big table on row boundaries, each
+  piece coherent. The result stays in `[start+minSize, cut]`, so the `maxSize` bound and self-healing hold.
+  Pure `internal/chunk` unit tests (structuredCut prefers blank > symbol > unchanged; a >maxSize code block
+  and a >maxSize table each split with every source line/row intact). Follow-up #369: per-source chunking
+  strategy selection + repeating a table's header on each split piece.
 - **2026-07-18** — **Per-source trusted config (#361, security P2).** #273 made all ingested content untrusted
   by default (fail-closed) with `trusted` reachable only via an unset `IngestOptions.Trust`, so nothing could
   actually be marked trusted. Added `sources[].trust` (env `<TYPE>_TRUST`, e.g. `GITHUB_TRUST=trusted`;
