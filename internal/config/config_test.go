@@ -294,6 +294,28 @@ func TestLoadMissingFileUsesDefaultsPlusEnv(t *testing.T) {
 	}
 }
 
+func TestIngestPruneDeletedDefaultsOffAndEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-dsn")
+	// Default: OFF — the retention default keeps deleted content (#107), so the
+	// minimal single-user config never propagates deletions.
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Ingest.PruneDeleted {
+		t.Fatal("PruneDeleted must default to false (opt-in)")
+	}
+	// Env opts in.
+	t.Setenv("INGEST_PRUNE_DELETED", "true")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !c.Ingest.PruneDeleted {
+		t.Fatal("INGEST_PRUNE_DELETED=true did not enable prune")
+	}
+}
+
 func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://env-dsn")
 	// Default: JSON at info (#258).

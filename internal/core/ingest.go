@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/programmism/brainiac/internal/chunk"
 	"github.com/programmism/brainiac/internal/model"
@@ -41,6 +42,15 @@ type IngestOptions struct {
 	// IngestText (explicit client curation) sets it trusted. Untrusted chunks force
 	// extraction through the review queue and are surfaced in retrieval results.
 	Trust string
+	// PruneMissing propagates source-side deletions (#247/#323): after a full
+	// connector sweep, a document previously synced from this connector's scheme
+	// but absent from this run is removed (its source's chunk memberships dropped,
+	// then orphaned chunks pruned, and its source_sync row deleted). Off by default
+	// — the #107 retention default keeps deleted content, so this is strictly
+	// opt-in. Skipped entirely if the sweep had any fetch/document error, so a
+	// transient failure can never be mistaken for a deletion. Scoped by URI scheme
+	// so one connector's sweep never deletes another connector's documents.
+	PruneMissing bool
 }
 
 // IngestProgress is a running snapshot emitted during ingest (#139).
@@ -90,6 +100,7 @@ type IngestStats struct {
 	Skipped     int // unchanged (content hash already present for this source)
 	SkippedDocs int // whole documents skipped by incremental mtime check (#236)
 	Deleted     int // stale chunks removed (source content edited away/removed)
+	DeletedDocs int // whole documents removed by PruneMissing (source-side deletions, #247)
 	Failed      int // documents that failed (e.g. embedder down) — skipped, run continues
 	FetchErrors int // connector fetch/pagination errors — skipped, run continues (#241)
 	// Extraction totals — non-zero only when the optional local-LLM extractor is
@@ -113,6 +124,12 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts In
 	}
 
 	var stats IngestStats
+	// For opt-in deletion propagation (#247/#323): the set of documents the source
+	// still has this run, and the URI schemes they belong to. A document present at
+	// the source — even one that failed to ingest — is NOT a deletion, so it's
+	// recorded as seen regardless of ingestDoc's outcome.
+	seen := map[string]bool{}
+	schemes := map[string]bool{}
 	for doc, err := range conn.Fetch(ctx) {
 		if err != nil {
 			// A single fetch/pagination error must not abort the whole backfill
@@ -127,12 +144,75 @@ func (c *Core) Ingest(ctx context.Context, conn plugins.SourceConnector, opts In
 			continue
 		}
 		stats.Docs++
+		if doc.SourceURI != "" {
+			seen[doc.SourceURI] = true
+			if s := sourceScheme(doc.SourceURI); s != "" {
+				schemes[s] = true
+			}
+		}
 		if err := c.ingestDoc(ctx, doc, opts, &stats); err != nil {
 			stats.Failed++ // skip this doc, keep going
 			continue
 		}
 	}
+
+	// Propagate source-side deletions only on an explicit opt-in and a CLEAN sweep:
+	// any fetch or document error means we can't tell "deleted" from "temporarily
+	// unavailable", so we keep everything (fail-safe — never delete on doubt).
+	if opts.PruneMissing && !opts.DryRun && stats.FetchErrors == 0 && stats.Failed == 0 {
+		if err := c.pruneMissingDocs(ctx, seen, schemes, &stats); err != nil {
+			return stats, err
+		}
+	}
 	return stats, nil
+}
+
+// sourceScheme returns the "scheme://" prefix of a source URI (e.g.
+// "markdown://docs/a.md" -> "markdown://"), or "" if it has none. Deletion
+// propagation is scoped by this prefix so one connector's sweep never removes
+// another connector's documents (#323).
+func sourceScheme(uri string) string {
+	if i := strings.Index(uri, "://"); i > 0 {
+		return uri[:i+len("://")]
+	}
+	return ""
+}
+
+// pruneMissingDocs removes documents that were previously synced under one of the
+// swept schemes but are absent from this run — the opt-in deletion-propagation
+// path (#247/#323). Deletion is membership-based (#387): a document's chunks are
+// removed only when this source was their last claim, so content another source
+// still vouches for survives; the document's source_sync row is deleted so a
+// later run doesn't resurrect the skip. Each document is its own transaction.
+func (c *Core) pruneMissingDocs(ctx context.Context, seen, schemes map[string]bool, stats *IngestStats) error {
+	for scheme := range schemes {
+		uris, err := store.SourceSyncURIsWithScheme(ctx, c.pool, scheme)
+		if err != nil {
+			return err
+		}
+		for _, uri := range uris {
+			if seen[uri] {
+				continue
+			}
+			var deleted int64
+			if err := store.WithTx(ctx, c.pool, func(db store.DBTX) error {
+				if _, err := store.DropChunkSourceMembershipNotIn(ctx, db, uri, nil); err != nil {
+					return err
+				}
+				d, err := store.PruneOrphanChunks(ctx, db)
+				if err != nil {
+					return err
+				}
+				deleted = d
+				return store.DeleteSourceSync(ctx, db, uri)
+			}); err != nil {
+				return err
+			}
+			stats.Deleted += int(deleted)
+			stats.DeletedDocs++
+		}
+	}
+	return nil
 }
 
 // IngestText stores a single document's text into the memory (chunk → select →

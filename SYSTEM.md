@@ -383,6 +383,19 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Opt-in source-side deletion propagation (#247/#323, ingestion P1).** A document deleted at
+  its source was never removed from memory (the #107 retention default — keep everything). New opt-in
+  `IngestOptions.PruneMissing` (config `INGEST_PRUNE_DELETED`, default OFF): after a full connector sweep,
+  a document previously synced from one of the swept URI schemes but absent this run is removed —
+  membership-based (#387), so its chunks drop only when this source was their last claim (content another
+  source still vouches for survives), and its `source_sync` row is deleted. **Two safety gates:** (1) pruning
+  is skipped entirely if the sweep had any fetch or document error, so a transient failure can never be
+  mistaken for a deletion (fail-safe); (2) scope is by URI **scheme** (`markdown://`) so one connector never
+  deletes another's docs. Because every markdown dir shares the `markdown://` scheme, auto-import enables
+  prune only for the single-dir (minimal `/data/docs`) case; multi-dir prune is follow-up #391. Default OFF
+  keeps the minimal single-user config behaving exactly as before (pluggability invariant). This consumes
+  the reconcile primitives from #387; the streaming `Watch()`-driven delete path and connector cursors
+  remain #323's larger scope.
 - **2026-07-18** — **Membership-based ingest reconcile (#387, ingestion P1 — activates #244's deletion side).**
   The re-ingest reconcile deleted stale chunks with the per-source `DeleteChunksBySourceURINotIn` (drop this
   source's chunks whose content is gone). Now it drops this source's *membership* for gone content
