@@ -36,6 +36,7 @@ type Config struct {
 	Ingest        IngestConfig        `yaml:"ingest"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	Retrieval     RetrievalConfig     `yaml:"retrieval"`
+	Index         IndexConfig         `yaml:"index"`
 	// Principals is the opt-in Layer 2 hard-isolation roster (#120). Empty =
 	// Layer 1 (open reads, single AUTH_TOKEN gates writes) — unchanged. When set,
 	// every /api call requires a principal's bearer token, reads are walled to its
@@ -216,6 +217,15 @@ func (c *Config) AutoImportInterval() time.Duration {
 	return d
 }
 
+// IndexConfig tunes the HNSW vector-index build parameters (#233) applied by the
+// `reindex` command. Defaults match pgvector's (m=16, ef_construction=64); raise
+// them ahead of a large (10M+) tier for better recall at the cost of build time
+// and index size.
+type IndexConfig struct {
+	HNSWM              int `yaml:"hnsw_m,omitempty"`
+	HNSWEfConstruction int `yaml:"hnsw_ef_construction,omitempty"`
+}
+
 // RetrievalConfig tunes the cosine-distance gates for retrieval (#332) so a
 // deployment can calibrate for its embedding model/domain without a rebuild. Zero
 // means "use the built-in default"; cosine distance runs 0..2, gaps are >= 0.
@@ -375,6 +385,8 @@ func Default() *Config {
 	c.Clients.CLI = true
 	c.Logging.Format = "json"
 	c.Logging.Level = "info"
+	c.Index.HNSWM = 16              // pgvector default
+	c.Index.HNSWEfConstruction = 64 // pgvector default
 	return c
 }
 
@@ -453,6 +465,8 @@ func (c *Config) applyEnvOverrides() {
 	setFloatEnv("RETRIEVAL_CHUNK_DISTANCE_GAP", &c.Retrieval.ChunkDistanceGap)
 	setFloatEnv("RETRIEVAL_MAX_NODE_DISTANCE", &c.Retrieval.MaxNodeDistance)
 	setFloatEnv("RETRIEVAL_NODE_DISTANCE_GAP", &c.Retrieval.NodeDistanceGap)
+	setIntEnv("HNSW_M", &c.Index.HNSWM)
+	setIntEnv("HNSW_EF_CONSTRUCTION", &c.Index.HNSWEfConstruction)
 	// Local-LLM extractor (opt-in). EXTRACTOR=local-llm turns it on; the model is
 	// required in that case, the URL defaults to the embedding Ollama.
 	if v := os.Getenv("EXTRACTOR"); v != "" {
@@ -622,6 +636,15 @@ func setFloatEnv(key string, dst *float64) {
 	}
 }
 
+// setIntEnv is setFloatEnv for ints.
+func setIntEnv(key string, dst *int) {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			*dst = n
+		}
+	}
+}
+
 // splitCSV splits a comma-separated env value into trimmed, non-empty items.
 func splitCSV(s string) []string {
 	var out []string
@@ -683,6 +706,16 @@ func (c *Config) Validate() error {
 	}
 	if c.Retrieval.NodeDistanceGap < 0 {
 		return fmt.Errorf("retrieval.node_distance_gap must be >= 0, got %g", c.Retrieval.NodeDistanceGap)
+	}
+	// HNSW build params (#233) — pgvector's valid ranges.
+	if c.Index.HNSWM < 2 || c.Index.HNSWM > 100 {
+		return fmt.Errorf("index.hnsw_m must be within [2, 100], got %d", c.Index.HNSWM)
+	}
+	if c.Index.HNSWEfConstruction < 4 || c.Index.HNSWEfConstruction > 1000 {
+		return fmt.Errorf("index.hnsw_ef_construction must be within [4, 1000], got %d", c.Index.HNSWEfConstruction)
+	}
+	if c.Index.HNSWEfConstruction < 2*c.Index.HNSWM {
+		return fmt.Errorf("index.hnsw_ef_construction (%d) must be >= 2*hnsw_m (%d)", c.Index.HNSWEfConstruction, 2*c.Index.HNSWM)
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {
 	case "", "debug", "info", "warn", "warning", "error":

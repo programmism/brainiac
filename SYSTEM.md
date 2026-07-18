@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **HNSW build params as config + online reindex (#233, scale P2).** Both HNSW indexes were
+  created in migrations with pgvector's defaults (`m=16`, `ef_construction=64`), which under-build recall at a
+  10M+ tier — and the params are baked into `CREATE INDEX`, unreadable from runtime config. Added
+  `index.hnsw_m` / `index.hnsw_ef_construction` config (env `HNSW_M` / `HNSW_EF_CONSTRUCTION`, validated to
+  pgvector's ranges m∈[2,100], ef_construction∈[4,1000] and ef_construction ≥ 2·m) plus a `kb reindex`
+  command backed by `store.ReindexHNSW`, which rebuilds both indexes **online** (`CREATE INDEX CONCURRENTLY`
+  a replacement → `DROP` old → `RENAME`), so search never runs unindexed and no write lock is taken. Since
+  historical migrations can't be re-parametrized, reindex is the apply path; `REINDEX` alone keeps the old
+  params, so it's only for *changing* them. Idempotent (drops a leftover temp first) and preserves the
+  partial-index predicates (`tier='hot'`, `status='current'`). DB-gated store test (reloptions reflect the
+  new params on both indexes; the `WHERE` predicate survives) + config validation test.
 - **2026-07-18** — **Retrieval distance thresholds are config, not consts (#332, retrieval P2).** The four
   retrieval gates — chunk `MaxRelevantDistance`/`ChunkDistanceGap` (Search) and node `MaxNodeDistance`/
   `NodeDistanceGap` (Recall) — were package consts, so tuning them for a different embedding model/domain

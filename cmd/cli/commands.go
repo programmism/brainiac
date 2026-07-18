@@ -51,6 +51,33 @@ func migrateCmd() *cobra.Command {
 	}
 }
 
+func reindexCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reindex",
+		Short: "Rebuild the HNSW vector indexes with the configured build params (#233)",
+		Long: "Rebuilds the chunk + node HNSW indexes online (CREATE INDEX CONCURRENTLY →\n" +
+			"drop → rename) using index.hnsw_m / index.hnsw_ef_construction (env HNSW_M /\n" +
+			"HNSW_EF_CONSTRUCTION). Search keeps serving throughout. Run this after raising\n" +
+			"the params ahead of a large tier; on a big table it can take a while.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			out := cmd.OutOrStdout()
+			fmt.Fprintf(out, "reindex: rebuilding HNSW indexes with m=%d, ef_construction=%d…\n",
+				cfg.Index.HNSWM, cfg.Index.HNSWEfConstruction)
+			if err := store.ReindexHNSW(ctx, pool, cfg.Index.HNSWM, cfg.Index.HNSWEfConstruction); err != nil {
+				return err
+			}
+			fmt.Fprintln(out, "reindex: done")
+			return nil
+		},
+	}
+}
+
 func healthCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "health",
