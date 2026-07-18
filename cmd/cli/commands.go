@@ -15,6 +15,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/programmism/brainiac/internal/chunk"
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/model"
@@ -857,7 +858,7 @@ func importCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			opts := core.IngestOptions{Project: project, DryRun: dryRun, Trust: cfg.SourceTrust(source)}
+			opts := core.IngestOptions{Project: project, DryRun: dryRun, Trust: cfg.SourceTrust(source), ChunkParams: chunk.Preset(cfg.SourceChunkPreset(source))}
 			if !dryRun {
 				errOut := cmd.ErrOrStderr()
 				opts.OnProgress = func(p core.IngestProgress) {

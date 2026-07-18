@@ -42,6 +42,10 @@ type IngestOptions struct {
 	// IngestText (explicit client curation) sets it trusted. Untrusted chunks force
 	// extraction through the review queue and are surfaced in retrieval results.
 	Trust string
+	// ChunkParams overrides the chunker's size tuning for this run (#401), e.g. a
+	// larger "prose" or tighter "code" preset per source. Zero = the default tuning
+	// (invalid values fall back to it too), so it changes nothing unless set.
+	ChunkParams chunk.Params
 	// PruneMissing propagates source-side deletions (#247/#323): after a full
 	// connector sweep, a document previously synced from this connector's scheme
 	// but absent from this run is removed (its source's chunk memberships dropped,
@@ -286,7 +290,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 	if trust == "" {
 		trust = model.TrustUntrusted
 	}
-	pieces := chunk.SplitWithProvenance(normalizeText(doc.Text))
+	pieces := chunk.SplitWithProvenanceParams(normalizeText(doc.Text), opts.ChunkParams)
 	chunks := make([]string, len(pieces))
 	locators := make([]map[string]any, len(pieces))
 	hashes := make([]string, len(pieces))

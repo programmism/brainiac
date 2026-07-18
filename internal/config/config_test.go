@@ -330,6 +330,22 @@ func TestLoadMissingFileUsesDefaultsPlusEnv(t *testing.T) {
 	}
 }
 
+func TestSourceChunkPreset(t *testing.T) {
+	c := &Config{Sources: []SourceConfig{
+		{Type: "github", ChunkPreset: "code"},
+		{Type: "markdown"},
+	}}
+	if got := c.SourceChunkPreset("github"); got != "code" {
+		t.Fatalf("github preset = %q, want code", got)
+	}
+	if got := c.SourceChunkPreset("markdown"); got != "" {
+		t.Fatalf("markdown preset = %q, want empty (default)", got)
+	}
+	if got := c.SourceChunkPreset("notion"); got != "" {
+		t.Fatalf("absent source preset = %q, want empty (default)", got)
+	}
+}
+
 func TestGithubDiscussionsOptIn(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://env-dsn")
 	t.Setenv("GITHUB_TOKEN", "ghp-abc")
