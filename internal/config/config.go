@@ -323,6 +323,10 @@ type SourceConfig struct {
 	Token     string   `yaml:"token,omitempty"`
 	Path      string   `yaml:"path,omitempty"`  // for file-based connectors (markdown)
 	Repos     []string `yaml:"repos,omitempty"` // "owner/repo" list for the github connector (#238)
+	// BaseURL and Email configure the Atlassian connectors (jira, confluence, #343):
+	// the site base URL and the account email for Basic email:token auth.
+	BaseURL string `yaml:"base_url,omitempty"`
+	Email   string `yaml:"email,omitempty"`
 }
 
 // Source returns the first configured source of the given type, or nil.
@@ -531,6 +535,38 @@ func (c *Config) applyEnvOverrides() {
 			// Auto-create a linear source from the API key (#240).
 			c.Sources = append(c.Sources, SourceConfig{Type: "linear", Selection: "density-filter", Token: v})
 		}
+	}
+	// Atlassian connectors (#343) need a site base URL + email + token together.
+	c.atlassianFromEnv("jira", "JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_TOKEN")
+	c.atlassianFromEnv("confluence", "CONFLUENCE_BASE_URL", "CONFLUENCE_EMAIL", "CONFLUENCE_TOKEN")
+}
+
+// atlassianFromEnv fills or auto-creates a Basic-auth Atlassian source (jira /
+// confluence) when its base-url/email/token env trio is present. Any subset
+// updates an existing source; a full trio with no existing source creates one.
+func (c *Config) atlassianFromEnv(typ, baseEnv, emailEnv, tokenEnv string) {
+	base, email, token := os.Getenv(baseEnv), os.Getenv(emailEnv), os.Getenv(tokenEnv)
+	if base == "" && email == "" && token == "" {
+		return
+	}
+	for i := range c.Sources {
+		if c.Sources[i].Type == typ {
+			if base != "" {
+				c.Sources[i].BaseURL = base
+			}
+			if email != "" {
+				c.Sources[i].Email = email
+			}
+			if token != "" {
+				c.Sources[i].Token = token
+			}
+			return
+		}
+	}
+	if base != "" && email != "" && token != "" {
+		c.Sources = append(c.Sources, SourceConfig{
+			Type: typ, Selection: "density-filter", BaseURL: base, Email: email, Token: token,
+		})
 	}
 }
 

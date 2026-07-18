@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Jira + Confluence connectors (#343, ingestion P1).** The seventh and eighth connectors
+  over the stable `SourceConnector` seam, completing the Atlassian trio (Linear shipped in #240). Both use
+  Basic `email:token` auth against Atlassian Cloud REST and offset-paginate: **Jira** reads issues via
+  `/rest/api/3/search`, and its descriptions are **ADF** (Atlassian Document Format, nested JSON), so
+  `internal/plugins/jira` walks the ADF tree to text (lenient — an unknown node keeps its text rather than
+  losing it; a pre-v3 string description is used as-is). **Confluence** reads pages via `/rest/api/content`
+  and its bodies are **XHTML storage format**, so it reuses `doctext`'s HTML tokenizer (`ToText("…​.html",…)`)
+  rather than duplicating a stripper. Wired like the others: `JIRA_*` / `CONFLUENCE_*` (base URL + email +
+  token together) auto-create a source; MCP `import` / CLI `kb import --source jira|confluence` dispatch to
+  it. `SourceConfig` gained `base_url`/`email` for the site-scoped Basic-auth connectors. Fully unit-tested
+  against fake endpoints (pagination, ADF render, XHTML strip, Basic-auth header, error surfacing) + a config
+  auto-create test. Deletion sync / persisted cursors remain the shared connector follow-up (#323).
 - **2026-07-18** — **Incremental per-namespace usage counters (#229, scale P1).** `checkNodeQuota` /
   `checkChunkQuota` ran `SELECT count(*) WHERE project = $1` on *every* write — a filtered aggregate whose
   cost grows with the namespace even with the `project` index (#226). Added a `namespace_usage(project,
