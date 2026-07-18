@@ -81,6 +81,18 @@ groups:
           description: "Source content changed under many edges; run consolidation / review the flagged edges."
           runbook: "docs/runbook.md#brainiachighstaleedges"
 
+      - alert: BrainiacHighExtractionFailureRate
+        expr: |
+          rate(brainiac_extract_failures_total[10m])
+            / clamp_min(rate(brainiac_ingested_chunks_total[10m]), 1) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Server-side extraction failing on >10% of ingested chunks"
+          description: "The optional extractor (local-LLM or Claude) is erroring on many chunks — check the extractor backend / API key. Chunks are still stored; only graph extraction is affected."
+          runbook: "docs/runbook.md#brainiachighextractionfailurerate"
+
       - alert: BrainiacHighHistoricalNodes
         expr: brainiac_percent_nodes_historical > 50
         for: 1h

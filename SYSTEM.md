@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Subsystem telemetry counters (#319, observability P1).** #259 shipped per-route HTTP
+  metrics but left the *subsystem* signals from its list unbuilt. Added them: the `metrics` registry gained
+  **counter** support (`SetCounter`, rendered as Prometheus `TYPE counter` so `rate()`/`increase()` work),
+  and `brainiac_ingested_chunks_total` + `brainiac_extract_failures_total` are exposed from process-lifetime
+  atomics on `Core` (incremented in `ingestDoc` per stored chunk / on each extraction failure). The
+  **consolidation queue depth** is a new gauge `brainiac_review_queue_depth` = proposed nodes+edges, added to
+  `HealthCounts` (one extra subquery). The embedding backlog was already `brainiac_chunks_cold`. A matching
+  `BrainiacHighExtractionFailureRate` alert (failures/ingested > 10%) + runbook entry tie this to #264.
+  Unit test for counter rendering (no DB) + DB-gated test (ingest bumps the counter, a proposed row shows in
+  the review queue). Closes the #259 follow-up.
 - **2026-07-18** — **Linear connector (#240, ingestion P1).** A sixth connector over the stable
   `SourceConnector` seam — and the cleanest of the Confluence/Jira/**Linear** bundle, since Linear issue
   descriptions are already **Markdown** (no format conversion). `internal/plugins/linear` runs a paginated

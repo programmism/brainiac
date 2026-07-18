@@ -268,6 +268,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 	stats.Kept += kept
 	stats.Queued += queued
 	stats.Deleted += int(deleted)
+	c.ingestedChunks.Add(uint64(len(inserts))) // process-lifetime throughput counter (#319)
 
 	// Optional Layer-2 extraction: derive nodes/edges from the freshly-stored
 	// hot chunks. Runs after the chunk reconcile (chunks are provenance and must
@@ -281,6 +282,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 			n, e, err := c.extractChunk(ctx, p.text, doc.SourceURI, disc)
 			if err != nil {
 				stats.ExtractFailed++
+				c.extractFailures.Add(1) // process-lifetime extraction-failure counter (#319)
 				continue
 			}
 			stats.ExtractedNodes += n

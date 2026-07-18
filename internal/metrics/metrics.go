@@ -43,6 +43,7 @@ type routeCode struct {
 type gauge struct {
 	name, help string
 	fn         func() float64
+	counter    bool // render as a Prometheus counter (monotonic) instead of a gauge
 }
 
 // New creates an empty registry.
@@ -121,7 +122,16 @@ func sortedReqKeys(m map[routeCode]uint64) []routeCode {
 func (r *Registry) SetGauge(name, help string, fn func() float64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.gauges = append(r.gauges, gauge{name, help, fn})
+	r.gauges = append(r.gauges, gauge{name: name, help: help, fn: fn})
+}
+
+// SetCounter registers a pull-based, monotonic counter (fn returns a cumulative
+// total, called at scrape time). Rendered with Prometheus TYPE counter so rate()/
+// increase() work correctly (#319).
+func (r *Registry) SetCounter(name, help string, fn func() float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.gauges = append(r.gauges, gauge{name: name, help: help, fn: fn, counter: true})
 }
 
 // Middleware records each request's wall-clock duration.
@@ -201,7 +211,11 @@ func (r *Registry) Handler() http.Handler {
 		}
 
 		for _, g := range gauges {
-			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %g\n", g.name, g.help, g.name, g.name, g.fn())
+			typ := "gauge"
+			if g.counter {
+				typ = "counter"
+			}
+			fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n%s %g\n", g.name, g.help, g.name, typ, g.name, g.fn())
 		}
 	})
 }

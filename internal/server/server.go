@@ -529,12 +529,24 @@ func registerHealthGauges(reg *metrics.Registry, c *core.Core) {
 	g("brainiac_edges_per_node", "average current edges per node", func(h core.HealthMetrics) float64 { return h.EdgesPerNode })
 	g("brainiac_percent_nodes_historical", "percent of nodes that are historical", func(h core.HealthMetrics) float64 { return h.PercentNodesHistory })
 	g("brainiac_percent_edges_stale", "percent of current edges flagged stale", func(h core.HealthMetrics) float64 { return h.PercentEdgesStale })
+	// Consolidation queue depth: proposed nodes+edges awaiting review (#319). The
+	// embedding backlog is already exposed as brainiac_chunks_cold.
+	g("brainiac_review_queue_depth", "proposed nodes+edges awaiting review (consolidation queue)", func(h core.HealthMetrics) float64 { return float64(h.ReviewQueue) })
 
 	reg.SetGauge("brainiac_container_mem_limit_bytes", "container memory limit (cgroup), 0 if unset", func() float64 {
 		return float64(sysstat.ReadContainer().MemLimitBytes)
 	})
 	reg.SetGauge("brainiac_container_mem_used_bytes", "container memory in use (cgroup)", func() float64 {
 		return float64(sysstat.ReadContainer().MemUsedBytes)
+	})
+
+	// Subsystem throughput/failure counters (#319) — read directly from the core's
+	// process-lifetime atomics (not the ~10s-cached health snapshot).
+	reg.SetCounter("brainiac_ingested_chunks_total", "chunks stored by ingest (cumulative)", func() float64 {
+		return float64(c.IngestedChunksTotal())
+	})
+	reg.SetCounter("brainiac_extract_failures_total", "chunks whose extraction errored and was skipped (cumulative)", func() float64 {
+		return float64(c.ExtractFailuresTotal())
 	})
 }
 
