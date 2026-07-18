@@ -13,9 +13,10 @@ import (
 const extractAuthor = "local-llm"
 
 // extractedStatus is the status extracted nodes/edges are written with: proposed
-// (awaiting review) by default, current (live) when review is disabled.
-func (c *Core) extractedStatus() model.Status {
-	if c.extractReview {
+// (awaiting review) by default, current (live) when review is disabled. forceReview
+// pins it to proposed regardless — untrusted content never writes live (#273).
+func (c *Core) extractedStatus(forceReview bool) model.Status {
+	if c.extractReview || forceReview {
 		return model.StatusProposed
 	}
 	return model.StatusCurrent
@@ -26,7 +27,7 @@ func (c *Core) extractedStatus() model.Status {
 // transaction. It is best-effort: an error is returned so ingest can count the
 // chunk as failed extraction and keep going (graceful degradation, §11); the
 // chunk itself is already stored regardless.
-func (c *Core) extractChunk(ctx context.Context, text, sourceURI string, disc map[string]string) (nodes, edges int, err error) {
+func (c *Core) extractChunk(ctx context.Context, text, sourceURI string, disc map[string]string, forceReview bool) (nodes, edges int, err error) {
 	ext, err := c.extractor.Extract(ctx, text)
 	if err != nil {
 		return 0, 0, err
@@ -34,7 +35,7 @@ func (c *Core) extractChunk(ctx context.Context, text, sourceURI string, disc ma
 	if len(ext.Entities) == 0 && len(ext.Relations) == 0 {
 		return 0, 0, nil
 	}
-	status := c.extractedStatus()
+	status := c.extractedStatus(forceReview)
 
 	err = store.WithTx(ctx, c.pool, func(db store.DBTX) error {
 		ids := make(map[string]string, len(ext.Entities))

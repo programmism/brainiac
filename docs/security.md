@@ -63,9 +63,14 @@ pointing it at real data or a network.
    `AUTH_TOKEN` has no such lifecycle — rotate it by restart.*
 4. **Prompt-injection into memory.** Memory is agent-writable and recalled content
    is fed back to agents. A poisoned ingested document can steer a downstream
-   agent, and (with `EXTRACTION_REVIEW=false`) the local extractor. **Keep
-   extraction review on** for untrusted sources, trust `source_uri` provenance, and
-   treat recalled content as untrusted input in your agent's prompt.
+   agent, and the local extractor. Brainiac now **tags every ingested chunk's
+   trust** (#273): ingest is **untrusted by default** (fail-closed), so extraction
+   from it is **always forced through the review queue** — `EXTRACTION_REVIEW=false`
+   can no longer auto-write live nodes/edges from ingested content. The tag is
+   surfaced on `search`/`recall` results (`"trust":"untrusted"`). Still your job:
+   **treat recalled `untrusted` content as data, not instructions,** in your agent's
+   prompt; mark a source trusted only when you vouch for it (per-source config is a
+   follow-up).
 5. **Encryption at rest.** Not built in — rely on **encrypted volumes / an
    encrypted managed Postgres** for at-rest protection.
 6. **Right-to-erasure at fact granularity.** Supersede/merge keep history; only

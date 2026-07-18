@@ -35,6 +35,12 @@ type IngestOptions struct {
 	// one-shot `import` re-reconciles fully (content-hash safety), trusting mtime
 	// only when the caller opts in.
 	Incremental bool
+	// Trust is the provenance/trust level stamped on every chunk from this run
+	// (#273): model.TrustTrusted or model.TrustUntrusted. Empty defaults to
+	// untrusted (fail-closed) — the connector Ingest path is bulk external input;
+	// IngestText (explicit client curation) sets it trusted. Untrusted chunks force
+	// extraction through the review queue and are surfaced in retrieval results.
+	Trust string
 }
 
 // IngestProgress is a running snapshot emitted during ingest (#139).
@@ -141,6 +147,10 @@ func (c *Core) IngestText(ctx context.Context, sourceURI, text, project string) 
 		return IngestStats{}, fmt.Errorf("source_uri is required")
 	}
 	stats := IngestStats{Docs: 1}
+	// Ingested content is untrusted by default (#273): it's external text (a page
+	// Claude read, a connector's docs), the indirect-injection surface. Trusted is
+	// opt-in via IngestOptions.Trust (wired per-source in the follow-up), so recall
+	// treats content as untrusted until an operator vouches for its source.
 	if err := c.ingestDoc(ctx, plugins.RawDoc{SourceURI: sourceURI, Text: text}, IngestOptions{Project: project}, &stats); err != nil {
 		stats.Failed++
 		return stats, err
@@ -166,6 +176,12 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 	disc, err := c.pinWrite(ctx, discFromProject(opts.Project))
 	if err != nil {
 		return err
+	}
+	// Trust posture for this document (#273): empty defaults to untrusted, so any
+	// path that forgets to set it fails closed. Untrusted forces extraction review.
+	trust := opts.Trust
+	if trust == "" {
+		trust = model.TrustUntrusted
 	}
 	pieces := chunk.SplitWithProvenance(normalizeText(doc.Text))
 	chunks := make([]string, len(pieces))
@@ -255,7 +271,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 		inserts = append(inserts, &model.Chunk{
 			Text: p.text, Embedding: emb, SourceURI: doc.SourceURI, SourceLocator: p.locator,
 			QualityScore: p.quality, Tier: p.tier, ContentHash: p.hash, SourceModifiedAt: doc.ModifiedAt,
-			Discriminators: disc,
+			Discriminators: disc, Trust: trust,
 		})
 	}
 
@@ -301,7 +317,10 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 			if p.tier != model.TierHot {
 				continue // extract from kept knowledge only, not the cold queue
 			}
-			n, e, err := c.extractChunk(ctx, p.text, doc.SourceURI, disc)
+			// Untrusted content never auto-writes live graph facts — force it
+			// through the review queue regardless of extraction.review (#273).
+			forceReview := trust == model.TrustUntrusted
+			n, e, err := c.extractChunk(ctx, p.text, doc.SourceURI, disc, forceReview)
 			if err != nil {
 				stats.ExtractFailed++
 				c.extractFailures.Add(1) // process-lifetime extraction-failure counter (#319)

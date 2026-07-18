@@ -38,7 +38,7 @@ func TestExtractProposesThenApprove(t *testing.T) {
 	c.extractor = fakeExtractor{sampleExtraction()}
 	c.extractReview = true
 
-	nodes, edges, err := c.extractChunk(ctx, "OrderService writes to OrdersDB", "src://doc1", nil)
+	nodes, edges, err := c.extractChunk(ctx, "OrderService writes to OrdersDB", "src://doc1", nil, false)
 	if err != nil {
 		t.Fatalf("extractChunk: %v", err)
 	}
@@ -90,11 +90,11 @@ func TestExtractDedupWithinQueue(t *testing.T) {
 	c.extractor = fakeExtractor{sampleExtraction()}
 	c.extractReview = true
 
-	if _, _, err := c.extractChunk(ctx, "chunk 1", "src://doc1", nil); err != nil {
+	if _, _, err := c.extractChunk(ctx, "chunk 1", "src://doc1", nil, false); err != nil {
 		t.Fatalf("extractChunk 1: %v", err)
 	}
 	// Second chunk: same entities, so no new nodes; the edge upserts, not duplicates.
-	n2, _, err := c.extractChunk(ctx, "chunk 2", "src://doc1", nil)
+	n2, _, err := c.extractChunk(ctx, "chunk 2", "src://doc1", nil, false)
 	if err != nil {
 		t.Fatalf("extractChunk 2: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestExtractReviewOffWritesLive(t *testing.T) {
 	c.extractor = fakeExtractor{sampleExtraction()}
 	c.extractReview = false
 
-	if _, _, err := c.extractChunk(ctx, "OrderService writes to OrdersDB", "src://doc1", nil); err != nil {
+	if _, _, err := c.extractChunk(ctx, "OrderService writes to OrdersDB", "src://doc1", nil, false); err != nil {
 		t.Fatalf("extractChunk: %v", err)
 	}
 	gn, ge, err := store.GraphSnapshot(ctx, pool, 100, store.NoWall())

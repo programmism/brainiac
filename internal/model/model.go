@@ -56,7 +56,20 @@ type Chunk struct {
 	Discriminators   map[string]string `json:"discriminators,omitempty"`
 	CreatedAt        time.Time         `json:"created_at"`
 	SourceModifiedAt *time.Time        `json:"source_modified_at,omitempty"`
+	// Trust classifies the chunk's source for the prompt-injection posture (#273):
+	// TrustUntrusted content (bulk connector/document ingest) never auto-writes
+	// live graph facts — extraction is forced through the review queue — and is
+	// surfaced in results so clients treat recalled text as data, not instructions.
+	// Empty on non-retrieval reads (only populated by search/recall).
+	Trust string `json:"trust,omitempty"`
 }
+
+// Trust levels for a Chunk (#273). Ingested document text defaults to untrusted;
+// only explicitly client-curated content (IngestText) is trusted.
+const (
+	TrustTrusted   = "trusted"
+	TrustUntrusted = "untrusted"
+)
 
 // Node is an entity in the curated graph (Layer 2).
 type Node struct {
