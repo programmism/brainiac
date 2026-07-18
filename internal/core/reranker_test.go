@@ -34,7 +34,7 @@ func TestRerankerReordersResults(t *testing.T) {
 	}
 
 	withRerank := New(pool, hashEmbedder{}, density.New(), WithReranker(reverseReranker{}))
-	hits, err := withRerank.Search(ctx, "widget report", 10, "")
+	hits, err := withRerank.Search(ctx, "widget report", 10, "", false)
 	if err != nil || len(hits) < 2 {
 		t.Fatalf("search: hits=%d err=%v", len(hits), err)
 	}

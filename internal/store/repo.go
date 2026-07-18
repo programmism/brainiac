@@ -84,16 +84,18 @@ func ChunkExistsByHash(ctx context.Context, db DBTX, hash string) (bool, error) 
 	return exists, err
 }
 
-// SearchChunks returns the k nearest hot-tier chunks to embedding by cosine
-// distance, with provenance.
-func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scope ScopeFilter, wall Wall) ([]model.ChunkHit, error) {
+// SearchChunks returns the k nearest chunks to embedding by cosine distance, with
+// provenance. By default only the hot (HNSW-indexed) tier is searched; includeCold
+// also scans cold-tier chunks (#365) — a sequential scan with no vector index, so
+// noticeably slower, for the on-demand "search the archive too" path.
+func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scope ScopeFilter, wall Wall, includeCold bool) ([]model.ChunkHit, error) {
 	vec := pgvector.NewHalfVector(embedding).String()
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
 		       content_hash, created_at, source_modified_at, discriminators, trust,
 		       (embedding <=> $1::halfvec)::float8 AS distance
 		FROM chunks
-		WHERE tier = 'hot' AND embedding IS NOT NULL
+		WHERE `+tierPredicate(includeCold)+`embedding IS NOT NULL
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
 		  AND `+projectClause(4)+`
 		ORDER BY embedding <=> $1::halfvec
@@ -131,17 +133,27 @@ func SearchChunks(ctx context.Context, db DBTX, embedding []float32, k int, scop
 	return hits, rows.Err()
 }
 
+// tierPredicate returns the SQL restricting a chunk search to the hot tier, or ""
+// (no tier restriction — hot + cold) when includeCold is set (#365). It always
+// ends with "AND " so it can prefix another condition.
+func tierPredicate(includeCold bool) string {
+	if includeCold {
+		return ""
+	}
+	return "tier = 'hot' AND "
+}
+
 // SearchChunksLexical returns up to k hot-tier chunks whose full-text index
 // matches the query, ranked by ts_rank — the lexical/keyword half of hybrid
 // retrieval (#211), which catches exact tokens (error codes, IDs, config keys)
 // that dense vectors miss. Same scope + wall as the vector path. Distance is left
 // 0 (not a cosine distance); fusion ranks by list position.
-func SearchChunksLexical(ctx context.Context, db DBTX, query string, k int, scope ScopeFilter, wall Wall) ([]model.ChunkHit, error) {
+func SearchChunksLexical(ctx context.Context, db DBTX, query string, k int, scope ScopeFilter, wall Wall, includeCold bool) ([]model.ChunkHit, error) {
 	rows, err := db.Query(ctx, `
 		SELECT id, text, source_uri, source_locator, quality_score::float8, tier,
 		       content_hash, created_at, source_modified_at, discriminators, trust
 		FROM chunks
-		WHERE tier = 'hot' AND tsv @@ plainto_tsquery('english', $1)
+		WHERE `+tierPredicate(includeCold)+`tsv @@ plainto_tsquery('english', $1)
 		  AND (cardinality($3::text[]) = 0 OR scope_key = ANY($3::text[]))
 		  AND `+projectClause(4)+`
 		ORDER BY ts_rank(tsv, plainto_tsquery('english', $1)) DESC

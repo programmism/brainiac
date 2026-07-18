@@ -24,7 +24,7 @@ func TestHybridSearchFindsExactTokenDenseMisses(t *testing.T) {
 
 	// A keyword query that shares no whole-text identity with the chunk: dense
 	// distance is ~1 (filtered), but FTS matches the token.
-	hits, err := c.Search(ctx, "ORD500", 10, "")
+	hits, err := c.Search(ctx, "ORD500", 10, "", false)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

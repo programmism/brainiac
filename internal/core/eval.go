@@ -65,7 +65,7 @@ func (c *Core) Eval(ctx context.Context, golden []GoldenQuery, k int) (*EvalResu
 }
 
 func (c *Core) foundSources(ctx context.Context, g GoldenQuery, k int) (int, error) {
-	results, err := c.Search(ctx, g.Query, k, "") // eval spans all scopes
+	results, err := c.Search(ctx, g.Query, k, "", false) // eval spans all scopes, hot tier
 	if err != nil {
 		return 0, err
 	}

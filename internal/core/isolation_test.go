@@ -75,13 +75,13 @@ func TestHardIsolationReadWall(t *testing.T) {
 	a := &Principal{Name: "team-a", Read: []string{"A"}, Write: "A"}
 
 	// Search: A sees its own chunk, never B's or global's.
-	if hits, err := c.Search(ctxAs(a), "alpha apple pie", 10, ""); err != nil || len(hits) == 0 {
+	if hits, err := c.Search(ctxAs(a), "alpha apple pie", 10, "", false); err != nil || len(hits) == 0 {
 		t.Fatalf("A should find its own chunk: hits=%d err=%v", len(hits), err)
 	}
-	if hits, err := c.Search(ctxAs(a), "gamma grape jam", 10, ""); err != nil || len(hits) != 0 {
+	if hits, err := c.Search(ctxAs(a), "gamma grape jam", 10, "", false); err != nil || len(hits) != 0 {
 		t.Fatalf("A must not see B's chunk: hits=%d err=%v", len(hits), err)
 	}
-	if hits, err := c.Search(ctxAs(a), "shared global note text", 10, ""); err != nil || len(hits) != 0 {
+	if hits, err := c.Search(ctxAs(a), "shared global note text", 10, "", false); err != nil || len(hits) != 0 {
 		t.Fatalf("A must not see global chunk (no global in read-set): hits=%d err=%v", len(hits), err)
 	}
 
@@ -129,12 +129,12 @@ func TestHardIsolationGlobalDefault(t *testing.T) {
 
 	// No global in read-set → global invisible.
 	a := &Principal{Name: "a", Read: []string{"A"}, Write: "A"}
-	if hits, _ := c.Search(ctxAs(a), "shared global note text", 10, ""); len(hits) != 0 {
+	if hits, _ := c.Search(ctxAs(a), "shared global note text", 10, "", false); len(hits) != 0 {
 		t.Fatalf("global must not leak without explicit read: hits=%d", len(hits))
 	}
 	// Explicit global in read-set → global visible.
 	ag := &Principal{Name: "a+g", Read: []string{"A", ""}, Write: "A"}
-	if hits, _ := c.Search(ctxAs(ag), "shared global note text", 10, ""); len(hits) == 0 {
+	if hits, _ := c.Search(ctxAs(ag), "shared global note text", 10, "", false); len(hits) == 0 {
 		t.Fatalf("global must be visible when read-set includes it")
 	}
 }
@@ -146,7 +146,7 @@ func TestHardIsolationNarrowCannotWiden(t *testing.T) {
 
 	a := &Principal{Name: "a", Read: []string{"A"}, Write: "A"}
 	// Requesting project=B (outside the read-set) must return nothing, not B's data.
-	if hits, err := c.Search(ctxAs(a), "gamma grape jam", 10, "B"); err != nil || len(hits) != 0 {
+	if hits, err := c.Search(ctxAs(a), "gamma grape jam", 10, "B", false); err != nil || len(hits) != 0 {
 		t.Fatalf("?project=B must not widen past the wall: hits=%d err=%v", len(hits), err)
 	}
 }
@@ -190,10 +190,10 @@ func TestNilPrincipalIsLayer1(t *testing.T) {
 	ids := isoFixture(t, c, pool)
 
 	// With no principal in context, reads are open (Layer 1) across all namespaces.
-	if hits, _ := c.Search(context.Background(), "gamma grape jam", 10, ""); len(hits) == 0 {
+	if hits, _ := c.Search(context.Background(), "gamma grape jam", 10, "", false); len(hits) == 0 {
 		t.Fatalf("Layer 1 must see B chunk")
 	}
-	if hits, _ := c.Search(context.Background(), "shared global note text", 10, ""); len(hits) == 0 {
+	if hits, _ := c.Search(context.Background(), "shared global note text", 10, "", false); len(hits) == 0 {
 		t.Fatalf("Layer 1 must see global chunk")
 	}
 	// A B-scoped node resolves by id (a bare name resolves only the global scope in

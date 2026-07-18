@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/programmism/brainiac/internal/model"
 )
 
 // TestSweepColdTier: the demotion policy archives hot chunks older than the
@@ -48,7 +50,7 @@ func TestSweepColdTier(t *testing.T) {
 	}
 
 	// The demoted chunk leaves the default (hot-only) search path.
-	hits, err := c.Search(ctx, "OrderService Kafka durability", 5, "")
+	hits, err := c.Search(ctx, "OrderService Kafka durability", 5, "", false)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
@@ -61,5 +63,49 @@ func TestSweepColdTier(t *testing.T) {
 	// max_hot_age <= 0 is disabled (the CLI guards this, but the core rejects it).
 	if _, err := c.SweepColdTier(ctx, 0); err == nil {
 		t.Fatal("SweepColdTier(0) should error")
+	}
+}
+
+// TestIncludeColdSearch: a cold chunk is invisible to the default (hot-only)
+// search but returned by an include-cold search, tagged as cold (#365).
+func TestIncludeColdSearch(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	const uri = "doc://archived"
+	if _, err := c.IngestText(ctx, uri, "OrderService streams events to Kafka for durability and audit.", ""); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE chunks SET tier = 'cold' WHERE source_uri = $1`, uri); err != nil {
+		t.Fatalf("demote: %v", err)
+	}
+
+	const q = "OrderService Kafka durability"
+	hot, err := c.Search(ctx, q, 5, "", false)
+	if err != nil {
+		t.Fatalf("hot search: %v", err)
+	}
+	for _, h := range hot {
+		if h.SourceURI == uri {
+			t.Fatalf("cold chunk should be invisible to the default hot search: %+v", h)
+		}
+	}
+
+	cold, err := c.Search(ctx, q, 5, "", true)
+	if err != nil {
+		t.Fatalf("include-cold search: %v", err)
+	}
+	found := false
+	for _, h := range cold {
+		if h.SourceURI == uri {
+			found = true
+			if h.Tier != model.TierCold {
+				t.Fatalf("archived hit tier = %q, want cold", h.Tier)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("include-cold search did not return the archived chunk: %+v", cold)
 	}
 }

@@ -23,7 +23,7 @@ func TestReembedRebuildsFromText(t *testing.T) {
 	// would find "alpha" by text regardless of the vector). The wrong embedding is
 	// orthogonal to the query, so the dense distance is far (~1) before reembed.
 	qemb, _ := hashEmbedder{}.Embed(ctx, "alpha")
-	before, err := store.SearchChunks(ctx, pool, qemb, 1, store.AllScopes(), store.NoWall())
+	before, err := store.SearchChunks(ctx, pool, qemb, 1, store.AllScopes(), store.NoWall(), false)
 	if err != nil {
 		t.Fatalf("search before: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestReembedRebuildsFromText(t *testing.T) {
 	}
 
 	// After rebuilding the vector from the stored text, the dense distance is ~0.
-	after, err := store.SearchChunks(ctx, pool, qemb, 1, store.AllScopes(), store.NoWall())
+	after, err := store.SearchChunks(ctx, pool, qemb, 1, store.AllScopes(), store.NoWall(), false)
 	if err != nil || len(after) == 0 {
 		t.Fatalf("search after: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestSetChunkTierExcludesFromSearch(t *testing.T) {
 		t.Fatalf("set tier: %v", err)
 	}
 	// Cold chunks are excluded from default (hot) search.
-	hits, err := c.Search(ctx, "beta", 5, "")
+	hits, err := c.Search(ctx, "beta", 5, "", false)
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}

@@ -45,7 +45,7 @@ func TestImportRoundTrip(t *testing.T) {
 	}
 	// The chunk is searchable in C but not leaking outside it.
 	cprin := &Principal{Name: "c", Read: []string{"C"}, Write: "C"}
-	if hits, _ := c.Search(ctxAs(cprin), "alpha apple pie", 10, ""); len(hits) == 0 {
+	if hits, _ := c.Search(ctxAs(cprin), "alpha apple pie", 10, "", false); len(hits) == 0 {
 		t.Fatalf("imported chunk not searchable in C")
 	}
 }

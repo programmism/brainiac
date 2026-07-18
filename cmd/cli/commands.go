@@ -234,6 +234,7 @@ func healthCmd() *cobra.Command {
 func searchCmd() *cobra.Command {
 	var k int
 	var project string
+	var includeCold bool
 	cmd := &cobra.Command{
 		Use:   "search [query...]",
 		Short: "Semantic search over the memory",
@@ -246,7 +247,7 @@ func searchCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			hits, err := buildCore(cfg, pool).Search(ctx, strings.Join(args, " "), k, project)
+			hits, err := buildCore(cfg, pool).Search(ctx, strings.Join(args, " "), k, project, includeCold)
 			if err != nil {
 				return err
 			}
@@ -256,14 +257,24 @@ func searchCmd() *cobra.Command {
 				return nil
 			}
 			for _, h := range hits {
-				fmt.Fprintf(out, "[%.3f]%s %s\n        %s\n", h.Distance, scopeTag(h.Scope), h.SourceURI, oneline(h.Text))
+				fmt.Fprintf(out, "[%.3f]%s%s %s\n        %s\n", h.Distance, scopeTag(h.Scope), tierTag(h.Tier), h.SourceURI, oneline(h.Text))
 			}
 			return nil
 		},
 	}
 	cmd.Flags().IntVar(&k, "k", core.DefaultSearchK, "maximum number of results")
 	cmd.Flags().StringVar(&project, "project", "", "scope results to this project + global (omit to search all)")
+	cmd.Flags().BoolVar(&includeCold, "include-cold", false, "also search the cold archive (slower, no index)")
 	return cmd
+}
+
+// tierTag annotates a cold-tier hit so an operator sees it came from the archive;
+// hot hits (the default) are unmarked.
+func tierTag(t model.Tier) string {
+	if t == model.TierCold {
+		return " [cold]"
+	}
+	return ""
 }
 
 func recallCmd() *cobra.Command {

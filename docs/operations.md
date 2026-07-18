@@ -49,7 +49,12 @@ kb sweep-tiers      # archives hot chunks older than max_hot_age to cold
 
 Demoted chunks keep their text + embedding — cold is **archival and re-promotable**
 (`SetChunkTier` / a reindex), not deleted. It's a no-op until `max_hot_age` is set.
-An on-demand cold-search path (query the archive when hot misses) is tracked in #365.
+
+Cold content is out of the default search path but can be searched **on demand**
+(#365) — `kb search --include-cold`, the MCP `search` tool's `include_cold` arg, or
+`GET /api/search?include_cold=true`. This is a sequential scan (the cold tier has no
+vector index), so it's noticeably slower; use it as a fallback when the hot search
+misses. Cold hits are tagged `[cold]`.
 
 ## Retention of historical rows (#363)
 

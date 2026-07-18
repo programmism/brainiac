@@ -186,8 +186,10 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				}
 				k, _ := strconv.Atoi(req.URL.Query().Get("k"))
 				// Optional ?project= scopes the lens to that project + global;
-				// omitting it spans all scopes (#119).
-				hits, err := c.Search(req.Context(), q, k, req.URL.Query().Get("project"))
+				// omitting it spans all scopes (#119). ?include_cold=true also
+				// searches the cold archive (slower, no index — #365).
+				includeCold := req.URL.Query().Get("include_cold") == "true"
+				hits, err := c.Search(req.Context(), q, k, req.URL.Query().Get("project"), includeCold)
 				if err != nil {
 					handleCoreErr(w, err)
 					return

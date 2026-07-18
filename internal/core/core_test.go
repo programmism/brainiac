@@ -36,7 +36,7 @@ func TestDiscriminatorsMerge(t *testing.T) {
 // touching the embedder/DB (covers the MCP path too, #82).
 func TestEmptyQueryShortCircuits(t *testing.T) {
 	c := New(nil, nil, nil) // nil deps are never reached for a blank query
-	if hits, err := c.Search(context.Background(), "   ", 5, ""); err != nil || hits != nil {
+	if hits, err := c.Search(context.Background(), "   ", 5, "", false); err != nil || hits != nil {
 		t.Fatalf("empty search = %v, %v; want nil, nil", hits, err)
 	}
 	res, err := c.Recall(context.Background(), "\t\n", "")
