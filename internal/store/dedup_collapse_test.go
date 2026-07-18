@@ -76,10 +76,16 @@ func TestDedupCollapseMergesLegacyDuplicates(t *testing.T) {
 	}
 
 	// Drop the post-migration unique index so we can seed the legacy duplicate rows
-	// it now forbids (this simulates a pre-#389 database).
-	if _, err := pool.Exec(ctx, `DROP INDEX chunks_content_scope_trust_uniq`); err != nil {
+	// it now forbids (this simulates a pre-#389 database). Recreate it afterward so
+	// the shared test DB is left exactly as Migrate produced it (other tests, and
+	// TestMigrate, rely on the index being present — Migrate is idempotent and won't
+	// re-create it).
+	if _, err := pool.Exec(ctx, `DROP INDEX IF EXISTS chunks_content_scope_trust_uniq`); err != nil {
 		t.Fatalf("drop index: %v", err)
 	}
+	defer func() {
+		_, _ = pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS chunks_content_scope_trust_uniq ON chunks (content_hash, scope_key, trust) WHERE content_hash IS NOT NULL`)
+	}()
 	// Two chunks with the same (content_hash, scope_key, trust) but different sources.
 	var id1, id2 string
 	if err := pool.QueryRow(ctx, `INSERT INTO chunks (text, source_uri, content_hash, scope_key, trust, tier, quality_score) VALUES ('dup', 'a://1', 'hd', '', 'trusted', 'hot', 1.0) RETURNING id`).Scan(&id1); err != nil {
