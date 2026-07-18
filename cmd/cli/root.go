@@ -38,6 +38,7 @@ func newRootCmd() *cobra.Command {
 		migrateCmd(),
 		reindexCmd(),
 		compactCmd(),
+		reencryptCmd(),
 		sweepTiersCmd(),
 		sweepRetentionCmd(),
 		eraseCmd(),
@@ -82,12 +83,17 @@ func connect(ctx context.Context) (*config.Config, *pgxpool.Pool, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	// Optional app-level chunk-text encryption (#377); no-op when unset.
+	// Optional app-level encryption (#377/#403); no-op when unset. Retired keys stay
+	// readable for rotation until `kb reencrypt` migrates them.
 	encKey, err := cfg.ChunkEncryptionKey()
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := store.SetChunkCipher(encKey); err != nil {
+	retiredKeys, err := cfg.RetiredEncryptionKeys()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := store.SetChunkCiphers(encKey, retiredKeys...); err != nil {
 		return nil, nil, err
 	}
 	pool, err := store.Connect(ctx, cfg.Storage.DSN)

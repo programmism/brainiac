@@ -330,6 +330,32 @@ type StorageConfig struct {
 	// app-level chunk-text encryption at rest (#377). Empty = off (plaintext, the
 	// default). Set via ENCRYPTION_KEY.
 	EncryptionKey string `yaml:"encryption_key,omitempty"`
+	// RetiredKeys are previously-primary base64 keys still accepted for READS during
+	// key rotation (#403), so data encrypted under them stays readable until
+	// `kb reencrypt` migrates it onto the current EncryptionKey. Set via
+	// ENCRYPTION_KEYS_RETIRED (comma-separated base64).
+	RetiredKeys []string `yaml:"retired_keys,omitempty"`
+}
+
+// RetiredEncryptionKeys returns the decoded retired keys (#403), or nil when none.
+// An invalid key is an error so a misconfiguration fails fast at boot.
+func (c *Config) RetiredEncryptionKeys() ([][]byte, error) {
+	var out [][]byte
+	for _, s := range c.Storage.RetiredKeys {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		key, err := base64.StdEncoding.DecodeString(s)
+		if err != nil {
+			return nil, fmt.Errorf("ENCRYPTION_KEYS_RETIRED must be base64: %w", err)
+		}
+		if len(key) != 32 {
+			return nil, fmt.Errorf("each retired key must decode to 32 bytes, got %d", len(key))
+		}
+		out = append(out, key)
+	}
+	return out, nil
 }
 
 // ChunkEncryptionKey returns the decoded 32-byte encryption key, or nil when
@@ -583,6 +609,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("ENCRYPTION_KEY"); v != "" {
 		c.Storage.EncryptionKey = v
+	}
+	if v := os.Getenv("ENCRYPTION_KEYS_RETIRED"); v != "" {
+		c.Storage.RetiredKeys = splitCSV(v)
 	}
 	if v := os.Getenv("LOG_FORMAT"); v != "" {
 		c.Logging.Format = v

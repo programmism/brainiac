@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Encryption key rotation (#403 part 2, security P2).** The single process cipher became a
+  **keyring**: each ciphertext is tagged with a key id (`$brainiac$aesgcm256$<keyid>$…`, keyid = first 8 hex
+  of the key's SHA-256), writes use the **primary** key, and reads select the key by id from a ring holding
+  the primary plus any **retired** keys. `SetChunkCiphers(primary, retired…)` (config `ENCRYPTION_KEY` +
+  `ENCRYPTION_KEYS_RETIRED`) so an operator can rotate the key while data under the old one still decrypts.
+  `kb reencrypt` (`store.ReencryptAll`) then migrates chunk text, edge why, and node summary/rollup onto the
+  primary — skipping values already under it — after which the retired key can be dropped. The historical
+  single-key format (literal id `v1`) is still read, mapped to the primary. No default behavior change
+  (unset key = plaintext). Completes #403.
 - **2026-07-18** — **Async batch-extraction infrastructure: separable submit/poll + job ledger (#383 part 1,
   ingestion P2).** #326's `BatchExtract` *blocks* (submit → internal poll loop → fetch), so it can't back a
   true async job. Split it: `Extractor.CreateBatch(items)` submits and returns the provider batch id

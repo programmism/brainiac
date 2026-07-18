@@ -63,6 +63,130 @@ func TestChunkCipherDisabledAndErrors(t *testing.T) {
 	_ = SetChunkCipher(nil)
 }
 
+// TestKeyRotation exercises the multi-key rotation lifecycle (#403): a value
+// encrypted under key A still reads after rotating to primary B + retired A; new
+// writes use B; reencryptValue migrates A→B; and once A is dropped, the migrated
+// value still reads under B while the original A-ciphertext no longer does.
+func TestKeyRotation(t *testing.T) {
+	keyA := make([]byte, 32)
+	keyB := make([]byte, 32)
+	if _, err := rand.Read(keyA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rand.Read(keyB); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = SetChunkCipher(nil) }()
+
+	const secret = "rotate this rationale"
+	if err := SetChunkCipher(keyA); err != nil {
+		t.Fatalf("set A: %v", err)
+	}
+	encA, err := encryptText(secret)
+	if err != nil {
+		t.Fatalf("encrypt A: %v", err)
+	}
+	if !strings.Contains(encA, keyID(keyA)) {
+		t.Fatalf("ciphertext not tagged with key A id: %q", encA)
+	}
+
+	// Rotate: primary B, A retired (still accepted for reads).
+	if err := SetChunkCiphers(keyB, keyA); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	if got, err := decryptText(encA); err != nil || got != secret {
+		t.Fatalf("A-ciphertext unreadable after rotation: (%q, %v)", got, err)
+	}
+	encB, _ := encryptText(secret)
+	if !strings.Contains(encB, keyID(keyB)) {
+		t.Fatalf("new write not under primary B: %q", encB)
+	}
+
+	// Migrate the A-ciphertext onto B.
+	migrated, changed, err := reencryptValue(encA)
+	if err != nil || !changed || !strings.Contains(migrated, keyID(keyB)) {
+		t.Fatalf("reencrypt A→B = (%q, %v, %v)", migrated, changed, err)
+	}
+	// Re-encrypting a value already under the primary is a no-op.
+	if _, changed, _ := reencryptValue(migrated); changed {
+		t.Fatal("reencrypt of a primary-key value should be a no-op")
+	}
+
+	// Drop A: the migrated value still reads; the original A-ciphertext no longer does.
+	if err := SetChunkCiphers(keyB); err != nil {
+		t.Fatalf("drop A: %v", err)
+	}
+	if got, err := decryptText(migrated); err != nil || got != secret {
+		t.Fatalf("migrated value unreadable under B alone: (%q, %v)", got, err)
+	}
+	if _, err := decryptText(encA); err == nil {
+		t.Fatal("A-ciphertext should be unreadable after dropping key A")
+	}
+}
+
+// TestReencryptAll migrates encrypted rows onto a rotated-in key (#403).
+func TestReencryptAll(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping DB-backed reencrypt test")
+	}
+	ctx := context.Background()
+	pool, err := Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE chunk_sources, chunks CASCADE"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	keyA, keyB := make([]byte, 32), make([]byte, 32)
+	_, _ = rand.Read(keyA)
+	_, _ = rand.Read(keyB)
+	defer func() { _ = SetChunkCipher(nil) }()
+
+	// Store a chunk under key A.
+	if err := SetChunkCipher(keyA); err != nil {
+		t.Fatalf("set A: %v", err)
+	}
+	const text = "SECRET rationale to migrate across keys"
+	c := &model.Chunk{Text: text, Embedding: vec(7), SourceURI: "s://rot", ContentHash: "hr"}
+	if err := InsertChunk(ctx, pool, c); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// Rotate to B (A retired) and re-encrypt.
+	if err := SetChunkCiphers(keyB, keyA); err != nil {
+		t.Fatalf("rotate: %v", err)
+	}
+	n, err := ReencryptAll(ctx, pool)
+	if err != nil {
+		t.Fatalf("reencrypt: %v", err)
+	}
+	if n < 1 {
+		t.Fatalf("re-encrypted %d values, want >= 1", n)
+	}
+	// The stored value is now tagged with key B.
+	var raw string
+	if err := pool.QueryRow(ctx, `SELECT text FROM chunks WHERE source_uri = 's://rot'`).Scan(&raw); err != nil {
+		t.Fatalf("read raw: %v", err)
+	}
+	if !strings.Contains(raw, keyID(keyB)) {
+		t.Fatalf("value not re-encrypted under B: %q", raw)
+	}
+	// Drop A entirely: the value still decrypts under B alone.
+	if err := SetChunkCiphers(keyB); err != nil {
+		t.Fatalf("drop A: %v", err)
+	}
+	got, err := GetChunksBySourceURI(ctx, pool, "s://rot", 10, NoWall())
+	if err != nil || len(got) != 1 || got[0].Text != text {
+		t.Fatalf("post-rotation read = %+v, %v", got, err)
+	}
+}
+
 // TestChunkTextEncryptedAtRest is the store round-trip (#377): with a cipher set,
 // the stored text column is ciphertext while reads return plaintext; a row written
 // as plaintext (cipher off) is still readable after the cipher is enabled.

@@ -169,6 +169,34 @@ func eraseCmd() *cobra.Command {
 	return cmd
 }
 
+func reencryptCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "reencrypt",
+		Short: "Re-encrypt all encrypted fields under the current ENCRYPTION_KEY (key rotation, #403)",
+		Long: "Migrates chunk text, edge rationale, and node summary/rollup onto the current\n" +
+			"ENCRYPTION_KEY. Run after rotating the key (set the new ENCRYPTION_KEY and keep\n" +
+			"the old one in ENCRYPTION_KEYS_RETIRED so reads still work); once this finishes,\n" +
+			"the retired key can be dropped. Values already under the current key or stored\n" +
+			"as plaintext (encryption off) are skipped. No-op unless ENCRYPTION_KEY is set.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			_, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			out := cmd.OutOrStdout()
+			fmt.Fprintln(out, "reencrypt: migrating encrypted fields onto the current key…")
+			n, err := store.ReencryptAll(ctx, pool)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "reencrypt: re-encrypted %d value(s); the retired key can now be dropped\n", n)
+			return nil
+		},
+	}
+}
+
 func compactCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "compact",
