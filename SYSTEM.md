@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Per-source chunking strategy (#401, ingestion P2).** The chunker's size bounds were fixed
+  constants. `chunk.Params{MinSize,TargetLen,MaxSize,OverlapMax}` + `SplitWithProvenanceParams(text, p)` now
+  let a source pick a strategy — named presets `"prose"` (larger chunks) / `"code"` (tighter) via
+  `chunk.Preset`, selected per source with `sources[].chunk_preset`. Plumbed through
+  `IngestOptions.ChunkParams` and set in the CLI/MCP ingest paths from config. `Params.withDefaults` fills
+  zero fields and, on any invalid ordering (`MinSize < TargetLen ≤ MaxSize` violated), falls back to the
+  defaults wholesale — so a misconfiguration can never break the `maxSize + overlapMax` size invariant. The
+  default reproduces the original constants byte-for-byte, so `SplitWithProvenance` and the content-hash /
+  reconcile behavior are unchanged unless a source opts in.
 - **2026-07-18** — **Encrypt edge rationale (`why`) at rest (#399, security P2).** Extends the #377 encryption
   seam from chunk text to the edge `why` (decision rationale — often the most sensitive free text, e.g. "we
   chose X because the customer threatened to churn"). Reuses the same `ENCRYPTION_KEY`/cipher: `InsertEdge`

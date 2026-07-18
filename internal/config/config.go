@@ -429,6 +429,9 @@ type SourceConfig struct {
 	// Discussions opts into ingesting a github repo's Discussions via GraphQL
 	// (#381). Off by default (issues/PRs only).
 	Discussions bool `yaml:"discussions,omitempty"`
+	// ChunkPreset picks this source's chunking strategy (#401): "prose" (larger
+	// chunks) or "code" (tighter). Empty = the default tuning.
+	ChunkPreset string `yaml:"chunk_preset,omitempty"`
 	// BaseURL and Email configure the Atlassian connectors (jira, confluence, #343):
 	// the site base URL and the account email for Basic email:token auth.
 	BaseURL string `yaml:"base_url,omitempty"`
@@ -438,6 +441,15 @@ type SourceConfig struct {
 	// "trusted" only for a source you vouch for, which then skips the forced
 	// extraction review and isn't flagged untrusted in recall.
 	Trust string `yaml:"trust,omitempty"`
+}
+
+// SourceChunkPreset returns the configured chunking-strategy preset for a source
+// type (#401), or "" (the default tuning) when none is set.
+func (c *Config) SourceChunkPreset(typ string) string {
+	if sc := c.Source(typ); sc != nil {
+		return sc.ChunkPreset
+	}
+	return ""
 }
 
 // SourceTrust returns the configured trust level for a source type ("" when no

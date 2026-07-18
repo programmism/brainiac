@@ -60,14 +60,14 @@ func TestSizeBoundsAndNoMidWord(t *testing.T) {
 // so a fact on a boundary survives whole in at least one chunk (#214).
 func TestOverlapCarriesPreviousTail(t *testing.T) {
 	text := longText()
-	cores := splitCores([]byte(text))
+	cores := splitCores([]byte(text), DefaultParams())
 	chunks := Split(text)
 	if len(cores) != len(chunks) {
 		t.Fatalf("core/chunk count mismatch: %d vs %d", len(cores), len(chunks))
 	}
 	overlaps := 0
 	for i := 1; i < len(chunks); i++ {
-		ov := overlapTail(cores[i-1])
+		ov := overlapTail(cores[i-1], DefaultParams())
 		var want string
 		if ov != "" {
 			want = ov + "\n" + cores[i]
@@ -92,7 +92,7 @@ func TestOverlapCarriesPreviousTail(t *testing.T) {
 // within the byte budget.
 func TestOverlapTailBoundary(t *testing.T) {
 	prev := "First sentence here. Second sentence follows. Third and final sentence of the paragraph."
-	got := overlapTail(prev)
+	got := overlapTail(prev, DefaultParams())
 	if got == "" {
 		t.Fatal("expected a non-empty tail")
 	}
@@ -312,6 +312,48 @@ func TestTableHeaderRepeatedOnSplit(t *testing.T) {
 	}
 	if fragments < 2 {
 		t.Fatalf("expected the header carried across >=2 table fragments, got %d", fragments)
+	}
+}
+
+// Per-source params change the size distribution while keeping the invariants
+// (#401): a smaller MaxSize yields more, smaller chunks; the size bound holds for
+// the params used; and invalid params fall back to the defaults.
+func TestChunkParams(t *testing.T) {
+	body := prose(200) // long enough to split many ways
+
+	def := SplitWithProvenance(body)
+	small := SplitWithProvenanceParams(body, Preset("code")) // tighter → more chunks
+	large := SplitWithProvenanceParams(body, Preset("prose"))
+
+	if len(small) <= len(def) || len(def) <= len(large) {
+		t.Fatalf("expected code(%d) > default(%d) > prose(%d) chunk counts", len(small), len(def), len(large))
+	}
+	// Each preset keeps its own size bound.
+	for name, tc := range map[string]struct {
+		pieces []Piece
+		p      Params
+	}{"code": {small, Preset("code")}, "prose": {large, Preset("prose")}, "default": {def, DefaultParams()}} {
+		bound := tc.p.MaxSize + tc.p.OverlapMax + 1
+		for _, pc := range tc.pieces {
+			if len(pc.Text) > bound {
+				t.Fatalf("%s: chunk %d exceeds bound %d", name, len(pc.Text), bound)
+			}
+		}
+	}
+	// Invalid params (max < min) fall back to defaults, not a broken chunker.
+	bad := SplitWithProvenanceParams(body, Params{MinSize: 2000, MaxSize: 100})
+	if len(bad) != len(def) {
+		t.Fatalf("invalid params should fall back to default: got %d chunks, want %d", len(bad), len(def))
+	}
+	// Default params reproduce the plain SplitWithProvenance exactly.
+	explicit := SplitWithProvenanceParams(body, DefaultParams())
+	if len(explicit) != len(def) {
+		t.Fatalf("DefaultParams diverged from SplitWithProvenance: %d vs %d", len(explicit), len(def))
+	}
+	for i := range def {
+		if explicit[i].Text != def[i].Text {
+			t.Fatalf("DefaultParams text mismatch at %d", i)
+		}
 	}
 }
 

@@ -39,6 +39,61 @@ const (
 	overlapMax = 256  // max bytes of the previous chunk's tail carried into the next
 )
 
+// Params tunes the chunker's size bounds in bytes (#401), so a source can pick a
+// strategy — e.g. larger chunks for prose, smaller for code — without changing the
+// algorithm or its structure-awareness. Zero fields fall back to the package
+// defaults, and any set that violates 0 < MinSize < TargetLen <= MaxSize (or a
+// non-positive OverlapMax) is rejected wholesale back to the defaults, so a
+// misconfiguration can never break the size invariant. The default reproduces the
+// original constants exactly, so SplitWithProvenance is byte-for-byte unchanged.
+type Params struct {
+	MinSize    int
+	TargetLen  int
+	MaxSize    int
+	OverlapMax int
+}
+
+// DefaultParams is the built-in tuning (the original constants).
+func DefaultParams() Params {
+	return Params{MinSize: minSize, TargetLen: targetLen, MaxSize: maxSize, OverlapMax: overlapMax}
+}
+
+// Preset maps a named chunking strategy to its Params (#401): "prose" for larger
+// chunks over narrative docs, "code" for tighter chunks over source/config files.
+// An empty or unknown name returns the default tuning, so a misconfigured preset is
+// harmless.
+func Preset(name string) Params {
+	switch name {
+	case "prose":
+		return Params{MinSize: 600, TargetLen: 1600, MaxSize: 2600, OverlapMax: 320}
+	case "code":
+		return Params{MinSize: 300, TargetLen: 768, MaxSize: 1200, OverlapMax: 200}
+	default:
+		return DefaultParams()
+	}
+}
+
+// withDefaults fills zero fields from the defaults and, if the result is not a
+// valid ordering, falls back to the defaults entirely — the invariant safety net.
+func (p Params) withDefaults() Params {
+	if p.MinSize <= 0 {
+		p.MinSize = minSize
+	}
+	if p.TargetLen <= 0 {
+		p.TargetLen = targetLen
+	}
+	if p.MaxSize <= 0 {
+		p.MaxSize = maxSize
+	}
+	if p.OverlapMax <= 0 {
+		p.OverlapMax = overlapMax
+	}
+	if p.MinSize >= p.TargetLen || p.TargetLen > p.MaxSize {
+		return DefaultParams()
+	}
+	return p
+}
+
 // Two masks (normalized chunking): a stricter one below the target length makes
 // cuts rare (chunks grow toward the target); a looser one above makes them
 // likely (chunks cut soon after). This centers the size distribution.
@@ -65,14 +120,15 @@ func init() {
 // after the first is prefixed with a bounded, sentence-aligned overlap of the
 // previous chunk's tail (#214).
 func Split(text string) []string {
-	cores := splitCores([]byte(text))
+	p := DefaultParams()
+	cores := splitCores([]byte(text), p)
 	if len(cores) <= 1 {
 		return cores
 	}
 	out := make([]string, 0, len(cores))
 	out = append(out, cores[0])
 	for i := 1; i < len(cores); i++ {
-		if ov := overlapTail(cores[i-1]); ov != "" {
+		if ov := overlapTail(cores[i-1], p); ov != "" {
 			out = append(out, ov+"\n"+cores[i])
 		} else {
 			out = append(out, cores[i])
@@ -83,17 +139,17 @@ func Split(text string) []string {
 
 // splitCores produces the non-overlapping content-defined pieces (trimmed,
 // non-empty) that the overlap is then layered onto.
-func splitCores(b []byte) []string {
-	cores, _ := splitCoresWithOffsets(b)
+func splitCores(b []byte, p Params) []string {
+	cores, _ := splitCoresWithOffsets(b, p)
 	return cores
 }
 
 // splitCoresWithOffsets is splitCores that also returns each core's byte offset in
 // b (the untrimmed start), for passage-level provenance (#243).
-func splitCoresWithOffsets(b []byte) (cores []string, offsets []int) {
+func splitCoresWithOffsets(b []byte, p Params) (cores []string, offsets []int) {
 	regions := atomicRegions(b) // structure that must not be split mid-block (#242)
 	for start := 0; start < len(b); {
-		end := nextCut(b, start, regions)
+		end := nextCut(b, start, regions, p)
 		if piece := strings.TrimSpace(string(b[start:end])); piece != "" {
 			cores = append(cores, piece)
 			offsets = append(offsets, start)
@@ -115,10 +171,19 @@ type Piece struct {
 
 // SplitWithProvenance is Split, but each chunk carries its core's byte offset and
 // the nearest preceding Markdown heading. Text matches Split's output 1:1 (same
-// overlap), so the content hash / reconcile behavior is unchanged.
+// overlap), so the content hash / reconcile behavior is unchanged. Uses the default
+// tuning; SplitWithProvenanceParams takes a per-source override (#401).
 func SplitWithProvenance(text string) []Piece {
+	return SplitWithProvenanceParams(text, DefaultParams())
+}
+
+// SplitWithProvenanceParams is SplitWithProvenance with an explicit size tuning
+// (#401). Invalid params fall back to the defaults (see Params.withDefaults), so
+// the size invariant always holds.
+func SplitWithProvenanceParams(text string, p Params) []Piece {
+	p = p.withDefaults()
 	b := []byte(text)
-	cores, offsets := splitCoresWithOffsets(b)
+	cores, offsets := splitCoresWithOffsets(b, p)
 	if len(cores) == 0 {
 		return nil
 	}
@@ -130,11 +195,11 @@ func SplitWithProvenance(text string) []Piece {
 			// When a chunk begins inside a table body (a big table split across
 			// chunks), carry the table's header + separator rows as the overlap so
 			// each fragment is self-describing for embedding/retrieval (#369) —
-			// instead of the generic previous-tail overlap. Capped to overlapMax
+			// instead of the generic previous-tail overlap. Capped to OverlapMax
 			// inside tableHeaderOverlap, so the size invariant is unchanged.
-			if hdr := tableHeaderOverlap(b, offsets[i], regions); hdr != "" {
+			if hdr := tableHeaderOverlap(b, offsets[i], regions, p); hdr != "" {
 				txt = hdr + "\n" + core
-			} else if ov := overlapTail(cores[i-1]); ov != "" {
+			} else if ov := overlapTail(cores[i-1], p); ov != "" {
 				txt = ov + "\n" + core
 			}
 		}
@@ -149,7 +214,7 @@ func SplitWithProvenance(text string) []Piece {
 // header and reads as a table on its own (#369). Returns "" when offset isn't in a
 // table body, or when the header wouldn't fit the overlap budget (falls back to the
 // generic overlap, preserving the size bound).
-func tableHeaderOverlap(b []byte, offset int, regions []region) string {
+func tableHeaderOverlap(b []byte, offset int, regions []region, p Params) string {
 	for _, r := range regions {
 		if offset <= r.lo || offset >= r.hi {
 			continue
@@ -165,7 +230,7 @@ func tableHeaderOverlap(b []byte, offset int, regions []region) string {
 			return ""
 		}
 		hdr := strings.TrimSpace(string(b[r.lo:sepEnd]))
-		if len(hdr) == 0 || len(hdr) > overlapMax {
+		if len(hdr) == 0 || len(hdr) > p.OverlapMax {
 			return ""
 		}
 		return hdr
@@ -230,9 +295,9 @@ func atxHeading(line []byte) (string, bool) {
 // the last whole sentence(s) within the final overlapMax bytes, falling back to a
 // word boundary so it never begins mid-word or mid-rune. Empty if prev has no
 // usable tail.
-func overlapTail(prev string) string {
+func overlapTail(prev string, p Params) string {
 	b := []byte(prev)
-	from := len(b) - overlapMax
+	from := len(b) - p.OverlapMax
 	if from < 0 {
 		from = 0
 	}
@@ -270,22 +335,22 @@ func overlapStart(w []byte) int {
 }
 
 // nextCut returns the byte offset where the chunk beginning at start should end.
-func nextCut(b []byte, start int, regions []region) int {
+func nextCut(b []byte, start int, regions []region, p Params) int {
 	n := len(b)
-	if n-start <= minSize {
+	if n-start <= p.MinSize {
 		return n
 	}
-	limit := start + maxSize
+	limit := start + p.MaxSize
 	if limit > n {
 		limit = n
 	}
-	target := start + targetLen
+	target := start + p.TargetLen
 
 	var hash uint64
 	i := start
 	for ; i < limit; i++ {
 		hash = (hash << 1) + gear[b[i]]
-		if i-start < minSize {
+		if i-start < p.MinSize {
 			continue
 		}
 		mask := maskStrict
@@ -297,7 +362,7 @@ func nextCut(b []byte, start int, regions []region) int {
 			break
 		}
 	}
-	return avoidSplit(b, start, snap(b, start+minSize, i), regions)
+	return avoidSplit(b, start, snap(b, start+p.MinSize, i), regions, p)
 }
 
 // region is a byte range [lo,hi) covering an atomic structure — a fenced code
@@ -314,19 +379,19 @@ type region struct{ lo, hi int }
 // maxSize *must* be split — but at a structured boundary (a blank line or a
 // top-level line start / table row) rather than an arbitrary rolling-hash cut, so
 // a big code file or table breaks into coherent pieces (#350).
-func avoidSplit(b []byte, start, cut int, regions []region) int {
+func avoidSplit(b []byte, start, cut int, regions []region, p Params) int {
 	for _, r := range regions {
 		if r.lo >= cut {
 			break // regions are sorted; none can contain cut past here
 		}
 		if cut > r.lo && cut < r.hi { // cut strictly inside this region
-			if r.hi-start <= maxSize {
+			if r.hi-start <= p.MaxSize {
 				return r.hi // keep the block whole
 			}
 			if r.lo > start {
 				return r.lo // cut before the block; it begins the next chunk
 			}
-			return structuredCut(b, start+minSize, cut) // oversized from chunk start
+			return structuredCut(b, start+p.MinSize, cut) // oversized from chunk start
 		}
 	}
 	return cut
