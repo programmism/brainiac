@@ -300,10 +300,13 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 			skipped++ // unchanged — this source already vouches for this content
 			continue
 		}
-		// Global content dedup (#389): identical content already stored under any
-		// source is reused — record this source's membership and skip re-embedding
-		// and re-storing it. The chunk survives until its LAST source drops it.
-		if id, ok, err := store.ChunkIDByHash(ctx, c.pool, hashes[i]); err != nil {
+		// Global content dedup (#389): identical content already stored in the SAME
+		// scope and trust level is reused — record this source's membership and skip
+		// re-embedding and re-storing it. Scoping by scope_key keeps content inside
+		// the per-project isolation wall (#120); scoping by trust keeps untrusted
+		// content from inheriting a trusted chunk (#273). The chunk survives until
+		// its LAST source drops it.
+		if id, ok, err := store.ChunkIDByHashScoped(ctx, c.pool, hashes[i], model.ScopeKey(disc), trust); err != nil {
 			return err
 		} else if ok {
 			toLink = append(toLink, id)

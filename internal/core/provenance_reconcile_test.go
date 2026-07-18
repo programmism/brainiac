@@ -56,18 +56,21 @@ func TestReconcileKeepsMultiSourceChunk(t *testing.T) {
 		}
 	}
 
-	// Single-source control: source C ingests t1's content, then re-ingests
-	// different content. With no other source vouching, the chunk is pruned —
+	// Single-source control: source C ingests content unique to it (so global
+	// dedup, #389, can't reuse another source's chunk), then re-ingests different
+	// unique content. With no other source vouching, the original chunk is pruned —
 	// the old per-source-delete behavior, preserved.
-	if _, err := c.IngestText(ctx, "doc://c", t1, ""); err != nil {
-		t.Fatalf("ingest C(t1): %v", err)
+	const t3 = "InventoryService reserves stock with optimistic locking and releases holds after fifteen minutes."
+	const t4 = "SearchIndexer rebuilds the catalog nightly and serves typo-tolerant queries under fifty milliseconds."
+	if _, err := c.IngestText(ctx, "doc://c", t3, ""); err != nil {
+		t.Fatalf("ingest C(t3): %v", err)
 	}
 	cIDs := chunkIDsForSource(ctx, t, pool, "doc://c")
 	if len(cIDs) == 0 {
 		t.Fatal("no chunks stored for doc://c")
 	}
-	if _, err := c.IngestText(ctx, "doc://c", t2, ""); err != nil {
-		t.Fatalf("re-ingest C(t2): %v", err)
+	if _, err := c.IngestText(ctx, "doc://c", t4, ""); err != nil {
+		t.Fatalf("re-ingest C(t4): %v", err)
 	}
 	for _, id := range cIDs {
 		if chunkExistsCore(ctx, t, pool, id) {

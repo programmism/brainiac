@@ -387,9 +387,11 @@ Newest first.
   source (`ChunkHashesBySourceURI`), so byte-identical content from two sources was embedded and stored
   twice. Now the reconcile decides skip/link/insert by **membership + global content_hash**: skip-detection
   uses `SourceMemberHashes` (hashes this source vouches for via `chunk_sources`, including shared chunks);
-  content already stored under **any** source (`ChunkIDByHash`) is **reused** — record this source's
-  membership (`RecordChunkSource`) and skip re-embedding — and only genuinely new content is embedded +
-  inserted. Deletion stays membership-based (#387), so a shared chunk drops only when its last source is
+  content already stored **in the same scope and trust level** (`ChunkIDByHashScoped`) is **reused** — record
+  this source's membership (`RecordChunkSource`) and skip re-embedding — and only genuinely new content is
+  embedded + inserted. Dedup is scoped by `scope_key` so content never crosses the per-project isolation
+  wall (#120) and by `trust` so untrusted content never reuses (and inherits the posture of) a trusted
+  chunk (#273) — different scope or trust is a genuinely distinct chunk. Deletion stays membership-based (#387), so a shared chunk drops only when its last source is
   gone. Single-source behavior is unchanged (a source only ever links content another source already has,
   which can't happen with one source; `SourceMemberHashes` equals the old per-source hash set for
   single-source chunks) — verified by a re-ingest-skips control. New `IngestStats.Deduped` counts reused

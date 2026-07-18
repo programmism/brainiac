@@ -74,17 +74,20 @@ func TestPruneMissingKeepsMultiSourceAndFailSafe(t *testing.T) {
 	defer pool.Close()
 	ctx := context.Background()
 
+	// Distinct content per doc so global dedup (#389) doesn't collapse them into one
+	// chunk — this test is about membership across DIFFERENT sources, added below.
 	const ta = "OrderService writes 1200 orders to Postgres and Kafka every minute for durability during peak load."
+	const tb = "PaymentGateway retries failed charges with exponential backoff and reconciles nightly against the ledger."
 
 	both := sliceConn{docs: []plugins.RawDoc{
 		{Text: ta, SourceURI: "markdown://a.md"},
-		{Text: ta, SourceURI: "markdown://b.md"},
+		{Text: tb, SourceURI: "markdown://b.md"},
 	}}
 	if _, err := c.Ingest(ctx, both, IngestOptions{}); err != nil {
 		t.Fatalf("ingest both: %v", err)
 	}
 
-	// A second source independently vouches for b's chunks (as global dedup will do).
+	// A second source independently vouches for b's chunks.
 	for _, id := range chunkIDsForSource(ctx, t, pool, "markdown://b.md") {
 		if err := store.RecordChunkSource(ctx, pool, id, "notion://page-b"); err != nil {
 			t.Fatalf("record second source: %v", err)
