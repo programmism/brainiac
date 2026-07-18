@@ -67,7 +67,7 @@ type ProposedEdge struct {
 func ListProposedEdges(ctx context.Context, db DBTX, limit int) ([]ProposedEdge, error) {
 	rows, err := db.Query(ctx, `
 		SELECT e.id, e.from_id, e.to_id, e.type, e.why, e.source_uri, e.source_locator,
-		       e.author, e.status, e.flagged_stale, e.created_at, e.last_confirmed_at,
+		       e.author, e.status, e.flagged_stale, e.created_at, e.last_confirmed_at, e.trust,
 		       nf.canonical_name, nt.canonical_name
 		FROM edges e
 		JOIN nodes nf ON nf.id = e.from_id
@@ -85,7 +85,7 @@ func ListProposedEdges(ctx context.Context, db DBTX, limit int) ([]ProposedEdge,
 		var pe ProposedEdge
 		e, err := scanEdge(rowScannerFunc(func(dest ...any) error {
 			// The projection is edgeCols + two name columns; scanEdge reads the
-			// first 12, so peel the trailing two names off here.
+			// first 13, so peel the trailing two names off here.
 			return rows.Scan(append(dest, &pe.FromName, &pe.ToName)...)
 		}))
 		if err != nil {
