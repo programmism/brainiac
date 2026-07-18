@@ -92,6 +92,27 @@ func ChunkExistsByHash(ctx context.Context, db DBTX, hash string) (bool, error) 
 	return exists, err
 }
 
+// ChunkIDByHashScoped returns the id of a stored chunk with the given content hash
+// within the same identity scope AND trust level (false if none). Global content
+// dedup (#389) uses it to reuse an existing chunk across sources — recording the
+// new source's membership instead of re-embedding identical content. It is scoped
+// by scope_key so content never leaks across the per-project isolation wall (#120),
+// and by trust so untrusted content never reuses (and inherits the posture of) a
+// trusted chunk (#273) — different scope or trust means a genuinely distinct chunk.
+func ChunkIDByHashScoped(ctx context.Context, db DBTX, hash, scopeKey, trust string) (string, bool, error) {
+	var id string
+	err := db.QueryRow(ctx,
+		`SELECT id FROM chunks WHERE content_hash = $1 AND scope_key = $2 AND trust = $3 LIMIT 1`,
+		hash, scopeKey, trust).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}
+
 // SearchChunks returns the k nearest chunks to embedding by cosine distance, with
 // provenance. By default only the hot (HNSW-indexed) tier is searched; includeCold
 // also scans cold-tier chunks (#365) — a sequential scan with no vector index, so
