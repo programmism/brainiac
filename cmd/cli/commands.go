@@ -969,7 +969,7 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 		if dir == "" {
 			return nil, fmt.Errorf("markdown source needs a directory (--path or sources[].path)")
 		}
-		return markdown.New(dir), nil
+		return markdown.New(dir, markdown.WithOCR(ocrFunc(cfg))), nil
 	default:
 		return nil, fmt.Errorf("unknown source %q", source)
 	}

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -14,6 +16,7 @@ import (
 	"github.com/programmism/brainiac/internal/applog"
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
+	"github.com/programmism/brainiac/internal/doctext"
 	"github.com/programmism/brainiac/internal/mcpserver"
 	"github.com/programmism/brainiac/internal/plugins/anthropic"
 	"github.com/programmism/brainiac/internal/plugins/confluence"
@@ -114,6 +117,35 @@ func extractorOptions(cfg *config.Config) []core.Option {
 	}
 }
 
+// ocrFunc builds the opt-in OCR fallback for scanned PDFs (#356) from config, or
+// nil when disabled. Shells out to the configured command with the PDF in a temp
+// file — explicit args, never a shell string; stdout is the recognized text.
+func ocrFunc(cfg *config.Config) doctext.OCRFunc {
+	if !cfg.OCR.Enabled || cfg.OCR.Command == "" {
+		return nil
+	}
+	command := cfg.OCR.Command
+	return func(pdf []byte) (string, error) {
+		f, err := os.CreateTemp("", "brainiac-ocr-*.pdf")
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = os.Remove(f.Name()) }()
+		if _, err := f.Write(pdf); err != nil {
+			_ = f.Close()
+			return "", err
+		}
+		if err := f.Close(); err != nil {
+			return "", err
+		}
+		out, err := exec.Command(command, f.Name(), "stdout").Output() //nolint:gosec // operator-configured command, explicit args
+		if err != nil {
+			return "", fmt.Errorf("ocr %q: %w", command, err)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+}
+
 // retrievalOption maps the config retrieval thresholds (#332) onto the core
 // option; zero fields fall back to core's built-in defaults.
 func retrievalOption(cfg *config.Config) core.Option {
@@ -136,7 +168,7 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 			if dir == "" {
 				dir = "/data/docs"
 			}
-			return c.Ingest(ctx, markdown.New(dir), opts)
+			return c.Ingest(ctx, markdown.New(dir, markdown.WithOCR(ocrFunc(cfg))), opts)
 		case "notion":
 			sc := cfg.Source("notion")
 			if sc == nil || sc.Token == "" {

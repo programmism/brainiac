@@ -39,6 +39,7 @@ type Config struct {
 	Index         IndexConfig         `yaml:"index"`
 	Tiering       TieringConfig       `yaml:"tiering"`
 	Retention     RetentionConfig     `yaml:"retention"`
+	OCR           OCRConfig           `yaml:"ocr"`
 	// Principals is the opt-in Layer 2 hard-isolation roster (#120). Empty =
 	// Layer 1 (open reads, single AUTH_TOKEN gates writes) — unchanged. When set,
 	// every /api call requires a principal's bearer token, reads are walled to its
@@ -217,6 +218,16 @@ func (c *Config) AutoImportInterval() time.Duration {
 		return 0
 	}
 	return d
+}
+
+// OCRConfig enables the opt-in OCR fallback for scanned/image-only PDFs (#356).
+// Off by default (pluggability): only when Enabled and an external Command is set
+// does an image-only PDF get OCR'd. Command is invoked as `<command> <pdf-file>
+// stdout` (tesseract's CLI) and must print the recognized text to stdout; wrap a
+// different tool in a script matching that contract.
+type OCRConfig struct {
+	Enabled bool   `yaml:"enabled,omitempty"`
+	Command string `yaml:"command,omitempty"`
 }
 
 // RetentionConfig controls the historical-row retention sweep (#363). MaxAge is a
@@ -541,6 +552,12 @@ func (c *Config) applyEnvOverrides() {
 	if v := os.Getenv("RETENTION_MAX_AGE"); v != "" {
 		c.Retention.MaxAge = v
 	}
+	if v := os.Getenv("OCR_ENABLED"); v != "" {
+		c.OCR.Enabled = v == "true" || v == "1"
+	}
+	if v := os.Getenv("OCR_COMMAND"); v != "" {
+		c.OCR.Command = v
+	}
 	// Local-LLM extractor (opt-in). EXTRACTOR=local-llm turns it on; the model is
 	// required in that case, the URL defaults to the embedding Ollama.
 	if v := os.Getenv("EXTRACTOR"); v != "" {
@@ -811,6 +828,10 @@ func (c *Config) Validate() error {
 		if err != nil || d <= 0 {
 			return fmt.Errorf("tiering.max_hot_age must be a positive duration (e.g. \"4320h\"), got %q", c.Tiering.MaxHotAge)
 		}
+	}
+	// OCR (#356): if enabled, a command is required (else it silently does nothing).
+	if c.OCR.Enabled && c.OCR.Command == "" {
+		return errors.New("ocr.command must be set when ocr.enabled is true (e.g. \"tesseract\")")
 	}
 	// Retention (#363): if set, max_age must be a positive Go duration.
 	if c.Retention.MaxAge != "" {
