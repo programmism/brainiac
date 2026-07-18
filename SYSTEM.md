@@ -383,6 +383,19 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Per-fact hard-delete / right-to-erasure (#272, security P2).** Supersede/merge keep rows
+  and only whole-namespace `DeleteNamespace` hard-deleted, so GDPR erasure at fact granularity was
+  impossible. Added `core.EraseNode(id)` — a real DELETE of a node **and all its edges** (edges first, since
+  the `from_id`/`to_id` FKs have no `ON DELETE CASCADE`, in one transaction so no dangling edge survives) —
+  and `core.EraseSource(source_uri)` — purges every chunk + edge from a document. `EraseNode` is
+  **wall-checked** (a principal may only erase within its own namespace, via `assertNodeWritable`);
+  `EraseSource` is **operator-only** (rejected under a principal), since a source's rows span namespaces and
+  edges aren't namespace-scoped. Both are **audited** (`erase_node`/`erase_source`). Exposed via `kb erase
+  --node <id>` / `--source <uri>` (destructive → confirmation prompt unless `--force`); deliberately **not**
+  an MCP tool, so an agent can't erase mid-conversation. DB-gated test (node + its edge gone, other node
+  survives; source chunk purged; cross-namespace + under-principal erasure forbidden). Follow-up #363:
+  retention policy (auto-purge aged historical rows) + at-rest encryption (or documented volume-encryption
+  reliance).
 - **2026-07-18** — **Chunk trust tagging + forced review for untrusted extraction (#273, security P2).** Bulk-
   ingested document text is untrusted input — the optional extractor consumes it, and recalled chunk text
   reaches downstream agents, both **indirect prompt-injection** vectors — yet `EXTRACTION_REVIEW=false` let

@@ -35,6 +35,23 @@ restore the app picks up the data immediately (schema + vectors + graph all came
 - For point-in-time recovery (PITR) at larger scale, enable WAL archiving on Postgres; the daily dump is
   the simple default for the prototype/team tier.
 
+## Right-to-erasure (#272)
+
+Supersede/merge keep history; for a GDPR erasure you need a real delete. Hard-delete
+at fact granularity with:
+
+```bash
+kb erase --node <id>        # an entity and all its edges
+kb erase --source <uri>     # every chunk + edge from a document
+# add --force to skip the confirmation prompt (unattended)
+```
+
+This is irreversible (no history row is kept) and audited (`erase_node` / `erase_source`
+in the audit log). `--node` respects the Layer-2 wall (a principal can only erase
+its own namespace); `--source` is an operator action. It is intentionally not an
+MCP tool, so an agent can't erase mid-conversation. Retention-policy auto-purge and
+at-rest encryption are tracked in #363.
+
 ## Updating safely (#261)
 
 Migrations are **forward-only** (no down scripts) and run **automatically when the app boots**. That's what
