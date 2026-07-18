@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -22,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/programmism/brainiac/internal/applog"
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
@@ -49,16 +49,20 @@ func main() {
 }
 
 func run() error {
-	// Tee all logging into an in-memory ring so the WebUI Logs tab can show it
-	// (#166); stderr still gets everything for container logs. Set up first so
-	// even startup lines are captured.
+	// The in-memory ring backs the WebUI Logs tab (#166); config.Load doesn't log,
+	// so nothing is lost by configuring the logger from cfg immediately after.
 	logs := logbuf.New(0)
-	log.SetOutput(io.MultiWriter(os.Stderr, logs))
 
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		return err
 	}
+
+	// Structured JSON (or text) to stdout, teed into the ring (#258). Docker's
+	// json-file driver rotates stdout, so the durable app log survives a crash;
+	// the ring is only a WebUI convenience. Bridges stdlib log.Printf, so every
+	// existing call site emits the same structured records.
+	applog.Setup(os.Stdout, logs, cfg.Logging.Format, cfg.Logging.Level)
 
 	ctx := context.Background()
 	log.Printf("brainiac-http %s: connecting to %s", core.Version, config.RedactedDSN(cfg.Storage.DSN))

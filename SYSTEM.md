@@ -344,16 +344,22 @@ human-readable warnings; thresholds live in `core` (`SystemMetrics`) so every cl
 These are cheap catalog/runtime reads, not history; long-run time-series is a separate concern (Prometheus
 scrapes `/metrics`). A DB read failure is non-fatal to the snapshot but downgrades `status` to `critical`.
 
-**Logs — the WebUI "Logs" tab + `GET /api/logs` (#166).** The HTTP process tees all logging — the
-standard logger (5xx internal errors, startup) **and** the chi access log (every request + status, so a
-4xx like an auth-rejected write is visible too) — into a bounded in-memory ring (`internal/logbuf`, last
+**Logs — structured JSON to stdout, with the WebUI "Logs" tab + `GET /api/logs` as a convenience (#166,
+#258).** Both log streams are **structured JSON on stdout** (Docker's json-file driver rotates it, so the
+durable log survives a crash): the chi **access log** (one object per request, with `request_id`) and the
+**application logger** — startup, migrations, auto-import, reload, and the ≥500 lines the server records.
+The app logger is `internal/applog` (an slog JSON/text handler) which also **bridges the standard library
+`log`**, so the many existing `log.Printf` call sites emit the same structured records without a rewrite.
+Format and level are config (`logging.format` json|text, `logging.level` debug|info|warn|error; env
+`LOG_FORMAT`/`LOG_LEVEL`). Both streams are still teed into a bounded in-memory ring (`internal/logbuf`, last
 ~2000 lines, no disk). The tab shows them newest-last with per-line and "Copy all" copy buttons plus
 optional auto-refresh, so an operator can grab an error (e.g. a failed conflict resolution) without shell
 access to the container. Lines are **redacted of obvious secrets** (PATs, `Bearer …`, `token=…`) at
 capture time, so neither the API nor the UI echoes a credential. Same open-read posture as `/system`
 (protect the whole surface via the reverse proxy); the endpoint is mounted only when the log sink is wired
 (it is, in `cmd/http`). The MCP server is a separate stdio process and logs to its own stderr — outside
-this viewer.
+this viewer — but it now logs **structured JSON to stderr** (stdout is the stdio protocol channel) via the
+same `internal/applog`.
 
 **Evaluation:** a golden query set (~20–50 questions with expected sources) run at every notable growth
 step and after model/threshold changes; citation discipline (uncited answer = quality bug); capture rate
@@ -365,6 +371,19 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Structured JSON app logger + stdlib bridge (#258, observability P1).** The access-log
+  half of #258 already emitted JSON to stdout with a `request_id` (2026-07-17); the **application** logger was
+  still stdlib `log` in plain text on **stderr**, so the durable machine-parseable log covered requests but
+  not startup / migrations / auto-import / the ≥500 lines the server records. Added `internal/applog`: an
+  slog **JSON** (or `text`) handler writing to stdout, teed into the 2000-line ring, at a config level. It
+  **bridges the standard library `log`** (`log.SetOutput` → an slog info record per line, flags cleared), so
+  the many existing `log.Printf` call sites across `cmd/` and `internal/server` emit structured records with
+  no rewrite. Format/level are config (`logging.format`, `logging.level`; env `LOG_FORMAT`/`LOG_LEVEL`,
+  validated). The MCP process adopts it too but writes to **stderr** — stdout is its stdio protocol channel,
+  so app logs there must never touch it. Unit-tested (JSON/text render, level filter, ring tee, stdlib
+  bridge) + a config test for the new fields + validation. Deferred to a follow-up: threading a
+  request-scoped logger through core so *app* lines inside a request also carry the `request_id` (today only
+  the access log does).
 - **2026-07-18** — **One-shot `capture` macro + verb tiering (#281, DX P1).** The write surface exposed
   `remember` + `link` as co-equal primitives, so recording an everyday decision meant two calls (create
   entity, create entity, link) and a mental model of nodes-vs-edges before you could save anything. Added a
