@@ -88,6 +88,55 @@ func TestBatchExtract(t *testing.T) {
 	}
 }
 
+// TestCreateAndFetchBatch covers the async split (#383): CreateBatch returns the
+// provider id without waiting, and FetchBatchResults is non-blocking — (nil,false)
+// while processing, then (results,true) once ended.
+func TestCreateAndFetchBatch(t *testing.T) {
+	var polls int32
+	inner := `{"entities":[{"name":"Cache","type":"component","aliases":[]}],"relations":[]}`
+
+	mux := http.NewServeMux()
+	var baseURL string
+	mux.HandleFunc("/v1/messages/batches", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("create: method %s", r.Method)
+		}
+		_ = json.NewEncoder(w).Encode(batchStatus{ID: "batch_9", ProcessingStatus: "in_progress"})
+	})
+	mux.HandleFunc("/v1/messages/batches/batch_9", func(w http.ResponseWriter, _ *http.Request) {
+		if atomic.AddInt32(&polls, 1) < 2 {
+			_ = json.NewEncoder(w).Encode(batchStatus{ID: "batch_9", ProcessingStatus: "in_progress"})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(batchStatus{ID: "batch_9", ProcessingStatus: "ended", ResultsURL: baseURL + "/r"})
+	})
+	mux.HandleFunc("/r", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"custom_id":"c1","result":{"type":"succeeded","message":{"stop_reason":"end_turn","content":[{"type":"text","text":%q}]}}}`+"\n", inner)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	baseURL = srv.URL
+
+	e := NewExtractor("sk-test", "", WithBaseURL(srv.URL), WithHTTPClient(srv.Client()))
+	id, err := e.CreateBatch(context.Background(), []BatchItem{{CustomID: "c1", Text: "the cache warms on boot"}})
+	if err != nil || id != "batch_9" {
+		t.Fatalf("create batch = (%q, %v)", id, err)
+	}
+	// First check: still processing → non-blocking, no results.
+	res, ended, err := e.FetchBatchResults(context.Background(), id)
+	if err != nil || ended || res != nil {
+		t.Fatalf("first fetch = (%v, %v, %v), want (nil,false,nil)", res, ended, err)
+	}
+	// Second check: ended → results returned.
+	res, ended, err = e.FetchBatchResults(context.Background(), id)
+	if err != nil || !ended {
+		t.Fatalf("second fetch = (ended %v, %v)", ended, err)
+	}
+	if ext, ok := res["c1"]; !ok || len(ext.Entities) != 1 || ext.Entities[0].Name != "Cache" {
+		t.Fatalf("c1 result = %+v", res["c1"])
+	}
+}
+
 func TestBatchExtractEmpty(t *testing.T) {
 	e := NewExtractor("sk-test", "")
 	got, err := e.BatchExtract(context.Background(), nil)
