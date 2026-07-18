@@ -247,6 +247,12 @@ func ProposeNodeMerges(ctx context.Context, db DBTX) ([][]model.Node, error) {
 		}
 		n.Summary = deref(summary)
 		n.Rollup = deref(rollup)
+		if err := decryptInto(&n.Summary); err != nil {
+			return nil, err
+		}
+		if err := decryptInto(&n.Rollup); err != nil {
+			return nil, err
+		}
 		n.Status = model.Status(status)
 		n.Discriminators = decodeDiscriminators(disc)
 		// Group boundary is (scope, normalized name); the NUL separator can't

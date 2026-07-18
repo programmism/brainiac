@@ -69,6 +69,12 @@ func scanNode(s rowScanner) (model.Node, error) {
 	}
 	n.Summary = deref(summary)
 	n.Rollup = deref(rollup)
+	if err := decryptInto(&n.Summary); err != nil {
+		return n, err
+	}
+	if err := decryptInto(&n.Rollup); err != nil {
+		return n, err
+	}
 	n.Status = model.Status(status)
 	n.Discriminators = decodeDiscriminators(disc)
 	return n, nil
@@ -252,6 +258,12 @@ func FindSimilarNodes(ctx context.Context, db DBTX, emb []float32, k int, scope 
 		}
 		h.Node.Summary = deref(summary)
 		h.Node.Rollup = deref(rollup)
+		if err := decryptInto(&h.Node.Summary); err != nil {
+			return nil, err
+		}
+		if err := decryptInto(&h.Node.Rollup); err != nil {
+			return nil, err
+		}
 		h.Node.Status = model.Status(status)
 		h.Node.Discriminators = decodeDiscriminators(disc)
 		hits = append(hits, h)
