@@ -35,6 +35,37 @@ restore the app picks up the data immediately (schema + vectors + graph all came
 - For point-in-time recovery (PITR) at larger scale, enable WAL archiving on Postgres; the daily dump is
   the simple default for the prototype/team tier.
 
+## Updating safely (#261)
+
+Migrations are **forward-only** (no down scripts) and run **automatically when the app boots**. That's what
+keeps deploys one-command — but it means the moment a new image starts, the schema is migrated and there is
+no in-app way back. So always **snapshot before you migrate**:
+
+```bash
+make update            # or: ./scripts/update.sh
+```
+
+`update.sh` (1) takes a pre-migrate `pg_dump` into `backups/pre-update/`, (2) `docker compose pull` + `up -d`
+(the new binary runs pending migrations on boot), then (3) waits for `/brainiac healthcheck`. If the app
+doesn't come up healthy it prints a rollback recipe (it does **not** auto-roll-back — a half-applied change
+may need a look first): re-pin the previous `BRAINIAC_VERSION`, `restore.sh --force` the pre-migrate dump,
+`up -d`.
+
+### Expand / contract migration discipline
+
+Because an old binary may briefly run against the new schema (rolling restart) and a rollback restores the
+*old* binary against the *migrated* schema, every migration must be **backward-compatible with the previous
+release**. Split any breaking change across two releases:
+
+- **Expand (release N):** only *additive*, nullable/defaulted changes — add a column/table/index, backfill,
+  start writing both old and new shapes. The prior binary keeps working because nothing it reads was removed
+  or made stricter.
+- **Contract (release N+1):** once every running binary is on N, remove the old column, add the `NOT NULL`,
+  drop the compatibility shim. Never drop or rename a column, nor add a `NOT NULL` without a default, in the
+  same release that starts using it.
+
+This is what makes the snapshot a genuine rollback point rather than a one-way door.
+
 ## Tuning Postgres at scale (#232)
 The defaults are sized for the prototype/team tier. As the corpus and write rate
 grow, three knobs matter. (For pointing at a **managed** Postgres and connection

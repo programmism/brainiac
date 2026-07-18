@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Snapshot-before-migrate + expand/contract discipline (#261, observability/ops P1).**
+  Migrations are forward-only (no down scripts) and run automatically at app boot, so once a new image starts
+  the schema is migrated with no in-app way back — and a code-only rollback leaves the *old* binary on the
+  *new* schema. Added `scripts/update.sh` (+ `make update`): it takes a pre-migrate `pg_dump` into
+  `backups/pre-update/` **before** `docker compose pull && up -d`, waits for `/brainiac healthcheck`, and on
+  failure prints a rollback recipe (re-pin the previous `BRAINIAC_VERSION`, `restore.sh --force` the
+  pre-migrate dump, `up -d`) rather than auto-rolling-back. Documented **expand/contract** discipline in
+  `docs/operations.md`: every migration must be backward-compatible with the previous release (expand =
+  additive/nullable in release N; contract = drop/tighten in N+1), which is what makes the snapshot a real
+  rollback point instead of a one-way door. Shell is `bash -n`-checked; the deploy smoke test still guards
+  that boot-time migrations apply cleanly.
 - **2026-07-18** — **PDF text extraction in doctext (#321, ingestion P1).** `doctext.ToText` returned
   `ErrUnsupported` for `.pdf`, so a folder of PDFs was skipped-and-counted rather than ingested. Added a
   `.pdf` converter — the **one deliberate exception** to doctext's dependency-free rule, since robust PDF

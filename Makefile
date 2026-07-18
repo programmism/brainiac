@@ -29,6 +29,9 @@ up: ## Start the local stack (docker compose)
 down: ## Stop the local stack
 	docker compose down
 
+update: ## Snapshot the DB, then pull + migrate (safe update, #261)
+	./scripts/update.sh
+
 import: ## Ingest Markdown from ./data/docs into the running stack
 	docker compose exec app /kb import --source markdown --path /data/docs
 
