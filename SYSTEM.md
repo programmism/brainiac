@@ -365,6 +365,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Passage-level provenance (#243, ingestion P1).** A chunk's `source_locator` carried only
+  the document-level pointer (path / page id), so a citation could name the doc but not *where in it*. The
+  chunker now exposes `SplitWithProvenance` — same overlapped chunk text as `Split` (so content hashes /
+  reconcile are unchanged), plus each chunk's **byte offset** (its content-defined core's untrimmed start in
+  the normalized text) and the **nearest preceding Markdown heading** (`precedingHeading`/`atxHeading`).
+  `ingestDoc` stamps these per chunk into `source_locator` (`char_offset` + `heading`, merged over the doc
+  locator, copied so chunks don't alias the shared map), so search/recall hits point at a passage/section.
+  Pure chunk unit tests (offsets increase, text matches `Split` 1:1, heading detection incl. indented /
+  closing-`#` / too-many-`#`) + a DB-gated ingest test (stored chunks carry `char_offset` and the section
+  heading). Block/offset anchors for non-Markdown formats can extend `SplitWithProvenance` later.
 - **2026-07-18** — **Subsystem telemetry counters (#319, observability P1).** #259 shipped per-route HTTP
   metrics but left the *subsystem* signals from its list unbuilt. Added them: the `metrics` registry gained
   **counter** support (`SetCounter`, rendered as Prometheus `TYPE counter` so `rate()`/`increase()` work),
