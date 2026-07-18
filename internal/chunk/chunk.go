@@ -122,17 +122,75 @@ func SplitWithProvenance(text string) []Piece {
 	if len(cores) == 0 {
 		return nil
 	}
+	regions := atomicRegions(b)
 	pieces := make([]Piece, 0, len(cores))
 	for i, core := range cores {
 		txt := core
 		if i > 0 {
-			if ov := overlapTail(cores[i-1]); ov != "" {
+			// When a chunk begins inside a table body (a big table split across
+			// chunks), carry the table's header + separator rows as the overlap so
+			// each fragment is self-describing for embedding/retrieval (#369) —
+			// instead of the generic previous-tail overlap. Capped to overlapMax
+			// inside tableHeaderOverlap, so the size invariant is unchanged.
+			if hdr := tableHeaderOverlap(b, offsets[i], regions); hdr != "" {
+				txt = hdr + "\n" + core
+			} else if ov := overlapTail(cores[i-1]); ov != "" {
 				txt = ov + "\n" + core
 			}
 		}
 		pieces = append(pieces, Piece{Text: txt, Offset: offsets[i], Heading: precedingHeading(b, offsets[i])})
 	}
 	return pieces
+}
+
+// tableHeaderOverlap returns a Markdown table's header + separator rows when
+// offset falls inside that table's *body* (i.e. a chunk boundary split the table
+// and this chunk starts past the header) — so the continuation fragment repeats the
+// header and reads as a table on its own (#369). Returns "" when offset isn't in a
+// table body, or when the header wouldn't fit the overlap budget (falls back to the
+// generic overlap, preserving the size bound).
+func tableHeaderOverlap(b []byte, offset int, regions []region) string {
+	for _, r := range regions {
+		if offset <= r.lo || offset >= r.hi {
+			continue
+		}
+		if !isTableRow(b[r.lo:min(r.lo+lineLen(b, r.lo), r.hi)]) {
+			continue // a fenced-code region, not a table
+		}
+		// The header is the first two rows (header + separator); find where the
+		// separator row ends. If this chunk already starts at/before the header,
+		// there is nothing to repeat.
+		sepEnd := secondRowEnd(b, r.lo, r.hi)
+		if sepEnd == 0 || offset < sepEnd {
+			return ""
+		}
+		hdr := strings.TrimSpace(string(b[r.lo:sepEnd]))
+		if len(hdr) == 0 || len(hdr) > overlapMax {
+			return ""
+		}
+		return hdr
+	}
+	return ""
+}
+
+// lineLen returns the length of the line beginning at start (through its newline).
+func lineLen(b []byte, start int) int {
+	for i := start; i < len(b); i++ {
+		if b[i] == '\n' {
+			return i - start + 1
+		}
+	}
+	return len(b) - start
+}
+
+// secondRowEnd returns the offset just past the second line (the table separator
+// row) within [lo, hi), or 0 if there is no second line.
+func secondRowEnd(b []byte, lo, hi int) int {
+	firstEnd := lo + lineLen(b, lo)
+	if firstEnd >= hi {
+		return 0
+	}
+	return min(firstEnd+lineLen(b, firstEnd), hi)
 }
 
 // precedingHeading returns the text of the last Markdown ATX heading (`#`..`######`

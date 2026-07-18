@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Self-describing table fragments: repeat the header on split (#369, ingestion P2).** When a
+  Markdown table is too large for one chunk it splits at row boundaries (#350), so continuation chunks
+  started with a bare body row — losing the column meaning for embedding/retrieval. `SplitWithProvenance`
+  now, for a chunk that begins inside a table *body*, carries that table's **header + separator rows** as
+  the chunk's overlap prefix (`tableHeaderOverlap`) instead of the generic previous-tail overlap, so each
+  fragment reads as a complete table. It's capped to `overlapMax` (falling back to the generic overlap when
+  the header wouldn't fit), so the chunk-size invariant (`maxSize + overlapMax`) is unchanged — verified by
+  the existing `TestSizeBoundsAndNoMidWord` plus a new split-table test. Tables that already fit a chunk are
+  untouched. Per-source chunking-strategy selection (the other half of #369) is follow-up #401.
 - **2026-07-18** — **Optional app-level chunk-text encryption at rest (#377, security P2).** Defense-in-depth
   on top of the recommended full-volume encryption (#371). Opt-in `ENCRYPTION_KEY` (base64 32-byte AES-256;
   unset = OFF = plaintext, exactly as before). When set, `InsertChunk` stores the `text` column
