@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/programmism/brainiac/internal/core"
@@ -305,10 +306,11 @@ type ConsolidationConfig struct {
 // SourceConfig declares one connector and its selection strategy. Token is a
 // secret — prefer setting it via the environment (e.g. NOTION_TOKEN).
 type SourceConfig struct {
-	Type      string `yaml:"type"`
-	Selection string `yaml:"selection"`
-	Token     string `yaml:"token,omitempty"`
-	Path      string `yaml:"path,omitempty"` // for file-based connectors (markdown)
+	Type      string   `yaml:"type"`
+	Selection string   `yaml:"selection"`
+	Token     string   `yaml:"token,omitempty"`
+	Path      string   `yaml:"path,omitempty"`  // for file-based connectors (markdown)
+	Repos     []string `yaml:"repos,omitempty"` // "owner/repo" list for the github connector (#238)
 }
 
 // Source returns the first configured source of the given type, or nil.
@@ -464,6 +466,37 @@ func (c *Config) applyEnvOverrides() {
 			c.Sources = append(c.Sources, SourceConfig{Type: "slack", Selection: "density-filter", Token: v})
 		}
 	}
+	if v := os.Getenv("GITHUB_TOKEN"); v != "" {
+		found := false
+		for i := range c.Sources {
+			if c.Sources[i].Type == "github" {
+				c.Sources[i].Token = v
+				found = true
+			}
+		}
+		if !found {
+			// Auto-create a github source; repos come from config or the import target (#238).
+			c.Sources = append(c.Sources, SourceConfig{Type: "github", Selection: "density-filter", Token: v})
+		}
+	}
+	if v := os.Getenv("GITHUB_REPOS"); v != "" {
+		for i := range c.Sources {
+			if c.Sources[i].Type == "github" {
+				c.Sources[i].Repos = splitCSV(v)
+			}
+		}
+	}
+}
+
+// splitCSV splits a comma-separated env value into trimmed, non-empty items.
+func splitCSV(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // Validate checks the invariants the app depends on to boot.
