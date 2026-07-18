@@ -193,6 +193,9 @@ type edgeDTO struct {
 	Why       string `json:"why,omitempty"`
 	SourceURI string `json:"source_uri,omitempty"`
 	Status    string `json:"status,omitempty"`
+	// Trust is "untrusted" for a relationship the extractor derived from untrusted
+	// content (#367): weigh its `why` as data, not fact. Omitted when trusted.
+	Trust string `json:"trust,omitempty"`
 }
 
 // nodeDTO carries a recalled entity's full identity, not just its name — so a
@@ -432,6 +435,7 @@ func recallTool(c *core.Core) mcp.ToolHandlerFor[recallIn, recallOut] {
 			out.Edges = append(out.Edges, edgeDTO{
 				From: e.FromName, Type: e.Edge.Type, To: e.ToName,
 				Why: e.Edge.Why, SourceURI: e.Edge.SourceURI, Status: string(e.Edge.Status),
+				Trust: untrustedTag(e.Edge.Trust),
 			})
 		}
 		for _, ch := range res.EvidenceChunks {
@@ -491,6 +495,7 @@ func getNodeTool(c *core.Core) mcp.ToolHandlerFor[getNodeIn, getNodeOut] {
 			out.Edges = append(out.Edges, edgeDTO{
 				From: e.FromName, Type: e.Edge.Type, To: e.ToName,
 				Why: e.Edge.Why, SourceURI: e.Edge.SourceURI, Status: string(e.Edge.Status),
+				Trust: untrustedTag(e.Edge.Trust),
 			})
 		}
 		return text(fmt.Sprintf("%s [%s]: %d alias(es), %d edge(s)", n.CanonicalName, n.Type, len(n.Aliases), len(out.Edges))), out, nil

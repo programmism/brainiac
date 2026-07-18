@@ -99,4 +99,22 @@ func TestUntrustedForcesExtractionReview(t *testing.T) {
 	if got := statusOf("t"); got != string(model.StatusCurrent) {
 		t.Fatalf("trusted extraction status = %q, want current (review off honored)", got)
 	}
+
+	// The extracted edge carries the source's trust (#367), so it stays flagged
+	// even after approval.
+	edgeTrust := func(project string) string {
+		t.Helper()
+		var trust string
+		if err := pool.QueryRow(ctx,
+			`SELECT e.trust FROM edges e JOIN nodes n ON n.id = e.from_id WHERE n.project = $1 LIMIT 1`, project).Scan(&trust); err != nil {
+			t.Fatalf("read edge trust for %s: %v", project, err)
+		}
+		return trust
+	}
+	if got := edgeTrust("u"); got != model.TrustUntrusted {
+		t.Fatalf("edge from untrusted source trust = %q, want untrusted", got)
+	}
+	if got := edgeTrust("t"); got != model.TrustTrusted {
+		t.Fatalf("edge from trusted source trust = %q, want trusted", got)
+	}
 }

@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Edge trust propagation from source chunks (#367, security P2).** #273 tagged chunk trust
+  and forced untrusted extraction through review, but once an operator approved such an edge it became a live
+  "fact" with no marker of its untrusted origin — a recalled edge whose `why` came from a poisoned document
+  looked identical to a human-captured one. Added a `trust` column on **edges** (expand migration `NOT NULL
+  DEFAULT 'trusted'`, in the shared `edgeCols`/`scanEdge` so every reader gets it): the extractor stamps
+  `untrusted` when the source chunk was untrusted (reusing the `forceReview` signal), chat-captured `Link`
+  edges default trusted. Surfaced on the MCP `recall`/`get_node` edge DTO (`"trust":"untrusted"`, omitted when
+  trusted), so a client can weigh an untrusted-origin relationship as data, not fact. `docs/security.md`
+  gained concrete client-prompt hardening guidance. DB-gated test (an extractor edge from an untrusted source
+  is `untrusted` and stays so after approval; a trusted source's edge is `trusted`). Node-level trust
+  (murkier — a node can have many sources) and per-call `add_document` trust remain in follow-up #375.
 - **2026-07-18** — **Request-id in 5xx app logs (#348, observability P2).** #258 put a `request_id` on every
   JSON *access* log line, but the app's own ≥500 log (`writeError`'s `log.Printf`) carried none, so a 5xx
   couldn't be correlated across the two logs. Added a `requestLogger` chi middleware (right after

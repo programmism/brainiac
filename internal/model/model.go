@@ -168,6 +168,10 @@ type Edge struct {
 	FlaggedStale    bool           `json:"flagged_stale"`
 	CreatedAt       time.Time      `json:"created_at"`
 	LastConfirmedAt *time.Time     `json:"last_confirmed_at,omitempty"`
+	// Trust is TrustUntrusted for an edge the extractor derived from untrusted
+	// chunk text (#367) — surfaced on recall so a client treats the relationship as
+	// data to weigh, not fact. TrustTrusted (default) for chat-captured edges.
+	Trust string `json:"trust,omitempty"`
 }
 
 // ChunkHit is a search result: a chunk plus its cosine distance to the query.

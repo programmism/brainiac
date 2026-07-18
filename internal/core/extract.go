@@ -36,6 +36,12 @@ func (c *Core) extractChunk(ctx context.Context, text, sourceURI string, disc ma
 		return 0, 0, nil
 	}
 	status := c.extractedStatus(forceReview)
+	// forceReview is set for an untrusted source (#273); carry that onto the edges
+	// so they stay flagged untrusted even after review approval (#367).
+	edgeTrust := model.TrustTrusted
+	if forceReview {
+		edgeTrust = model.TrustUntrusted
+	}
 
 	err = store.WithTx(ctx, c.pool, func(db store.DBTX) error {
 		ids := make(map[string]string, len(ext.Entities))
@@ -83,6 +89,7 @@ func (c *Core) extractChunk(ctx context.Context, text, sourceURI string, disc ma
 				SourceURI: sourceURI,
 				Author:    extractAuthor,
 				Status:    status,
+				Trust:     edgeTrust, // untrusted-sourced edges stay flagged after approval (#367)
 			}
 			if err := store.InsertEdge(ctx, db, edge); err != nil {
 				return err

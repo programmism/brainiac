@@ -12,7 +12,7 @@ import (
 )
 
 // edgeCols is the shared edge column list.
-const edgeCols = "id, from_id, to_id, type, why, source_uri, source_locator, author, status, flagged_stale, created_at, last_confirmed_at"
+const edgeCols = "id, from_id, to_id, type, why, source_uri, source_locator, author, status, flagged_stale, created_at, last_confirmed_at, trust"
 
 // scanEdge reads the edgeCols projection into a model.Edge.
 func scanEdge(s rowScanner) (model.Edge, error) {
@@ -23,7 +23,7 @@ func scanEdge(s rowScanner) (model.Edge, error) {
 		status                 string
 	)
 	if err := s.Scan(&e.ID, &e.FromID, &e.ToID, &e.Type, &why, &sourceURI, &locator,
-		&author, &status, &e.FlaggedStale, &e.CreatedAt, &e.LastConfirmedAt); err != nil {
+		&author, &status, &e.FlaggedStale, &e.CreatedAt, &e.LastConfirmedAt, &e.Trust); err != nil {
 		return e, err
 	}
 	e.Why = deref(why)

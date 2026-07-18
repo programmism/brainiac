@@ -298,17 +298,21 @@ func InsertEdge(ctx context.Context, db DBTX, e *model.Edge) error {
 	if status == "" {
 		status = model.StatusCurrent
 	}
+	trust := e.Trust
+	if trust == "" {
+		trust = model.TrustTrusted // chat-captured edges are trusted; extractor sets untrusted
+	}
 	// Upsert: a repeated link for the same current (from,to,type) refreshes the
 	// rationale/provenance instead of creating a duplicate edge (§11, #71).
 	return db.QueryRow(ctx, `
-		INSERT INTO edges (from_id, to_id, type, why, source_uri, source_locator, author, status)
-		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+		INSERT INTO edges (from_id, to_id, type, why, source_uri, source_locator, author, status, trust)
+		VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9)
 		ON CONFLICT (from_id, to_id, type) WHERE status = 'current'
 		DO UPDATE SET why = EXCLUDED.why, source_uri = EXCLUDED.source_uri,
 		              source_locator = EXCLUDED.source_locator, author = EXCLUDED.author,
 		              last_confirmed_at = now()
 		RETURNING id, created_at`,
-		e.FromID, e.ToID, e.Type, nullStr(e.Why), nullStr(e.SourceURI), locator, nullStr(e.Author), string(status),
+		e.FromID, e.ToID, e.Type, nullStr(e.Why), nullStr(e.SourceURI), locator, nullStr(e.Author), string(status), trust,
 	).Scan(&e.ID, &e.CreatedAt)
 }
 
