@@ -48,6 +48,23 @@ type IngestProgress struct {
 // ingestProgressStep is how many chunks embed between progress callbacks.
 const ingestProgressStep = 64
 
+// chunkLocator merges a document's source locator with this chunk's passage-level
+// anchor (#243): the byte offset of its content-defined core and the nearest
+// preceding Markdown heading (omitted when empty), so a citation can point at a
+// section, not just the whole document. Copies base so per-chunk fields don't
+// alias the shared doc locator.
+func chunkLocator(base map[string]any, p chunk.Piece) map[string]any {
+	loc := make(map[string]any, len(base)+2)
+	for k, v := range base {
+		loc[k] = v
+	}
+	loc["char_offset"] = p.Offset
+	if p.Heading != "" {
+		loc["heading"] = p.Heading
+	}
+	return loc
+}
+
 // discFromProject builds the identity discriminator set for a project name;
 // empty project = nil = global.
 func discFromProject(project string) map[string]string {
@@ -150,10 +167,14 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 	if err != nil {
 		return err
 	}
-	chunks := chunk.Split(normalizeText(doc.Text))
-	hashes := make([]string, len(chunks))
-	for i, ck := range chunks {
-		hashes[i] = hashText(ck)
+	pieces := chunk.SplitWithProvenance(normalizeText(doc.Text))
+	chunks := make([]string, len(pieces))
+	locators := make([]map[string]any, len(pieces))
+	hashes := make([]string, len(pieces))
+	for i, p := range pieces {
+		chunks[i] = p.Text
+		locators[i] = chunkLocator(doc.SourceLocator, p) // per-chunk passage anchor (#243)
+		hashes[i] = hashText(p.Text)
 	}
 
 	existing, err := store.ChunkHashesBySourceURI(ctx, c.pool, doc.SourceURI)
@@ -169,6 +190,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 		hash    string
 		tier    model.Tier
 		quality float64
+		locator map[string]any
 	}
 	var toEmbed []pending
 	skipped, dropped, kept, queued := 0, 0, 0, 0
@@ -189,7 +211,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 		} else {
 			kept++
 		}
-		toEmbed = append(toEmbed, pending{text: ck, hash: hashes[i], tier: tier, quality: score.Quality})
+		toEmbed = append(toEmbed, pending{text: ck, hash: hashes[i], tier: tier, quality: score.Quality, locator: locators[i]})
 	}
 
 	// Dry run: report what would happen — including how many stale chunks would be
@@ -231,7 +253,7 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 			return fmt.Errorf("embedding has %d dims, schema expects %d (wrong embedding model?)", len(emb), model.SchemaEmbeddingDims)
 		}
 		inserts = append(inserts, &model.Chunk{
-			Text: p.text, Embedding: emb, SourceURI: doc.SourceURI, SourceLocator: doc.SourceLocator,
+			Text: p.text, Embedding: emb, SourceURI: doc.SourceURI, SourceLocator: p.locator,
 			QualityScore: p.quality, Tier: p.tier, ContentHash: p.hash, SourceModifiedAt: doc.ModifiedAt,
 			Discriminators: disc,
 		})

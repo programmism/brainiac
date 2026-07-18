@@ -156,3 +156,60 @@ func TestUnicodeBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestSplitWithProvenance(t *testing.T) {
+	// Provenance Text matches Split 1:1 (same overlap).
+	text := longText()
+	pieces := SplitWithProvenance(text)
+	split := Split(text)
+	if len(pieces) != len(split) {
+		t.Fatalf("provenance/split count mismatch: %d vs %d", len(pieces), len(split))
+	}
+	for i := range pieces {
+		if pieces[i].Text != split[i] {
+			t.Fatalf("piece %d text differs from Split", i)
+		}
+		if i > 0 && pieces[i].Offset <= pieces[i-1].Offset {
+			t.Errorf("offsets not increasing at %d: %d <= %d", i, pieces[i].Offset, pieces[i-1].Offset)
+		}
+	}
+
+	// Headings: a chunk after a heading carries the nearest preceding one.
+	var sb strings.Builder
+	sb.WriteString("# Architecture\n\n")
+	for i := 0; i < 60; i++ {
+		fmt.Fprintf(&sb, "OrderService writes orders to Kafka for durability during peak load, decision %d. ", i)
+	}
+	sb.WriteString("\n\n## Retention policy\n\n")
+	for i := 0; i < 60; i++ {
+		fmt.Fprintf(&sb, "Events are retained for ninety days then archived to cold storage, note %d. ", i)
+	}
+	ps := SplitWithProvenance(sb.String())
+	seen := map[string]bool{}
+	for _, p := range ps {
+		if p.Heading != "" {
+			seen[p.Heading] = true
+		}
+	}
+	if !seen["Architecture"] && !seen["Retention policy"] {
+		t.Errorf("expected a heading anchor among chunks, got %v", seen)
+	}
+}
+
+func TestATXHeading(t *testing.T) {
+	cases := map[string]string{
+		"# Title":          "Title",
+		"###  Deep  ":      "Deep",
+		"## Section ##":    "Section",
+		"not a heading":    "",
+		"#nospace":         "",
+		"####### too many": "",
+		"  ## indented":    "indented",
+	}
+	for in, want := range cases {
+		got, ok := atxHeading([]byte(in))
+		if (want == "" && ok) || (want != "" && got != want) {
+			t.Errorf("atxHeading(%q) = (%q,%v), want %q", in, got, ok, want)
+		}
+	}
+}

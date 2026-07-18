@@ -74,15 +74,87 @@ func Split(text string) []string {
 // splitCores produces the non-overlapping content-defined pieces (trimmed,
 // non-empty) that the overlap is then layered onto.
 func splitCores(b []byte) []string {
-	var chunks []string
+	cores, _ := splitCoresWithOffsets(b)
+	return cores
+}
+
+// splitCoresWithOffsets is splitCores that also returns each core's byte offset in
+// b (the untrimmed start), for passage-level provenance (#243).
+func splitCoresWithOffsets(b []byte) (cores []string, offsets []int) {
 	for start := 0; start < len(b); {
 		end := nextCut(b, start)
 		if piece := strings.TrimSpace(string(b[start:end])); piece != "" {
-			chunks = append(chunks, piece)
+			cores = append(cores, piece)
+			offsets = append(offsets, start)
 		}
 		start = end
 	}
-	return chunks
+	return cores, offsets
+}
+
+// Piece is a chunk plus its passage-level provenance (#243): the byte Offset of
+// its content-defined core in the source text, and the nearest preceding Markdown
+// Heading (empty if none), so a citation can point at a passage/section, not just
+// the whole document.
+type Piece struct {
+	Text    string
+	Offset  int
+	Heading string
+}
+
+// SplitWithProvenance is Split, but each chunk carries its core's byte offset and
+// the nearest preceding Markdown heading. Text matches Split's output 1:1 (same
+// overlap), so the content hash / reconcile behavior is unchanged.
+func SplitWithProvenance(text string) []Piece {
+	b := []byte(text)
+	cores, offsets := splitCoresWithOffsets(b)
+	if len(cores) == 0 {
+		return nil
+	}
+	pieces := make([]Piece, 0, len(cores))
+	for i, core := range cores {
+		txt := core
+		if i > 0 {
+			if ov := overlapTail(cores[i-1]); ov != "" {
+				txt = ov + "\n" + core
+			}
+		}
+		pieces = append(pieces, Piece{Text: txt, Offset: offsets[i], Heading: precedingHeading(b, offsets[i])})
+	}
+	return pieces
+}
+
+// precedingHeading returns the text of the last Markdown ATX heading (`#`..`######`
+// followed by a space) that starts at or before offset, or "" if none.
+func precedingHeading(b []byte, offset int) string {
+	if offset > len(b) {
+		offset = len(b)
+	}
+	heading := ""
+	lineStart := 0
+	for i := 0; i <= offset; i++ {
+		if i == offset || (i < len(b) && b[i] == '\n') {
+			if h, ok := atxHeading(b[lineStart:i]); ok {
+				heading = h
+			}
+			lineStart = i + 1
+		}
+	}
+	return heading
+}
+
+// atxHeading returns the heading text if line is a Markdown ATX heading.
+func atxHeading(line []byte) (string, bool) {
+	s := strings.TrimLeft(string(line), " ")
+	n := 0
+	for n < len(s) && s[n] == '#' {
+		n++
+	}
+	if n == 0 || n > 6 || n >= len(s) || s[n] != ' ' {
+		return "", false
+	}
+	// Strip the leading #s and any trailing closing #s / spaces.
+	return strings.TrimSpace(strings.Trim(strings.TrimSpace(s[n:]), "#")), true
 }
 
 // overlapTail returns the trailing context of prev to carry into the next chunk:

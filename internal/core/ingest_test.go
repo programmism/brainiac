@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -466,5 +467,52 @@ func TestIngestProgressReported(t *testing.T) {
 	}
 	if !monotonic {
 		t.Fatal("Embedded should be non-decreasing across callbacks")
+	}
+}
+
+// Ingest stamps each chunk with passage-level provenance — a char offset and the
+// nearest preceding Markdown heading (#243).
+func TestIngestStampsPassageProvenance(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+
+	var sb strings.Builder
+	sb.WriteString("# Order pipeline\n\n")
+	for i := 0; i < 80; i++ {
+		fmt.Fprintf(&sb, "OrderService writes 1200 orders to Kafka for durability during peak load, point %d. ", i)
+	}
+	if _, err := c.IngestText(ctx, "doc://prov", sb.String(), ""); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+
+	rows, err := pool.Query(ctx, "SELECT source_locator FROM chunks WHERE source_uri = 'doc://prov'")
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	defer rows.Close()
+	n, sawHeading := 0, false
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var loc map[string]any
+		if err := json.Unmarshal(raw, &loc); err != nil {
+			t.Fatalf("locator json: %v", err)
+		}
+		if _, ok := loc["char_offset"]; !ok {
+			t.Errorf("chunk missing char_offset: %v", loc)
+		}
+		if loc["heading"] == "Order pipeline" {
+			sawHeading = true
+		}
+		n++
+	}
+	if n == 0 {
+		t.Fatal("no chunks stored")
+	}
+	if !sawHeading {
+		t.Error("no chunk carried the 'Order pipeline' heading anchor")
 	}
 }
