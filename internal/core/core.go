@@ -8,6 +8,7 @@
 package core
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -33,7 +34,21 @@ type Core struct {
 	// reranker is the optional cross-encoder that reorders retrieved chunks by
 	// relevance (SYSTEM.md §7, #213). Nil = the RRF-fused order is returned as is.
 	reranker plugins.Reranker
+
+	// Process-lifetime ingest/extraction counters exposed as Prometheus counters
+	// (#319), so throughput and extraction-failure rate are observable via rate().
+	// Monotonic within a process; they reset on restart, which counters tolerate.
+	ingestedChunks  atomic.Uint64
+	extractFailures atomic.Uint64
 }
+
+// IngestedChunksTotal is the cumulative count of chunks stored by ingest this
+// process lifetime (#319).
+func (c *Core) IngestedChunksTotal() uint64 { return c.ingestedChunks.Load() }
+
+// ExtractFailuresTotal is the cumulative count of chunks whose optional extraction
+// errored and was skipped this process lifetime (#319).
+func (c *Core) ExtractFailuresTotal() uint64 { return c.extractFailures.Load() }
 
 // Option customizes a Core at construction.
 type Option func(*Core)

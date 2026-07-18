@@ -64,6 +64,17 @@ Over 20% of current edges are flagged stale (source content changed under them).
 2. Persistent high staleness suggests sources churn faster than review — schedule
    consolidation.
 
+## BrainiacHighExtractionFailureRate
+The optional server-side extractor (local-LLM `EXTRACTOR=local-llm`, or Claude
+`EXTRACTOR=claude`) is erroring on >10% of ingested chunks (`#319`).
+1. Chunks are **still stored** — only graph node/edge extraction is affected, so
+   search/recall over chunks keeps working.
+2. Local-LLM: check the extraction Ollama model is pulled and the box has memory
+   (`docker compose logs ollama`). Claude: check `ANTHROPIC_API_KEY` and for
+   `stop_reason: refusal` / rate limits in the app logs.
+3. If extraction isn't wanted, unset `EXTRACTOR` — the default chat-driven path
+   fills the graph via the agent instead.
+
 ## BrainiacHighHistoricalNodes
 Over 50% of nodes are historical (superseded). Usually benign (healthy versioning),
 but a **consolidation** pass keeps search focused on current state. Not urgent.

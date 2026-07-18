@@ -56,6 +56,23 @@ func TestPerRouteMetricsRender(t *testing.T) {
 	}
 }
 
+func TestCounterRendersAsCounterType(t *testing.T) {
+	r := New()
+	r.SetGauge("brainiac_test_gauge", "g", func() float64 { return 3 })
+	r.SetCounter("brainiac_test_total", "c", func() float64 { return 42 })
+
+	rec := httptest.NewRecorder()
+	r.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := rec.Body.String()
+
+	if !strings.Contains(body, "# TYPE brainiac_test_total counter\nbrainiac_test_total 42") {
+		t.Errorf("counter not rendered with TYPE counter:\n%s", body)
+	}
+	if !strings.Contains(body, "# TYPE brainiac_test_gauge gauge\nbrainiac_test_gauge 3") {
+		t.Errorf("gauge type regressed:\n%s", body)
+	}
+}
+
 func TestMiddlewareObserves(t *testing.T) {
 	r := New()
 	h := r.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

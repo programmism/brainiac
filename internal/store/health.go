@@ -11,6 +11,9 @@ type Counts struct {
 	Edges           int `json:"edges"`
 	EdgesHistorical int `json:"edges_historical"`
 	EdgesStale      int `json:"edges_stale"`
+	// ReviewQueue is proposed (awaiting-review) nodes + edges — the consolidation
+	// queue depth (#319): how much extracted/proposed content is pending approval.
+	ReviewQueue int `json:"review_queue"`
 }
 
 // IndexSizeBytes returns the on-disk size of the hot-tier HNSW vector index —
@@ -56,7 +59,9 @@ func HealthCounts(ctx context.Context, db DBTX) (Counts, error) {
 			(SELECT count(*) FROM nodes  WHERE status = 'historical'),
 			(SELECT count(*) FROM edges  WHERE status = 'current'),
 			(SELECT count(*) FROM edges  WHERE status = 'historical'),
-			(SELECT count(*) FROM edges  WHERE flagged_stale = true)`,
-	).Scan(&c.ChunksHot, &c.ChunksCold, &c.Nodes, &c.NodesHistorical, &c.Edges, &c.EdgesHistorical, &c.EdgesStale)
+			(SELECT count(*) FROM edges  WHERE flagged_stale = true),
+			(SELECT count(*) FROM nodes  WHERE status = 'proposed')
+				+ (SELECT count(*) FROM edges WHERE status = 'proposed')`,
+	).Scan(&c.ChunksHot, &c.ChunksCold, &c.Nodes, &c.NodesHistorical, &c.Edges, &c.EdgesHistorical, &c.EdgesStale, &c.ReviewQueue)
 	return c, err
 }
