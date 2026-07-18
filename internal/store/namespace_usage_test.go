@@ -27,7 +27,7 @@ func TestNamespaceUsageCounter(t *testing.T) {
 	}
 	// TRUNCATE does not fire the row/statement DELETE triggers, so reset the
 	// counter table alongside the data.
-	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks, namespace_usage"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks, namespace_usage CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 

@@ -60,7 +60,7 @@ func TestMCPRoundTrip(t *testing.T) {
 	if err := store.Migrate(ctx, pool); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks, namespace_usage"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes, chunks, namespace_usage CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 

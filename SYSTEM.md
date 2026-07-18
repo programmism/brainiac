@@ -383,6 +383,20 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Multi-source chunk provenance schema (#244, ingestion P1 — keystone, schema half).**
+  A chunk carried a single `source_uri`, so identical content ingested from two sources became two rows
+  (`chunks_source_hash_uniq` is `(source_uri, content_hash)`) and deleting one source could delete content
+  another source still vouches for. Migration 0020 adds `chunk_sources(chunk_id → chunks ON DELETE CASCADE,
+  source_uri, PRIMARY KEY(chunk_id, source_uri))` — the *set* of sources a chunk belongs to — backfilled
+  from every chunk's current `source_uri`. `InsertChunk` now records membership for each newly stored chunk
+  (additive; the idempotent no-op path already has its membership). Store primitives `RecordChunkSource`,
+  `ChunkSourceURIs`, `DropChunkSourceMembershipNotIn` (membership analog of `DeleteChunksBySourceURINotIn`),
+  and `PruneOrphanChunks` (delete a chunk only when its LAST source is gone) land here and are DB-tested,
+  but the ingest reconcile still uses the per-source `DeleteChunksBySourceURINotIn` and dedup is still
+  per-source — so this migration changes **no** runtime behavior (reads, deletes, dedup all unchanged). ON
+  DELETE CASCADE (unlike the intentionally un-cascaded edges FKs): membership is meaningless without its
+  chunk. Wiring reconcile + global content dedup onto membership (drop a chunk only when orphaned; dedup on
+  `content_hash` across sources) is follow-up #387 — it de-risks the deletion-propagation issues #323/#247.
 - **2026-07-18** — **Current-tier partial indexes to cap the hot working set (#230, scale P1 — safe slice).**
   Supersession never deletes (status flips `current`→`historical` and the row stays), so the full
   `edges_from_idx`/`edges_to_idx` (0001) and `nodes_project_idx` (0011) index every historical/proposed row
