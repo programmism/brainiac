@@ -921,7 +921,11 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 		if len(repos) == 0 {
 			return nil, fmt.Errorf("github needs a repo: --path owner/repo, or sources[].repos / GITHUB_REPOS")
 		}
-		return github.New(sc.Token, repos, github.WithFiles(sc.Files)), nil
+		ghOpts := []github.Option{github.WithFiles(sc.Files)}
+		if sc.Discussions {
+			ghOpts = append(ghOpts, github.WithDiscussions())
+		}
+		return github.New(sc.Token, repos, ghOpts...), nil
 	case "gdrive":
 		sc := cfg.Source("gdrive")
 		if sc == nil || sc.Token == "" {

@@ -199,7 +199,11 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 			if len(repos) == 0 {
 				return core.IngestStats{}, fmt.Errorf("github needs a repo: pass owner/repo as the target, or set sources[].repos / GITHUB_REPOS")
 			}
-			return c.Ingest(ctx, github.New(sc.Token, repos, github.WithFiles(sc.Files)), opts)
+			ghOpts := []github.Option{github.WithFiles(sc.Files)}
+			if sc.Discussions {
+				ghOpts = append(ghOpts, github.WithDiscussions())
+			}
+			return c.Ingest(ctx, github.New(sc.Token, repos, ghOpts...), opts)
 		case "gdrive":
 			sc := cfg.Source("gdrive")
 			if sc == nil || sc.Token == "" {
