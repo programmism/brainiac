@@ -249,12 +249,19 @@ func InsertNode(ctx context.Context, db DBTX, n *model.Node) error {
 	if err != nil {
 		return err
 	}
+	// Optional app-level encryption of the summary at rest (#403); no-op when the
+	// key is unset, empty stays NULL. The embedding is computed from plaintext in
+	// the core, so vector search/dedup are unaffected.
+	storedSummary, err := encryptText(n.Summary)
+	if err != nil {
+		return err
+	}
 	err = db.QueryRow(ctx, `
 		INSERT INTO nodes (canonical_name, aliases, type, summary, summary_embedding, status, discriminators, scope_key)
 		VALUES ($1, $2, $3, $4, $5::halfvec, $6, $7::jsonb, $8)
 		ON CONFLICT (scope_key, canonical_name) WHERE status = 'current' DO NOTHING
 		RETURNING id, created_at`,
-		n.CanonicalName, aliases, nullStr(n.Type), nullStr(n.Summary), encodeVec(n.SummaryEmbedding), string(status),
+		n.CanonicalName, aliases, nullStr(n.Type), nullStr(storedSummary), encodeVec(n.SummaryEmbedding), string(status),
 		discJSON, model.ScopeKey(n.Discriminators),
 	).Scan(&n.ID, &n.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -275,8 +282,12 @@ var ErrNodeExists = errors.New("node with this identity already exists")
 // re-remembered with a description — the backfill path for nodes created before
 // summaries were persisted (#181).
 func UpdateNodeSummary(ctx context.Context, db DBTX, id, summary string, emb []float32) error {
-	_, err := db.Exec(ctx, `UPDATE nodes SET summary = $2, summary_embedding = $3::halfvec WHERE id = $1`,
-		id, nullStr(summary), encodeVec(emb))
+	storedSummary, err := encryptText(summary) // #403; embedding stays plaintext-derived
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(ctx, `UPDATE nodes SET summary = $2, summary_embedding = $3::halfvec WHERE id = $1`,
+		id, nullStr(storedSummary), encodeVec(emb))
 	return err
 }
 

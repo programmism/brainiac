@@ -94,7 +94,11 @@ func UpdateNodeStatus(ctx context.Context, db DBTX, id string, status model.Stat
 // UpdateNodeRollup sets a node's "current state of X" rollup text; returns how
 // many rows changed so a caller can detect a missing node id (#198).
 func UpdateNodeRollup(ctx context.Context, db DBTX, id, rollup string) (int64, error) {
-	tag, err := db.Exec(ctx, `UPDATE nodes SET rollup = $2 WHERE id = $1`, id, nullStr(rollup))
+	storedRollup, err := encryptText(rollup) // #403; rollup is free text, not embedded/indexed
+	if err != nil {
+		return 0, err
+	}
+	tag, err := db.Exec(ctx, `UPDATE nodes SET rollup = $2 WHERE id = $1`, id, nullStr(storedRollup))
 	if err != nil {
 		return 0, err
 	}

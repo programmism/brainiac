@@ -383,6 +383,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Encrypt node summary + rollup at rest (#403 part 1, security P2).** Extends the encryption
+  seam (#377/#399) to `nodes.summary` and `nodes.rollup`. Writes encrypt at all three sites (`InsertNode`,
+  `UpdateNodeSummary`, `UpdateNodeRollup`); reads decrypt at all three (`scanNode`, `FindSimilarNodes`, and
+  the consolidation node scan) via `decryptInto`. `summary_embedding` is computed from the plaintext summary
+  in the core before the store sees the row (verified: node embeddings are only ever written by
+  InsertNode/UpdateNodeSummary from a core-computed vector; `Reembed` only touches chunks), so node
+  similarity search is unaffected; consolidation's rollup generation reads the decrypted summary. Empty
+  stays NULL. No search cost (node text isn't FTS'd). Key rotation is the remaining half of #403.
 - **2026-07-18** — **Per-source chunking strategy (#401, ingestion P2).** The chunker's size bounds were fixed
   constants. `chunk.Params{MinSize,TargetLen,MaxSize,OverlapMax}` + `SplitWithProvenanceParams(text, p)` now
   let a source pick a strategy — named presets `"prose"` (larger chunks) / `"code"` (tighter) via

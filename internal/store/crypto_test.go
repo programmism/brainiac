@@ -217,3 +217,95 @@ func TestEdgeWhyEncryptedAtRest(t *testing.T) {
 		t.Fatal("writes_to edge not returned")
 	}
 }
+
+// TestNodeFieldsEncryptedAtRest is the node summary/rollup round-trip (#403): both
+// are ciphertext at rest but read back plaintext via scanNode AND FindSimilarNodes;
+// an empty summary stays NULL.
+func TestNodeFieldsEncryptedAtRest(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping DB-backed encryption test")
+	}
+	ctx := context.Background()
+	pool, err := Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+	if err := Migrate(ctx, pool); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if _, err := pool.Exec(ctx, "TRUNCATE edges, nodes CASCADE"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatalf("key: %v", err)
+	}
+	if err := SetChunkCipher(key); err != nil {
+		t.Fatalf("set cipher: %v", err)
+	}
+	defer func() { _ = SetChunkCipher(nil) }()
+
+	const summary = "SECRET OrderService owns the payments ledger and the churn-risk model"
+	const rollup = "SECRET current state: migrating off the legacy queue this quarter"
+	n := &model.Node{CanonicalName: "OrderService", Type: "service", Summary: summary, SummaryEmbedding: vec(5)}
+	if err := InsertNode(ctx, pool, n); err != nil {
+		t.Fatalf("insert node: %v", err)
+	}
+	if _, err := UpdateNodeRollup(ctx, pool, n.ID, rollup); err != nil {
+		t.Fatalf("update rollup: %v", err)
+	}
+	// A node with no summary — summary must stay NULL, not encrypted-empty.
+	empty := &model.Node{CanonicalName: "Kafka", Type: "system", SummaryEmbedding: vec(6)}
+	if err := InsertNode(ctx, pool, empty); err != nil {
+		t.Fatalf("insert empty-summary node: %v", err)
+	}
+
+	// Raw columns are ciphertext.
+	var rawSum, rawRoll string
+	if err := pool.QueryRow(ctx, `SELECT summary, rollup FROM nodes WHERE id = $1`, n.ID).Scan(&rawSum, &rawRoll); err != nil {
+		t.Fatalf("read raw: %v", err)
+	}
+	if !strings.HasPrefix(rawSum, chunkTextSentinel) || strings.Contains(rawSum, "payments") {
+		t.Fatalf("summary not encrypted at rest: %q", rawSum)
+	}
+	if !strings.HasPrefix(rawRoll, chunkTextSentinel) || strings.Contains(rawRoll, "legacy") {
+		t.Fatalf("rollup not encrypted at rest: %q", rawRoll)
+	}
+	var nullSummaries int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM nodes WHERE canonical_name = 'Kafka' AND summary IS NULL`).Scan(&nullSummaries); err != nil {
+		t.Fatalf("null check: %v", err)
+	}
+	if nullSummaries != 1 {
+		t.Fatalf("empty summary should be NULL, got %d", nullSummaries)
+	}
+
+	// scanNode path decrypts.
+	got, err := GetNodeByID(ctx, pool, n.ID)
+	if err != nil || got == nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got.Summary != summary || got.Rollup != rollup {
+		t.Fatalf("decrypted node = {%q, %q}, want {%q, %q}", got.Summary, got.Rollup, summary, rollup)
+	}
+
+	// FindSimilarNodes path decrypts too.
+	hits, err := FindSimilarNodes(ctx, pool, vec(5), 5, AllScopes(), NoWall())
+	if err != nil {
+		t.Fatalf("find similar: %v", err)
+	}
+	var seen bool
+	for _, h := range hits {
+		if h.Node.ID == n.ID {
+			seen = true
+			if h.Node.Summary != summary {
+				t.Fatalf("FindSimilarNodes summary = %q, want plaintext", h.Node.Summary)
+			}
+		}
+	}
+	if !seen {
+		t.Fatal("node not returned by similarity search")
+	}
+}
