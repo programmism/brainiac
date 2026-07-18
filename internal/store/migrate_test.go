@@ -49,6 +49,7 @@ func TestMigrate(t *testing.T) {
 	for _, index := range []string{
 		"edges_from_current_idx", "edges_to_current_idx", "nodes_project_current_idx",
 		"nodes_superseded_at_idx", "edges_superseded_at_idx",
+		"chunks_content_scope_trust_uniq", // #393 dedup key
 	} {
 		var exists bool
 		err := pool.QueryRow(ctx,

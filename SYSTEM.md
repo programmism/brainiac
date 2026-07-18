@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Enforce content dedup at the schema level; collapse legacy duplicates (#393, scale P2 —
+  destructive).** #389 made the *reconcile* reuse a chunk with the same content within a scope+trust, but
+  rows created before it lingered and the old `chunks_source_hash_uniq (source_uri, content_hash)` index
+  still permitted new duplicates. Migration 0021: (1) merges each duplicate group's `chunk_sources`
+  memberships onto a survivor (smallest id), (2) deletes the duplicate rows (memberships cascade), (3) swaps
+  the unique index to `chunks_content_scope_trust_uniq (content_hash, scope_key, trust) WHERE content_hash
+  IS NOT NULL` — the exact `ChunkIDByHashScoped` dedup key. `InsertChunk`'s `ON CONFLICT` target moves to
+  `(content_hash, scope_key, trust)` and, on conflict, looks up the existing chunk and records this source's
+  membership (so a concurrent insert that races the reconcile's dedup still keeps full provenance).
+  **Destructive but content-preserving** — the survivor keeps the text and no source loses provenance
+  (memberships are repointed first); idempotent; runs in the migration transaction (all-or-nothing). Safe to
+  auto-apply at boot on a small DB; operators with real data should run `scripts/backup.sh` first.
 - **2026-07-18** — **General poll-based source-watch primitive (#395, ingestion P2).** `core.SyncDeletions(conn,
   scheme, opts)` is the source-agnostic "watch for deletions" mechanism: it lists a connector's *current*
   documents cheaply via `Watch()` (a file source walks names without reading bytes), diffs them against what
