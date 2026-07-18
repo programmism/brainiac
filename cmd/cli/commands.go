@@ -51,6 +51,60 @@ func migrateCmd() *cobra.Command {
 	}
 }
 
+func eraseCmd() *cobra.Command {
+	var nodeID, source string
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "erase",
+		Short: "Hard-delete memory for right-to-erasure (#272): --node <id> or --source <uri>",
+		Long: "Permanently deletes data (unlike supersede/merge, which keep history).\n" +
+			"  --node <id>     delete an entity and all its edges\n" +
+			"  --source <uri>  delete every chunk + edge from that source_uri\n" +
+			"This cannot be undone; pass --force to skip the confirmation prompt.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if (nodeID == "") == (source == "") {
+				return fmt.Errorf("provide exactly one of --node or --source")
+			}
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			out := cmd.OutOrStdout()
+			target := "node " + nodeID
+			if source != "" {
+				target = "source " + source
+			}
+			if !force {
+				fmt.Fprintf(out, "erase: permanently delete %s? this cannot be undone.\n  type 'yes' to continue: ", target)
+				var confirm string
+				_, _ = fmt.Fscanln(cmd.InOrStdin(), &confirm)
+				if confirm != "yes" {
+					fmt.Fprintln(out, "aborted")
+					return nil
+				}
+			}
+			kb := buildCore(cfg, pool)
+			var counts store.DeleteCounts
+			if nodeID != "" {
+				counts, err = kb.EraseNode(ctx, nodeID)
+			} else {
+				counts, err = kb.EraseSource(ctx, source)
+			}
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "erased: %d node(s), %d edge(s), %d chunk(s)\n", counts.Nodes, counts.Edges, counts.Chunks)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&nodeID, "node", "", "node id to erase (with its edges)")
+	cmd.Flags().StringVar(&source, "source", "", "source_uri to erase (its chunks + edges)")
+	cmd.Flags().BoolVar(&force, "force", false, "skip the confirmation prompt (unattended)")
+	return cmd
+}
+
 func reindexCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reindex",
