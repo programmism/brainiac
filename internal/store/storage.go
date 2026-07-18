@@ -116,6 +116,35 @@ func SourceSyncModifiedAt(ctx context.Context, db DBTX, uri string) (time.Time, 
 	return *t, true, nil
 }
 
+// SourceSyncURIsWithScheme returns every synced source_uri whose URI starts with
+// scheme (e.g. "markdown://") — the set of documents a connector has previously
+// ingested, scoped by scheme so one connector's deletion sweep never touches
+// another's rows (#323/#247). Sorted for a deterministic sweep.
+func SourceSyncURIsWithScheme(ctx context.Context, db DBTX, scheme string) ([]string, error) {
+	rows, err := db.Query(ctx,
+		`SELECT source_uri FROM source_sync WHERE starts_with(source_uri, $1) ORDER BY source_uri`, scheme)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var u string
+		if err := rows.Scan(&u); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// DeleteSourceSync removes a source's sync-ledger row — used when a document is
+// deleted at the source so a later run doesn't treat it as still-synced (#323).
+func DeleteSourceSync(ctx context.Context, db DBTX, uri string) error {
+	_, err := db.Exec(ctx, `DELETE FROM source_sync WHERE source_uri = $1`, uri)
+	return err
+}
+
 // UpsertSourceSync records that a source_uri was synced now, with the source's
 // modification time (nil = unknown), so a later incremental run can skip it if it
 // hasn't advanced (#236).

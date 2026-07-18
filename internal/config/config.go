@@ -209,6 +209,11 @@ func (p PrincipalConfig) ReadNamespaces() []string {
 type IngestConfig struct {
 	// Interval as a Go duration string (e.g. "60s"); empty disables auto-import.
 	Interval string `yaml:"interval"`
+	// PruneDeleted propagates source-side deletions on auto-import (#247/#323): a
+	// local doc removed from ./data/docs is removed from memory on the next sweep.
+	// Off by default — the retention default (#107) keeps deleted content — so it's
+	// strictly opt-in via INGEST_PRUNE_DELETED=true.
+	PruneDeleted bool `yaml:"prune_deleted,omitempty"`
 }
 
 // AutoImportInterval returns the parsed interval, or 0 if unset/invalid.
@@ -534,6 +539,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("INGEST_INTERVAL"); v != "" {
 		c.Ingest.Interval = v
+	}
+	if v := os.Getenv("INGEST_PRUNE_DELETED"); v != "" {
+		c.Ingest.PruneDeleted = v == "true" || v == "1"
 	}
 	if v := os.Getenv("LOG_FORMAT"); v != "" {
 		c.Logging.Format = v
