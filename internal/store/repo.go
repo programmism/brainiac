@@ -66,27 +66,37 @@ func InsertChunk(ctx context.Context, db DBTX, c *model.Chunk) error {
 	if err != nil {
 		return err
 	}
+	scopeKey := model.ScopeKey(c.Discriminators)
+	// Dedup is enforced at the schema level on (content_hash, scope_key, trust)
+	// (#393) — the same key the reconcile dedups on (#389) — so identical content in
+	// one scope+trust is stored once, whatever source it came from.
 	err = db.QueryRow(ctx, `
 		INSERT INTO chunks (text, embedding, source_uri, source_locator, quality_score, tier, content_hash, source_modified_at, discriminators, scope_key, trust)
 		VALUES ($1, $2::halfvec, $3, $4::jsonb, $5::real, $6, $7, $8, $9::jsonb, $10, $11)
-		ON CONFLICT (source_uri, content_hash) WHERE content_hash IS NOT NULL DO NOTHING
+		ON CONFLICT (content_hash, scope_key, trust) WHERE content_hash IS NOT NULL DO NOTHING
 		RETURNING id, created_at`,
 		storedText, encodeVec(c.Embedding), c.SourceURI, locator, c.QualityScore,
-		string(tier), nullStr(c.ContentHash), c.SourceModifiedAt, discJSON, model.ScopeKey(c.Discriminators), trust,
+		string(tier), nullStr(c.ContentHash), c.SourceModifiedAt, discJSON, scopeKey, trust,
 	).Scan(&c.ID, &c.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// A concurrent ingest already stored this exact (source_uri, content_hash);
-		// the chunk exists, so treat the insert as an idempotent no-op (#225). Its
-		// (chunk_id, source_uri) membership already exists (backfill or the prior
-		// insert), so there is nothing to record.
-		return nil
+		// Content already stored in this scope + trust — possibly under a different
+		// source (a concurrent insert that raced the reconcile's dedup). Reuse the
+		// existing chunk and record this source's membership so provenance stays
+		// complete (#244/#393).
+		id, ok, lerr := ChunkIDByHashScoped(ctx, db, c.ContentHash, scopeKey, trust)
+		if lerr != nil {
+			return lerr
+		}
+		if !ok {
+			return nil
+		}
+		c.ID = id
+		return RecordChunkSource(ctx, db, id, c.SourceURI)
 	}
 	if err != nil {
 		return err
 	}
 	// Record multi-source provenance (#244): the chunk belongs to this source.
-	// Additive bookkeeping — reads and the existing per-source delete path are
-	// unchanged; membership-based dedup/prune is wired in follow-up #387.
 	return RecordChunkSource(ctx, db, c.ID, c.SourceURI)
 }
 
