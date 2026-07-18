@@ -44,7 +44,7 @@ func checkNodeQuota(ctx context.Context, db store.DBTX) error {
 	if p == nil || p.MaxNodes == 0 {
 		return nil
 	}
-	n, err := store.CountNodes(ctx, db, store.Namespaces([]string{p.Write}))
+	n, _, err := store.NamespaceUsage(ctx, db, p.Write)
 	if err != nil {
 		return fmt.Errorf("node quota check: %w", err)
 	}
@@ -61,7 +61,7 @@ func checkChunkQuota(ctx context.Context, db store.DBTX, adding int) error {
 	if p == nil || p.MaxChunks == 0 {
 		return nil
 	}
-	n, err := store.CountChunks(ctx, db, store.Namespaces([]string{p.Write}))
+	_, n, err := store.NamespaceUsage(ctx, db, p.Write)
 	if err != nil {
 		return fmt.Errorf("chunk quota check: %w", err)
 	}
