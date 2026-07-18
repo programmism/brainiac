@@ -326,6 +326,40 @@ func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
 	}
 }
 
+func TestHNSWIndexParamsEnvAndValidation(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	// Defaults match pgvector.
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Index.HNSWM != 16 || c.Index.HNSWEfConstruction != 64 {
+		t.Fatalf("default HNSW params = %d/%d, want 16/64", c.Index.HNSWM, c.Index.HNSWEfConstruction)
+	}
+	// Env overrides.
+	t.Setenv("HNSW_M", "32")
+	t.Setenv("HNSW_EF_CONSTRUCTION", "128")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Index.HNSWM != 32 || c.Index.HNSWEfConstruction != 128 {
+		t.Fatalf("HNSW env not applied: %d/%d", c.Index.HNSWM, c.Index.HNSWEfConstruction)
+	}
+	// Out-of-range m is rejected.
+	t.Setenv("HNSW_M", "200")
+	t.Setenv("HNSW_EF_CONSTRUCTION", "128")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for hnsw_m > 100")
+	}
+	// ef_construction < 2*m is rejected.
+	t.Setenv("HNSW_M", "32")
+	t.Setenv("HNSW_EF_CONSTRUCTION", "40")
+	if _, err := Load(filepath.Join(t.TempDir(), "none.yaml")); err == nil {
+		t.Fatal("expected error for ef_construction < 2*m")
+	}
+}
+
 func TestRetrievalThresholdsEnvAndValidation(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	// Default: unset (zero) → core applies its built-in defaults.

@@ -95,6 +95,22 @@ REINDEX INDEX CONCURRENTLY chunks_embedding_hot_idx;
 REINDEX INDEX CONCURRENTLY nodes_summary_embedding_idx;
 ```
 
+**HNSW build parameters (#233).** The indexes ship with pgvector's defaults
+(`m=16`, `ef_construction=64`). Ahead of a large (10M+) tier, a denser graph
+recalls better — raise them via config (`index.hnsw_m` / `index.hnsw_ef_construction`,
+or env `HNSW_M` / `HNSW_EF_CONSTRUCTION`; `ef_construction` must be ≥ `2·m`) and
+apply with:
+
+```bash
+kb reindex   # or: docker compose exec app /kb reindex
+```
+
+`reindex` rebuilds both indexes **online** (`CREATE INDEX CONCURRENTLY` → drop →
+rename), so search keeps serving throughout. `REINDEX` alone rebuilds with the
+*existing* params, so use `kb reindex` when you're *changing* `m`/`ef_construction`.
+A higher `m`/`ef_construction` costs build time and index size (watch the ½-RAM
+ratio below).
+
 Watch `brainiac_vector_index_bytes` vs container RAM (the ★ ratio, §9 / alert
 `BrainiacVectorIndexExceedsHalfRAM`) — when the index outgrows ~½ RAM, query p95
 rises as it spills; raise memory or shrink the hot tier.
