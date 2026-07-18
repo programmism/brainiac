@@ -383,6 +383,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Automated hot→cold demotion policy (#231, scale P2).** Tiering was promote-only —
+  `SetChunkTier` existed but nothing auto-demoted, so the hot vector index only ever grew (against the §9 ★
+  RAM ratio). Added an **opt-in, age-based** policy: `store.DemoteStaleHotChunks(olderThan)` +
+  `core.SweepColdTier(maxHotAge)` archive hot chunks created before the window to cold, exposed as
+  `kb sweep-tiers` (run periodically on a large KB). Config `tiering.max_hot_age` (Go duration, env
+  `TIERING_MAX_HOT_AGE`; empty/0 = disabled, validated positive). Demoted chunks **keep their text +
+  embedding** and leave only the default hot search path — cold is **archival, re-promotable**, not deleted.
+  Audited (`sweep_cold_tier`). DB-gated test (a backdated chunk demotes, a recent one stays hot, and the
+  demoted chunk drops out of hot search). The **on-demand cold-search path** (query the archive when hot
+  misses) is the follow-up #365; cold remains reachable today via re-promotion / a reindex that includes it.
 - **2026-07-18** — **Per-fact hard-delete / right-to-erasure (#272, security P2).** Supersede/merge keep rows
   and only whole-namespace `DeleteNamespace` hard-deleted, so GDPR erasure at fact granularity was
   impossible. Added `core.EraseNode(id)` — a real DELETE of a node **and all its edges** (edges first, since

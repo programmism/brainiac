@@ -37,6 +37,7 @@ type Config struct {
 	Logging       LoggingConfig       `yaml:"logging"`
 	Retrieval     RetrievalConfig     `yaml:"retrieval"`
 	Index         IndexConfig         `yaml:"index"`
+	Tiering       TieringConfig       `yaml:"tiering"`
 	// Principals is the opt-in Layer 2 hard-isolation roster (#120). Empty =
 	// Layer 1 (open reads, single AUTH_TOKEN gates writes) — unchanged. When set,
 	// every /api call requires a principal's bearer token, reads are walled to its
@@ -211,6 +212,26 @@ type IngestConfig struct {
 // AutoImportInterval returns the parsed interval, or 0 if unset/invalid.
 func (c *Config) AutoImportInterval() time.Duration {
 	d, err := time.ParseDuration(c.Ingest.Interval)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+// TieringConfig controls the automated hot→cold demotion policy (#231). MaxHotAge
+// is a Go duration ("4320h" = 180d); empty/zero disables demotion (tiering stays
+// promote-only). When set, `kb sweep-tiers` archives hot chunks older than it to
+// keep the hot vector index within RAM.
+type TieringConfig struct {
+	MaxHotAge string `yaml:"max_hot_age,omitempty"`
+}
+
+// MaxHotAgeDuration parses MaxHotAge; 0 (disabled) on empty or unparseable.
+func (c *Config) MaxHotAgeDuration() time.Duration {
+	if c.Tiering.MaxHotAge == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(c.Tiering.MaxHotAge)
 	if err != nil {
 		return 0
 	}
@@ -467,6 +488,9 @@ func (c *Config) applyEnvOverrides() {
 	setFloatEnv("RETRIEVAL_NODE_DISTANCE_GAP", &c.Retrieval.NodeDistanceGap)
 	setIntEnv("HNSW_M", &c.Index.HNSWM)
 	setIntEnv("HNSW_EF_CONSTRUCTION", &c.Index.HNSWEfConstruction)
+	if v := os.Getenv("TIERING_MAX_HOT_AGE"); v != "" {
+		c.Tiering.MaxHotAge = v
+	}
 	// Local-LLM extractor (opt-in). EXTRACTOR=local-llm turns it on; the model is
 	// required in that case, the URL defaults to the embedding Ollama.
 	if v := os.Getenv("EXTRACTOR"); v != "" {
@@ -716,6 +740,13 @@ func (c *Config) Validate() error {
 	}
 	if c.Index.HNSWEfConstruction < 2*c.Index.HNSWM {
 		return fmt.Errorf("index.hnsw_ef_construction (%d) must be >= 2*hnsw_m (%d)", c.Index.HNSWEfConstruction, 2*c.Index.HNSWM)
+	}
+	// Tiering (#231): if set, max_hot_age must be a positive Go duration.
+	if c.Tiering.MaxHotAge != "" {
+		d, err := time.ParseDuration(c.Tiering.MaxHotAge)
+		if err != nil || d <= 0 {
+			return fmt.Errorf("tiering.max_hot_age must be a positive duration (e.g. \"4320h\"), got %q", c.Tiering.MaxHotAge)
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(c.Logging.Level)) {
 	case "", "debug", "info", "warn", "warning", "error":
