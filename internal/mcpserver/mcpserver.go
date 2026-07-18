@@ -27,7 +27,7 @@ func parseAsOf(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("as_of %q must be RFC3339 or YYYY-MM-DD", s)
 }
 
-// ImportFunc runs an ingest for a source ("notion"|"slack"|"github"|"markdown"), optional target
+// ImportFunc runs an ingest for a source ("notion"|"slack"|"github"|"gdrive"|"markdown"), optional target
 // (a Notion page URL/id or a path), and optional project (scopes the imported
 // chunks). It is supplied by the app wiring so the core/mcp layers stay
 // plugin-agnostic; nil disables the ingest tool.
@@ -97,7 +97,7 @@ func New(c *core.Core, importFn ImportFunc, principal *core.Principal) *mcp.Serv
 	if importFn != nil {
 		mcp.AddTool(s, &mcp.Tool{
 			Name:        "ingest",
-			Description: "Import documents into the memory. source is 'notion', 'slack', 'github', or 'markdown'; target is a Notion page URL/id or a path (empty = the whole source). Use this when the user shares a doc link or asks to import.",
+			Description: "Import documents into the memory. source is 'notion', 'slack', 'github', 'gdrive', or 'markdown'; target is a Notion page URL/id or a path (empty = the whole source). Use this when the user shares a doc link or asks to import.",
 		}, ingestTool(importFn))
 	}
 
@@ -221,7 +221,7 @@ type addDocumentIn struct {
 }
 
 type ingestIn struct {
-	Source  string `json:"source" jsonschema:"where to import from: notion, slack, github, or markdown"`
+	Source  string `json:"source" jsonschema:"where to import from: notion, slack, github, gdrive, or markdown"`
 	Target  string `json:"target,omitempty" jsonschema:"a Notion page URL/id, or a path; empty imports the whole source"`
 	Project string `json:"project,omitempty" jsonschema:"the project these documents belong to (scopes them for the retrieval lens); omit for universal/global content"`
 }

@@ -486,6 +486,19 @@ func (c *Config) applyEnvOverrides() {
 			}
 		}
 	}
+	if v := os.Getenv("GDRIVE_TOKEN"); v != "" {
+		found := false
+		for i := range c.Sources {
+			if c.Sources[i].Type == "gdrive" {
+				c.Sources[i].Token = v
+				found = true
+			}
+		}
+		if !found {
+			// Auto-create a gdrive source from the OAuth access token (#239).
+			c.Sources = append(c.Sources, SourceConfig{Type: "gdrive", Selection: "density-filter", Token: v})
+		}
+	}
 }
 
 // splitCSV splits a comma-separated env value into trimmed, non-empty items.

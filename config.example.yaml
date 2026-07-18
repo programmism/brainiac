@@ -52,6 +52,9 @@ sources:
   #   selection: density-filter
   #   repos: [owner/repo]      # or GITHUB_REPOS=owner/repo,owner/other
   #   # token: ghp_…           # prefer GITHUB_TOKEN; PAT with repo read scope
+  # - type: gdrive             # kb import --source gdrive (#239) — Google Docs + text files
+  #   selection: density-filter
+  #   # token: ya29.…          # prefer GDRIVE_TOKEN; an OAuth2 access token (drive.readonly)
   # - type: markdown           # kb import --source markdown [--path DIR]
   #   selection: density-filter
   #   path: ./docs
