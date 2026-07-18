@@ -166,6 +166,32 @@ func TestMCPRoundTrip(t *testing.T) {
 	if !gotDoc {
 		t.Fatalf("search did not return the added document: %+v", hits.Chunks)
 	}
+
+	// capture: one-shot decision macro (#281) — both entities + the edge in one call.
+	capd := callTool[captureOut](ctx, t, cs, "capture", map[string]any{
+		"subject": "PaymentGateway", "relation": "chose", "object": "Stripe",
+		"why":             "lowest fees for our volume",
+		"subject_summary": "handles charges", "object_summary": "payment processor",
+	})
+	if capd.EdgeID == "" {
+		t.Fatalf("capture returned no edge: %+v", capd)
+	}
+	// The captured decision is recallable, with both entities and the why.
+	crec := callTool[recallOut](ctx, t, cs, "recall", map[string]any{"query": "PaymentGateway Stripe"})
+	capEdge := false
+	for _, e := range crec.Edges {
+		if e.From == "PaymentGateway" && e.To == "Stripe" && e.Type == "chose" {
+			capEdge = true
+		}
+	}
+	if !capEdge {
+		t.Fatalf("captured edge not recalled: %+v", crec.Edges)
+	}
+	// The optional summary made the subject entity semantically searchable.
+	gnCap := callTool[getNodeOut](ctx, t, cs, "get_node", map[string]any{"name": "PaymentGateway"})
+	if !gnCap.Found || gnCap.Node == nil {
+		t.Fatalf("capture did not create the subject entity: %+v", gnCap)
+	}
 }
 
 func contains(ss []string, s string) bool {
