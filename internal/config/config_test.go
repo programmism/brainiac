@@ -326,6 +326,33 @@ func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
 	}
 }
 
+func TestAtlassianEnvAutoCreatesSources(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	// Clear ambient tokens that would auto-create other sources.
+	for _, k := range []string{"GITHUB_TOKEN", "NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	// A full Jira trio auto-creates a jira source; a partial Confluence trio does not.
+	t.Setenv("JIRA_BASE_URL", "https://site.atlassian.net")
+	t.Setenv("JIRA_EMAIL", "me@x.com")
+	t.Setenv("JIRA_TOKEN", "jtok")
+	t.Setenv("CONFLUENCE_BASE_URL", "https://site.atlassian.net/wiki")
+	t.Setenv("CONFLUENCE_EMAIL", "") // missing → no confluence source
+	t.Setenv("CONFLUENCE_TOKEN", "ctok")
+
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	j := c.Source("jira")
+	if j == nil || j.BaseURL != "https://site.atlassian.net" || j.Email != "me@x.com" || j.Token != "jtok" {
+		t.Fatalf("jira source not created from env: %+v", j)
+	}
+	if cf := c.Source("confluence"); cf != nil {
+		t.Fatalf("confluence should not be created from a partial trio: %+v", cf)
+	}
+}
+
 func TestWebUIModeEnvOverride(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://env-dsn")
 	// Default (no env): read-only.

@@ -19,8 +19,10 @@ import (
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
+	"github.com/programmism/brainiac/internal/plugins/confluence"
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
+	"github.com/programmism/brainiac/internal/plugins/jira"
 	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
@@ -686,7 +688,7 @@ func importCmd() *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "import",
-		Short: "Ingest documents from a configured source (notion | slack | github | gdrive | linear | markdown)",
+		Short: "Ingest documents from a configured source (notion | slack | github | gdrive | linear | jira | confluence | markdown)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx := cmd.Context()
 			cfg, pool, err := connect(ctx)
@@ -724,7 +726,7 @@ func importCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | github | gdrive | linear | markdown)")
+	cmd.Flags().StringVar(&source, "source", "notion", "source type to import from (notion | slack | github | gdrive | linear | jira | confluence | markdown)")
 	cmd.Flags().StringVar(&path, "path", "", "root directory for the markdown source (overrides config)")
 	cmd.Flags().StringVar(&project, "project", "", "project to scope imported documents to (omit for global)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "preview chunk/keep/drop counts without embedding or writing")
@@ -776,6 +778,18 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 			return nil, fmt.Errorf("linear source not configured (set an API key via LINEAR_TOKEN)")
 		}
 		return linear.New(sc.Token), nil
+	case "jira":
+		sc := cfg.Source("jira")
+		if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
+			return nil, fmt.Errorf("jira source not configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN)")
+		}
+		return jira.New(sc.BaseURL, sc.Email, sc.Token), nil
+	case "confluence":
+		sc := cfg.Source("confluence")
+		if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
+			return nil, fmt.Errorf("confluence source not configured (set CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, CONFLUENCE_TOKEN)")
+		}
+		return confluence.New(sc.BaseURL, sc.Email, sc.Token), nil
 	case "markdown":
 		dir := path
 		if dir == "" {

@@ -16,9 +16,11 @@ import (
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/mcpserver"
 	"github.com/programmism/brainiac/internal/plugins/anthropic"
+	"github.com/programmism/brainiac/internal/plugins/confluence"
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
+	"github.com/programmism/brainiac/internal/plugins/jira"
 	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
 	"github.com/programmism/brainiac/internal/plugins/notion"
@@ -166,8 +168,20 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 				return core.IngestStats{}, fmt.Errorf("linear is not configured (set LINEAR_TOKEN)")
 			}
 			return c.Ingest(ctx, linear.New(sc.Token), opts)
+		case "jira":
+			sc := cfg.Source("jira")
+			if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("jira is not configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN)")
+			}
+			return c.Ingest(ctx, jira.New(sc.BaseURL, sc.Email, sc.Token), opts)
+		case "confluence":
+			sc := cfg.Source("confluence")
+			if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("confluence is not configured (set CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, CONFLUENCE_TOKEN)")
+			}
+			return c.Ingest(ctx, confluence.New(sc.BaseURL, sc.Email, sc.Token), opts)
 		default:
-			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, gdrive, linear, or markdown)", source)
+			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, gdrive, linear, jira, confluence, or markdown)", source)
 		}
 	}
 }
