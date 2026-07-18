@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **`kb compact` maintenance command; declarative partitioning deferred (#385, scale P2).**
+  #385 asked for current/historical table partitioning to bound heap bloat. A full declarative-partition
+  conversion is a table rewrite whose real risk is *correctness* (faithfully recreating every index, unique
+  constraint, and FK — a partitioned table also forces the partition key into every unique index), not data
+  size — and #230's current-tier partial indexes already keep the hot path small. So at the current scale
+  the rewrite is high-risk / low-value. Shipped instead a safe, verifiable slice: `kb compact` reports the
+  current vs historical split and runs a plain (non-blocking) `VACUUM (ANALYZE)` on chunks/nodes/edges to
+  reclaim the dead-tuple space superseded rows leave behind and refresh planner stats — good to run after
+  `sweep-retention`. `store.VacuumAnalyze` uses the simple query protocol (VACUUM can't run in pgx's
+  extended-protocol implicit transaction). True declarative partitioning is deferred to #418 — a
+  maintenance-window rewrite to revisit only when the historical tail is large (10M+ rows).
 - **2026-07-18** — **Enforce content dedup at the schema level; collapse legacy duplicates (#393, scale P2 —
   destructive).** #389 made the *reconcile* reuse a chunk with the same content within a scope+trust, but
   rows created before it lingered and the old `chunks_source_hash_uniq (source_uri, content_hash)` index

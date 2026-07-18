@@ -169,6 +169,40 @@ func eraseCmd() *cobra.Command {
 	return cmd
 }
 
+func compactCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "compact",
+		Short: "Reclaim historical-row bloat (VACUUM ANALYZE) and report the current/historical split (#385)",
+		Long: "Reports how much of the graph is current vs historical, then runs a plain\n" +
+			"VACUUM (ANALYZE) on chunks/nodes/edges to reclaim the dead-tuple space left by\n" +
+			"superseded rows and refresh planner stats. Non-blocking (not VACUUM FULL) —\n" +
+			"search keeps serving. Good to run after `sweep-retention`. For a very large\n" +
+			"historical tail, true current/historical table partitioning is a heavier,\n" +
+			"maintenance-window operation tracked separately.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			out := cmd.OutOrStdout()
+			m, err := buildCore(cfg, pool).Health(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "nodes: %d current, %d historical (%.0f%% history)\n", m.Nodes, m.NodesHistorical, m.PercentNodesHistory)
+			fmt.Fprintf(out, "edges: %d current, %d historical, %d stale\n", m.Edges, m.EdgesHistorical, m.EdgesStale)
+			fmt.Fprintln(out, "compact: VACUUM (ANALYZE) chunks, nodes, edges…")
+			if err := store.VacuumAnalyze(ctx, pool); err != nil {
+				return err
+			}
+			fmt.Fprintln(out, "compact: done")
+			return nil
+		},
+	}
+}
+
 func reindexCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reindex",
