@@ -510,6 +510,33 @@ func (c *Config) applyEnvOverrides() {
 			}
 		}
 	}
+	if v := os.Getenv("GITLAB_TOKEN"); v != "" {
+		found := false
+		for i := range c.Sources {
+			if c.Sources[i].Type == "gitlab" {
+				c.Sources[i].Token = v
+				found = true
+			}
+		}
+		if !found {
+			// Auto-create a gitlab source; projects/host come from config or env (#340).
+			c.Sources = append(c.Sources, SourceConfig{Type: "gitlab", Selection: "density-filter", Token: v})
+		}
+	}
+	if v := os.Getenv("GITLAB_PROJECTS"); v != "" {
+		for i := range c.Sources {
+			if c.Sources[i].Type == "gitlab" {
+				c.Sources[i].Repos = splitCSV(v)
+			}
+		}
+	}
+	if v := os.Getenv("GITLAB_BASE_URL"); v != "" {
+		for i := range c.Sources {
+			if c.Sources[i].Type == "gitlab" {
+				c.Sources[i].BaseURL = v
+			}
+		}
+	}
 	if v := os.Getenv("GDRIVE_TOKEN"); v != "" {
 		found := false
 		for i := range c.Sources {

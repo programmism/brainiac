@@ -20,6 +20,7 @@ import (
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
+	"github.com/programmism/brainiac/internal/plugins/gitlab"
 	"github.com/programmism/brainiac/internal/plugins/jira"
 	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
@@ -168,6 +169,19 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 				return core.IngestStats{}, fmt.Errorf("linear is not configured (set LINEAR_TOKEN)")
 			}
 			return c.Ingest(ctx, linear.New(sc.Token), opts)
+		case "gitlab":
+			sc := cfg.Source("gitlab")
+			if sc == nil || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("gitlab is not configured (set GITLAB_TOKEN)")
+			}
+			projects := sc.Repos
+			if target != "" {
+				projects = []string{target}
+			}
+			if len(projects) == 0 {
+				return core.IngestStats{}, fmt.Errorf("gitlab needs a project: pass group/project as the target, or set sources[].repos / GITLAB_PROJECTS")
+			}
+			return c.Ingest(ctx, gitlab.New(sc.Token, sc.BaseURL, projects), opts)
 		case "jira":
 			sc := cfg.Source("jira")
 			if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
@@ -181,7 +195,7 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 			}
 			return c.Ingest(ctx, confluence.New(sc.BaseURL, sc.Email, sc.Token), opts)
 		default:
-			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, gdrive, linear, jira, confluence, or markdown)", source)
+			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, gdrive, linear, gitlab, jira, confluence, or markdown)", source)
 		}
 	}
 }

@@ -326,6 +326,28 @@ func TestLoggingConfigDefaultsAndEnv(t *testing.T) {
 	}
 }
 
+func TestGitLabEnvAutoCreatesSource(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://x")
+	for _, k := range []string{"GITHUB_TOKEN", "NOTION_TOKEN", "SLACK_TOKEN", "LINEAR_TOKEN"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("GITLAB_TOKEN", "glpat-abc")
+	t.Setenv("GITLAB_PROJECTS", "group/proj, group/other ,")
+	t.Setenv("GITLAB_BASE_URL", "https://gitlab.example.com")
+
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	g := c.Source("gitlab")
+	if g == nil || g.Token != "glpat-abc" || g.BaseURL != "https://gitlab.example.com" {
+		t.Fatalf("gitlab source not created from env: %+v", g)
+	}
+	if len(g.Repos) != 2 || g.Repos[0] != "group/proj" || g.Repos[1] != "group/other" {
+		t.Fatalf("gitlab projects not parsed (trimmed, non-empty): %v", g.Repos)
+	}
+}
+
 func TestAtlassianEnvAutoCreatesSources(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://x")
 	// Clear ambient tokens that would auto-create other sources.
