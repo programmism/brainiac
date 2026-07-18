@@ -369,6 +369,20 @@ type SourceConfig struct {
 	// the site base URL and the account email for Basic email:token auth.
 	BaseURL string `yaml:"base_url,omitempty"`
 	Email   string `yaml:"email,omitempty"`
+	// Trust marks this source's ingested content trusted (#361): "trusted" or
+	// "untrusted". Empty defaults to untrusted (fail-closed, #273) — set it to
+	// "trusted" only for a source you vouch for, which then skips the forced
+	// extraction review and isn't flagged untrusted in recall.
+	Trust string `yaml:"trust,omitempty"`
+}
+
+// SourceTrust returns the configured trust level for a source type ("" when no
+// such source or it's unset, which the core treats as untrusted).
+func (c *Config) SourceTrust(typ string) string {
+	if sc := c.Source(typ); sc != nil {
+		return sc.Trust
+	}
+	return ""
 }
 
 // Source returns the first configured source of the given type, or nil.
@@ -619,6 +633,14 @@ func (c *Config) applyEnvOverrides() {
 	// Atlassian connectors (#343) need a site base URL + email + token together.
 	c.atlassianFromEnv("jira", "JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_TOKEN")
 	c.atlassianFromEnv("confluence", "CONFLUENCE_BASE_URL", "CONFLUENCE_EMAIL", "CONFLUENCE_TOKEN")
+
+	// Per-source trust (#361): <TYPE>_TRUST marks a source trusted/untrusted, e.g.
+	// GITHUB_TRUST=trusted. Applied after sources are resolved/auto-created above.
+	for i := range c.Sources {
+		if v := os.Getenv(strings.ToUpper(c.Sources[i].Type) + "_TRUST"); v != "" {
+			c.Sources[i].Trust = v
+		}
+	}
 }
 
 // atlassianFromEnv fills or auto-creates a Basic-auth Atlassian source (jira /
@@ -740,6 +762,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Index.HNSWEfConstruction < 2*c.Index.HNSWM {
 		return fmt.Errorf("index.hnsw_ef_construction (%d) must be >= 2*hnsw_m (%d)", c.Index.HNSWEfConstruction, 2*c.Index.HNSWM)
+	}
+	// Per-source trust (#361): if set, must be trusted or untrusted.
+	for _, s := range c.Sources {
+		if t := strings.ToLower(strings.TrimSpace(s.Trust)); t != "" && t != "trusted" && t != "untrusted" {
+			return fmt.Errorf("sources[%q].trust must be 'trusted' or 'untrusted', got %q", s.Type, s.Trust)
+		}
 	}
 	// Tiering (#231): if set, max_hot_age must be a positive Go duration.
 	if c.Tiering.MaxHotAge != "" {
