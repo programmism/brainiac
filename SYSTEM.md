@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Local markdown ingest is trusted by default (pluggability invariant).** #273 made *all*
+  ingest untrusted by default (fail-closed). For a single-user local deploy that opts into the extractor over
+  its own `./data/docs`, that forced every extraction to the review queue — friction for the "minimal config,
+  one person, just works" promise (CLAUDE.md "deployment is a feature"). Fixed at the policy layer:
+  `SourceTrust("markdown")` now defaults to **trusted** (local files are operator-placed, hence vouched-for),
+  while remote connector firehoses stay **untrusted** by default. An explicit `sources[].trust` /
+  `<TYPE>_TRUST` still wins. So the default deploy (no extractor → trust never gates anything) and the
+  local-extractor-over-own-files path both work with zero extra config; only remote sources are fail-closed.
+  Reaffirms the invariant: **every integration added in the v1.68–v1.87 work is opt-in** — connectors
+  (env-gated), tiering/retention sweeps (CLI, disabled unless configured), HNSW/retrieval/logging tuning
+  (defaults baked in), extractor (off) — so the minimal `docker compose up` + `DATABASE_URL` experience is
+  unchanged. Config unit test (markdown trusted by default, remote untrusted, explicit override wins).
 - **2026-07-18** — **At-rest encryption posture documented (#371, security P2).** All durable state — graph,
   `halfvec` embeddings, provenance, and the `pg_dump` backups — lives in the single Postgres data volume, so
   at-rest protection is a **storage-layer** concern, not an app one. `docs/security.md` now documents the
