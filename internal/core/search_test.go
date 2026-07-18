@@ -22,6 +22,38 @@ func dists(hs []model.ChunkHit) []float64 {
 	return out
 }
 
+func TestRetrievalThresholdsDefaultAndOverride(t *testing.T) {
+	// No option → the package-const defaults.
+	def := (&Core{}).withDefaults().retrieval
+	if def != DefaultRetrievalThresholds() {
+		t.Fatalf("default thresholds = %+v, want %+v", def, DefaultRetrievalThresholds())
+	}
+	if def.MaxChunkDistance != MaxRelevantDistance || def.MaxNodeDistance != MaxNodeDistance {
+		t.Fatalf("defaults not sourced from consts: %+v", def)
+	}
+	// WithRetrievalThresholds overrides only the non-zero fields.
+	c := &Core{retrieval: DefaultRetrievalThresholds()}
+	WithRetrievalThresholds(RetrievalThresholds{MaxChunkDistance: 0.9})(c)
+	if c.retrieval.MaxChunkDistance != 0.9 {
+		t.Fatalf("override not applied: %+v", c.retrieval)
+	}
+	if c.retrieval.ChunkDistanceGap != ChunkDistanceGap || c.retrieval.MaxNodeDistance != MaxNodeDistance {
+		t.Fatalf("zero fields should keep defaults: %+v", c.retrieval)
+	}
+	// The override flows into filterByDistance: a looser cutoff keeps a far hit.
+	kept := filterByDistance(hits(0.85), c.retrieval.MaxChunkDistance, c.retrieval.ChunkDistanceGap)
+	if len(kept) != 1 {
+		t.Fatalf("loosened cutoff 0.9 should keep a 0.85 hit, kept %v", dists(kept))
+	}
+}
+
+// withDefaults mirrors what New seeds before options run, for testing defaults
+// without a DB.
+func (c *Core) withDefaults() *Core {
+	c.retrieval = DefaultRetrievalThresholds()
+	return c
+}
+
 func TestFilterByDistance(t *testing.T) {
 	cases := []struct {
 		name string
@@ -49,7 +81,7 @@ func TestFilterByDistance(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		got := filterByDistance(hits(tc.in...))
+		got := filterByDistance(hits(tc.in...), MaxRelevantDistance, ChunkDistanceGap)
 		if len(got) != tc.want {
 			t.Errorf("%s: kept %v (%d), want %d", tc.name, dists(got), len(got), tc.want)
 		}

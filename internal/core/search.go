@@ -32,8 +32,8 @@ const MaxRelevantDistance = 0.75
 // calibrate per query — a strong query keeps its tight cluster of good matches,
 // while a weak query with only mediocre hits doesn't return a long tail of
 // barely-relevant chunks. Mirrors the node gating in recall.go
-// (MaxNodeDistance + NodeDistanceGap). Eval-tunable (#29); config-izing the
-// thresholds instead of consts is a follow-up.
+// (MaxNodeDistance + NodeDistanceGap). Eval-tunable (#29); this const is the
+// default, overridable per deployment via WithRetrievalThresholds / config (#332).
 const ChunkDistanceGap = 0.15
 
 // Search embeds the query and returns hot-tier chunks within MaxRelevantDistance,
@@ -75,7 +75,7 @@ func (c *Core) hybridSearch(ctx context.Context, emb []float32, query string, k 
 	if err != nil {
 		return nil, err
 	}
-	dense = filterByDistance(dense)
+	dense = filterByDistance(dense, c.retrieval.MaxChunkDistance, c.retrieval.ChunkDistanceGap)
 	lexical, err := store.SearchChunksLexical(ctx, c.pool, query, pool, scope, wall)
 	if err != nil {
 		return nil, err
@@ -221,18 +221,18 @@ func (c *Core) embedQuery(ctx context.Context, text string) ([]float32, error) {
 	return c.embedder.Embed(ctx, text)
 }
 
-// filterByDistance drops chunk hits that are either absolutely far
-// (> MaxRelevantDistance) or far relative to the best hit (> best + ChunkDistanceGap),
-// calibrating relevance per query (#215). Results are already sorted nearest-first,
-// so the best hit is hits[0] and both gates are monotonic — once a hit fails, all
-// later ones do too — so it returns a prefix.
-func filterByDistance(hits []model.ChunkHit) []model.ChunkHit {
+// filterByDistance drops chunk hits that are either absolutely far (> maxDist) or
+// far relative to the best hit (> best + gap), calibrating relevance per query
+// (#215). The thresholds are passed in (config-tunable, #332). Results are already
+// sorted nearest-first, so the best hit is hits[0] and both gates are monotonic —
+// once a hit fails, all later ones do too — so it returns a prefix.
+func filterByDistance(hits []model.ChunkHit, maxDist, gap float64) []model.ChunkHit {
 	if len(hits) == 0 {
 		return hits
 	}
 	best := hits[0].Distance
 	for i, h := range hits {
-		if h.Distance > MaxRelevantDistance || h.Distance > best+ChunkDistanceGap {
+		if h.Distance > maxDist || h.Distance > best+gap {
 			return hits[:i]
 		}
 	}

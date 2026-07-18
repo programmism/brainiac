@@ -383,6 +383,18 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-18** — **Retrieval distance thresholds are config, not consts (#332, retrieval P2).** The four
+  retrieval gates — chunk `MaxRelevantDistance`/`ChunkDistanceGap` (Search) and node `MaxNodeDistance`/
+  `NodeDistanceGap` (Recall) — were package consts, so tuning them for a different embedding model/domain
+  meant a rebuild. Threaded them through `core.New` as `WithRetrievalThresholds(RetrievalThresholds{…})` with
+  the consts as defaults (a zero field keeps its default, so partial overrides are safe), and wired
+  `config.yaml`/env (`RETRIEVAL_MAX_CHUNK_DISTANCE`, `RETRIEVAL_CHUNK_DISTANCE_GAP`,
+  `RETRIEVAL_MAX_NODE_DISTANCE`, `RETRIEVAL_NODE_DISTANCE_GAP`) validated to cosine range [0,2] / gap ≥ 0.
+  Logic stays in core: `filterByDistance` now takes the thresholds and Recall reads `c.retrieval`; the
+  adapters (CLI/HTTP/MCP) just map config → the option. The consts remain the single source of truth for the
+  defaults (config zero = "use the default"), so nothing drifts. Unit tests: core (default/partial-override
+  plumbing feeds `filterByDistance`) + config (env parse + range validation). Per-query percentile-break
+  gating stays a stretch goal pending the eval harness (#29).
 - **2026-07-18** — **Snapshot-before-migrate + expand/contract discipline (#261, observability/ops P1).**
   Migrations are forward-only (no down scripts) and run automatically at app boot, so once a new image starts
   the schema is migrated with no in-app way back — and a code-only rollback leaves the *old* binary on the
@@ -599,7 +611,7 @@ Newest first.
   (`MaxNodeDistance` + `NodeDistanceGap`). Both gates are monotonic over the nearest-first list, so it still
   returns a prefix. Pure unit test in `search_test.go` (absolute-only, relative-gap-dominates, weak-query
   cluster). Eval-tunable (#29); making the thresholds **config** rather than consts (the issue's second
-  half) is tracked as follow-up #332.
+  half) shipped in #332.
 - **2026-07-17** — **Non-fatal fetch errors in ingest (#241, ingestion P1).** A single fetch/pagination
   error from a connector aborted the **entire** import (`return stats, err`) — so a large Notion/Slack
   backfill was fragile: one bad page lost the whole run. `Core.Ingest` now **counts and skips** a yielded

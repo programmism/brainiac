@@ -121,10 +121,10 @@ func (c *Core) Recall(ctx context.Context, query, project string) (*RecallResult
 		return nil, fmt.Errorf("find nodes: %w", err)
 	}
 	for i, nh := range nodeHits {
-		if nh.Distance > MaxNodeDistance {
+		if nh.Distance > c.retrieval.MaxNodeDistance {
 			break // past the absolute cutoff — nothing further qualifies
 		}
-		if i > 0 && nh.Distance > nodeHits[0].Distance+NodeDistanceGap {
+		if i > 0 && nh.Distance > nodeHits[0].Distance+c.retrieval.NodeDistanceGap {
 			break // much farther than the best hit — a diluting tail
 		}
 		addNode(nh.Node)
