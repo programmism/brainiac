@@ -40,6 +40,7 @@ func newRootCmd() *cobra.Command {
 		compactCmd(),
 		reencryptCmd(),
 		oauthCmd(),
+		syncCmd(),
 		sweepTiersCmd(),
 		sweepRetentionCmd(),
 		eraseCmd(),

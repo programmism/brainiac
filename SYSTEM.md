@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-19** — **`kb sync` — scheduled all-connector sync (#415, ingestion P2).** Auto-import keeps local
+  `./data/docs` fresh in-process, but remote connectors (github, notion, gmail, …) only synced on a manual
+  import. `kb sync` runs one ingest pass over every configured connector source (`Config.ConnectorSources`),
+  reusing the connector builder + token resolver (#246): new/changed docs are (re)ingested (upsert), and
+  with `--prune`/`INGEST_PRUNE_DELETED` source-side deletions propagate (#247, membership-based). A source
+  that isn't configured is skipped. Meant for cron, like `kb sweep-*`. Together with `ApplyChanges` /
+  `SyncDeletions` (#323/#395) this is the deletion+upsert reconcile for any source; an **in-process
+  scheduler** and **push adapters** (fsnotify for files, webhooks) are follow-up #428. Opt-in — nothing runs
+  it automatically.
 - **2026-07-19** — **Per-source OAuth credential store with auto-refresh (#246, ingestion P2).** OAuth
   connectors (gdrive, gmail) broke when their access token expired. Migration 0023 adds `oauth_credentials`
   (one row per source: access/refresh token, expiry, token_url, client id/secret — the token secrets

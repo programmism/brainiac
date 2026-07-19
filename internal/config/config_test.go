@@ -350,6 +350,19 @@ func TestRetiredEncryptionKeys(t *testing.T) {
 	}
 }
 
+func TestConnectorSources(t *testing.T) {
+	c := &Config{Sources: []SourceConfig{
+		{Type: "github"}, {Type: "notion"}, {Type: "github"}, {Type: ""},
+	}}
+	got := c.ConnectorSources()
+	if len(got) != 2 || got[0] != "github" || got[1] != "notion" {
+		t.Fatalf("ConnectorSources = %v, want [github notion] (distinct, stable order)", got)
+	}
+	if s := (&Config{}).ConnectorSources(); len(s) != 0 {
+		t.Fatalf("no sources = %v, want empty", s)
+	}
+}
+
 func TestGmailSourceFromEnv(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgres://env-dsn")
 	// No token → no gmail source.
