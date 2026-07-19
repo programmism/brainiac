@@ -22,7 +22,7 @@ func TestExtractionBatchJobStore(t *testing.T) {
 	if err := Migrate(ctx, pool); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	if _, err := pool.Exec(ctx, "TRUNCATE extraction_batches"); err != nil {
+	if _, err := pool.Exec(ctx, "TRUNCATE extraction_batches CASCADE"); err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
 
