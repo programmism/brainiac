@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-19** — **Async batch-extraction submit/poll/apply + `kb poll-batches` (#420 part 1, ingestion P2).**
+  Turns #383's batch infrastructure into a working submit→apply pipeline. `applyExtraction` is factored out
+  of `extractChunk` so the synchronous path and the batch poller share one apply. `BatchExtractor` interface
+  (satisfied by the anthropic Extractor; wired via `WithBatchExtractor` when `EXTRACTION_BATCH` + Claude).
+  `SubmitExtractionBatch(items)` calls `CreateBatch`, records the job (#383) + a new
+  `extraction_batch_items` mapping (0024: custom_id → source_uri/discriminators/force_review). `kb
+  poll-batches` (`PollExtractionBatches`) checks each submitted job's `FetchBatchResults`; once ended it
+  applies each succeeded result to the graph via `applyExtraction` keyed by custom_id (honoring scope +
+  trust), then marks the job applied — best-effort per item (a missing result is a failed extraction).
+  Opt-in, nothing runs by default. Wiring the **submit into the ingest loop** (batch instead of sync extract
+  when `EXTRACTION_BATCH`) is follow-up #430; **cross-doc entity resolution** is #431.
 - **2026-07-19** — **`kb sync` — scheduled all-connector sync (#415, ingestion P2).** Auto-import keeps local
   `./data/docs` fresh in-process, but remote connectors (github, notion, gmail, …) only synced on a manual
   import. `kb sync` runs one ingest pass over every configured connector source (`Config.ConnectorSources`),

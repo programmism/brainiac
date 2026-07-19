@@ -64,6 +64,13 @@ type SourceConnector interface {
 	Watch(ctx context.Context) iter.Seq2[Change, error]
 }
 
+// BatchItem pairs a stable custom id with the chunk text to extract, for the async
+// batch-extraction API (#383/#420).
+type BatchItem struct {
+	CustomID string
+	Text     string
+}
+
 // Entity is a node candidate extracted from text.
 type Entity struct {
 	Name    string

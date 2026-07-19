@@ -31,6 +31,10 @@ type Core struct {
 	// extractReview routes extracted nodes/edges to the review queue (status
 	// 'proposed') instead of writing them live ('current'). Default true.
 	extractReview bool
+	// batchExtractor is the optional async batch-extraction API (#420). Nil = the
+	// synchronous per-chunk extractor path; when set, a submit/poll job model can
+	// be used for large backfills (~50% cheaper via the Message Batches API).
+	batchExtractor BatchExtractor
 	// reranker is the optional cross-encoder that reorders retrieved chunks by
 	// relevance (SYSTEM.md §7, #213). Nil = the RRF-fused order is returned as is.
 	reranker plugins.Reranker
@@ -67,6 +71,11 @@ func WithExtractor(ext plugins.Extractor, review bool) Option {
 		c.extractor = ext
 		c.extractReview = review
 	}
+}
+
+// WithBatchExtractor enables the async batch-extraction path (#420).
+func WithBatchExtractor(be BatchExtractor) Option {
+	return func(c *Core) { c.batchExtractor = be }
 }
 
 // WithReranker enables an optional reranker over retrieved chunks (#213).
