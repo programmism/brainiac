@@ -35,7 +35,7 @@ Connect Claude Desktop / Cursor / Cline (or your own agent) so it **recalls befo
 answers** and **saves what you learn** automatically.
 
 ```bash
-make mcp-config          # prints the MCP server block to paste into your agent
+./brainiac mcp-config     # prints the MCP server block to paste into your agent
 ```
 
 Your agent gets tools: `recall`, `search`, `remember`, `link`, `get_node`,
