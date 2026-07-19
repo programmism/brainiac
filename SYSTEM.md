@@ -383,6 +383,15 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-19** — **Gmail connector (#245 part 1, ingestion P2).** Reads a mailbox's messages (subject +
+  plain-text body) so email threads become searchable memory. Blind connector, unit-tested against a fake
+  Gmail API: lists messages (paginated via `nextPageToken`), fetches each `format=full`, walks the MIME tree
+  for the first `text/plain` part (base64url-decoded), falls back to the API `snippet`, and stamps
+  `internalDate` as the modified time. Auth is a Google OAuth Bearer token (`GMAIL_TOKEN`, gmail.readonly
+  scope; minting/refresh is the #246 OAuth store); optional `GMAIL_QUERY` (Gmail search syntax) narrows the
+  import. Wired through config auto-source + the `import --source gmail` dispatch; opt-in, off until the
+  token is set. The **Granola** (meeting-notes) half of #245 is follow-up #425 — its API shape needs
+  confirming against Granola's docs before a blind implementation is trustworthy.
 - **2026-07-18** — **Encryption key rotation (#403 part 2, security P2).** The single process cipher became a
   **keyring**: each ciphertext is tagged with a key id (`$brainiac$aesgcm256$<keyid>$…`, keyid = first 8 hex
   of the key's SHA-256), writes use the **primary** key, and reads select the key by id from a ring holding

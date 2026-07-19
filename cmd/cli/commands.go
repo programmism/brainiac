@@ -24,6 +24,7 @@ import (
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
 	"github.com/programmism/brainiac/internal/plugins/gitlab"
+	"github.com/programmism/brainiac/internal/plugins/gmail"
 	"github.com/programmism/brainiac/internal/plugins/jira"
 	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
@@ -995,6 +996,12 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 			return nil, fmt.Errorf("gdrive source not configured (set an OAuth access token via GDRIVE_TOKEN)")
 		}
 		return gdrive.New(sc.Token), nil
+	case "gmail":
+		sc := cfg.Source("gmail")
+		if sc == nil || sc.Token == "" {
+			return nil, fmt.Errorf("gmail source not configured (set an OAuth access token via GMAIL_TOKEN)")
+		}
+		return gmail.New(sc.Token, gmail.WithQuery(sc.Query)), nil
 	case "linear":
 		sc := cfg.Source("linear")
 		if sc == nil || sc.Token == "" {

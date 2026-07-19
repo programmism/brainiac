@@ -25,6 +25,7 @@ import (
 	"github.com/programmism/brainiac/internal/plugins/gdrive"
 	"github.com/programmism/brainiac/internal/plugins/github"
 	"github.com/programmism/brainiac/internal/plugins/gitlab"
+	"github.com/programmism/brainiac/internal/plugins/gmail"
 	"github.com/programmism/brainiac/internal/plugins/jira"
 	"github.com/programmism/brainiac/internal/plugins/linear"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
@@ -225,6 +226,12 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 				return core.IngestStats{}, fmt.Errorf("gdrive is not configured (set GDRIVE_TOKEN)")
 			}
 			return c.Ingest(ctx, gdrive.New(sc.Token), opts)
+		case "gmail":
+			sc := cfg.Source("gmail")
+			if sc == nil || sc.Token == "" {
+				return core.IngestStats{}, fmt.Errorf("gmail is not configured (set GMAIL_TOKEN)")
+			}
+			return c.Ingest(ctx, gmail.New(sc.Token, gmail.WithQuery(sc.Query)), opts)
 		case "linear":
 			sc := cfg.Source("linear")
 			if sc == nil || sc.Token == "" {
