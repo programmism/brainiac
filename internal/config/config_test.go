@@ -350,6 +350,32 @@ func TestRetiredEncryptionKeys(t *testing.T) {
 	}
 }
 
+func TestGmailSourceFromEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-dsn")
+	// No token → no gmail source.
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if c.Source("gmail") != nil {
+		t.Fatal("gmail source created without a token")
+	}
+	// Token auto-creates the source; query is picked up.
+	t.Setenv("GMAIL_TOKEN", "ya29.test")
+	t.Setenv("GMAIL_QUERY", "label:important")
+	c, err = Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	sc := c.Source("gmail")
+	if sc == nil || sc.Token != "ya29.test" {
+		t.Fatalf("gmail source = %+v, want token set", sc)
+	}
+	if sc.Query != "label:important" {
+		t.Fatalf("gmail query = %q, want label:important", sc.Query)
+	}
+}
+
 func TestSourceChunkPreset(t *testing.T) {
 	c := &Config{Sources: []SourceConfig{
 		{Type: "github", ChunkPreset: "code"},

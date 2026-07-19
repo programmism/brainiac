@@ -458,6 +458,9 @@ type SourceConfig struct {
 	// ChunkPreset picks this source's chunking strategy (#401): "prose" (larger
 	// chunks) or "code" (tighter). Empty = the default tuning.
 	ChunkPreset string `yaml:"chunk_preset,omitempty"`
+	// Query narrows what a connector imports (currently gmail — Gmail search
+	// syntax, #245). Empty = the whole source. Set via GMAIL_QUERY.
+	Query string `yaml:"query,omitempty"`
 	// BaseURL and Email configure the Atlassian connectors (jira, confluence, #343):
 	// the site base URL and the account email for Basic email:token auth.
 	BaseURL string `yaml:"base_url,omitempty"`
@@ -761,6 +764,26 @@ func (c *Config) applyEnvOverrides() {
 		if !found {
 			// Auto-create a gdrive source from the OAuth access token (#239).
 			c.Sources = append(c.Sources, SourceConfig{Type: "gdrive", Selection: "density-filter", Token: v})
+		}
+	}
+	if v := os.Getenv("GMAIL_TOKEN"); v != "" {
+		found := false
+		for i := range c.Sources {
+			if c.Sources[i].Type == "gmail" {
+				c.Sources[i].Token = v
+				found = true
+			}
+		}
+		if !found {
+			// Auto-create a gmail source from the OAuth access token (#245).
+			c.Sources = append(c.Sources, SourceConfig{Type: "gmail", Selection: "density-filter", Token: v})
+		}
+	}
+	if v := os.Getenv("GMAIL_QUERY"); v != "" {
+		for i := range c.Sources {
+			if c.Sources[i].Type == "gmail" {
+				c.Sources[i].Query = v
+			}
 		}
 	}
 	if v := os.Getenv("LINEAR_TOKEN"); v != "" {
