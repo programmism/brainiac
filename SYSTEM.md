@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-19** — **Declarative table partitioning rejected; keep partial indexes + compaction (#418, scale
+  P2).** Investigated true `nodes`/`edges` partitioning by `status` and found it breaks a core invariant on
+  each table (both Postgres limitations, not effort): (1) a partitioned `nodes` can't keep `nodes.id`
+  table-level unique, so the `edges→nodes` **FK can't be enforced**; (2) the "one current edge per
+  (from,to,type)" **partial** unique index can't be a parent-level index on a partitioned `edges`, so
+  `InsertEdge`'s atomic `ON CONFLICT … WHERE status='current'` upsert (the idempotency behind `link`)
+  **breaks**. Partitioning and "keep integrity + the atomic edge upsert" are mutually exclusive here. The
+  practical goal is already met without compromise by #230 (current-tier partial indexes → small hot index)
+  + #385 (`kb compact` → reclaim heap bloat). Decision recorded in **ADR 0004**; at genuinely huge history
+  (≫10M rows) the sound path is app-level `*_archive` tables + `UNION` in the history read paths, not
+  partitioning. `kb partition` is **not** added; #418 closed as superseded.
 - **2026-07-19** — **Async batch-extraction submit/poll/apply + `kb poll-batches` (#420 part 1, ingestion P2).**
   Turns #383's batch infrastructure into a working submit→apply pipeline. `applyExtraction` is factored out
   of `extractChunk` so the synchronous path and the batch poller share one apply. `BatchExtractor` interface
