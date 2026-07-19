@@ -87,6 +87,10 @@ Brainiac never writes prose; it retrieves, the agent synthesizes.
 
 ## Quick start
 
+> 🚀 **New here?** [**docs/getting-started.md**](docs/getting-started.md) is the one‑page,
+> simple‑→‑advanced guide: run it, connect your agent, add sources, and turn on the
+> advanced features (encryption, multi‑tenant, ops) only when you need them.
+
 ```bash
 git clone https://github.com/programmism/brainiac && cd brainiac
 cp .env.example .env          # sane defaults; set your secrets
