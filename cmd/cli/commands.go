@@ -198,6 +198,103 @@ func reencryptCmd() *cobra.Command {
 	}
 }
 
+func oauthCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "oauth",
+		Short: "Manage per-source OAuth credentials so tokens auto-refresh (#246)",
+		Long: "Stores a connector's OAuth refresh token + client details so the app mints\n" +
+			"fresh access tokens itself (gdrive, gmail). Get the initial refresh token from\n" +
+			"your provider's consent flow (out of scope here). Secrets are encrypted at rest\n" +
+			"when ENCRYPTION_KEY is set. When no credential is stored, the <TYPE>_TOKEN env\n" +
+			"value is used, unchanged.",
+	}
+
+	var source, access, refresh, clientID, clientSecret, tokenURL string
+	set := &cobra.Command{
+		Use:   "set",
+		Short: "Store/replace a source's OAuth credential",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if source == "" {
+				return fmt.Errorf("--source is required (e.g. gmail, gdrive)")
+			}
+			// Default to Google's token endpoint for the Google sources.
+			if tokenURL == "" && (source == "gmail" || source == "gdrive") {
+				tokenURL = "https://oauth2.googleapis.com/token"
+			}
+			ctx := cmd.Context()
+			_, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			if err := store.UpsertOAuthCredential(ctx, pool, store.OAuthCredential{
+				SourceType: source, AccessToken: access, RefreshToken: refresh,
+				TokenURL: tokenURL, ClientID: clientID, ClientSecret: clientSecret,
+			}); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "oauth: stored credential for %q (auto-refresh %s)\n",
+				source, map[bool]string{true: "enabled", false: "disabled — no refresh token"}[refresh != "" && tokenURL != ""])
+			return nil
+		},
+	}
+	set.Flags().StringVar(&source, "source", "", "source type (gmail, gdrive)")
+	set.Flags().StringVar(&access, "access-token", "", "current access token (optional; refreshed on demand)")
+	set.Flags().StringVar(&refresh, "refresh-token", "", "refresh token (enables auto-refresh)")
+	set.Flags().StringVar(&clientID, "client-id", "", "OAuth client id")
+	set.Flags().StringVar(&clientSecret, "client-secret", "", "OAuth client secret")
+	set.Flags().StringVar(&tokenURL, "token-url", "", "token endpoint (defaults to Google's for gmail/gdrive)")
+
+	var showSource string
+	show := &cobra.Command{
+		Use:   "show",
+		Short: "Show a source's stored credential (secrets masked)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if showSource == "" {
+				return fmt.Errorf("--source is required")
+			}
+			ctx := cmd.Context()
+			_, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			cred, err := store.GetOAuthCredential(ctx, pool, showSource)
+			if err != nil {
+				return err
+			}
+			out := cmd.OutOrStdout()
+			if cred == nil {
+				fmt.Fprintf(out, "oauth: no credential stored for %q (using %s_TOKEN env if set)\n", showSource, strings.ToUpper(showSource))
+				return nil
+			}
+			fmt.Fprintf(out, "source:        %s\n", cred.SourceType)
+			fmt.Fprintf(out, "access token:  %s\n", mask(cred.AccessToken))
+			fmt.Fprintf(out, "refresh token: %s\n", mask(cred.RefreshToken))
+			fmt.Fprintf(out, "token url:     %s\n", cred.TokenURL)
+			fmt.Fprintf(out, "client id:     %s\n", cred.ClientID)
+			if !cred.Expiry.IsZero() {
+				fmt.Fprintf(out, "expiry:        %s\n", cred.Expiry.Format(time.RFC3339))
+			}
+			return nil
+		},
+	}
+	show.Flags().StringVar(&showSource, "source", "", "source type")
+
+	cmd.AddCommand(set, show)
+	return cmd
+}
+
+func mask(s string) string {
+	if s == "" {
+		return "(none)"
+	}
+	if len(s) <= 6 {
+		return "******"
+	}
+	return s[:3] + "…" + s[len(s)-3:]
+}
+
 func compactCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "compact",
@@ -917,7 +1014,8 @@ func importCmd() *cobra.Command {
 			}
 			defer pool.Close()
 
-			conn, err := buildConnector(cfg, source, path)
+			kb := buildCore(cfg, pool)
+			conn, err := buildConnector(ctx, kb, cfg, source, path)
 			if err != nil {
 				return err
 			}
@@ -928,7 +1026,7 @@ func importCmd() *cobra.Command {
 					fmt.Fprintf(errOut, "\rembedding %s: %d/%d chunks", p.Doc, p.Embedded, p.ToEmbed)
 				}
 			}
-			stats, err := buildCore(cfg, pool).Ingest(ctx, conn, opts)
+			stats, err := kb.Ingest(ctx, conn, opts)
 			if opts.OnProgress != nil {
 				fmt.Fprintln(cmd.ErrOrStderr()) // end the in-place progress line
 			}
@@ -953,7 +1051,17 @@ func importCmd() *cobra.Command {
 	return cmd
 }
 
-func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConnector, error) {
+// oauthToken resolves a connector's access token (#246): a stored, auto-refreshed
+// OAuth credential if present, else the source's <TYPE>_TOKEN env value.
+func oauthToken(ctx context.Context, kb *core.Core, cfg *config.Config, source string) (string, error) {
+	env := ""
+	if sc := cfg.Source(source); sc != nil {
+		env = sc.Token
+	}
+	return kb.ResolveSourceToken(ctx, source, env)
+}
+
+func buildConnector(ctx context.Context, kb *core.Core, cfg *config.Config, source, path string) (plugins.SourceConnector, error) {
 	switch source {
 	case "notion":
 		sc := cfg.Source("notion")
@@ -991,17 +1099,27 @@ func buildConnector(cfg *config.Config, source, path string) (plugins.SourceConn
 		}
 		return github.New(sc.Token, repos, ghOpts...), nil
 	case "gdrive":
-		sc := cfg.Source("gdrive")
-		if sc == nil || sc.Token == "" {
-			return nil, fmt.Errorf("gdrive source not configured (set an OAuth access token via GDRIVE_TOKEN)")
+		tok, err := oauthToken(ctx, kb, cfg, "gdrive")
+		if err != nil {
+			return nil, err
 		}
-		return gdrive.New(sc.Token), nil
+		if tok == "" {
+			return nil, fmt.Errorf("gdrive not configured (set GDRIVE_TOKEN or `kb oauth set --source gdrive`)")
+		}
+		return gdrive.New(tok), nil
 	case "gmail":
-		sc := cfg.Source("gmail")
-		if sc == nil || sc.Token == "" {
-			return nil, fmt.Errorf("gmail source not configured (set an OAuth access token via GMAIL_TOKEN)")
+		tok, err := oauthToken(ctx, kb, cfg, "gmail")
+		if err != nil {
+			return nil, err
 		}
-		return gmail.New(sc.Token, gmail.WithQuery(sc.Query)), nil
+		if tok == "" {
+			return nil, fmt.Errorf("gmail not configured (set GMAIL_TOKEN or `kb oauth set --source gmail`)")
+		}
+		q := ""
+		if sc := cfg.Source("gmail"); sc != nil {
+			q = sc.Query
+		}
+		return gmail.New(tok, gmail.WithQuery(q)), nil
 	case "linear":
 		sc := cfg.Source("linear")
 		if sc == nil || sc.Token == "" {

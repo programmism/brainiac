@@ -173,6 +173,31 @@ func retrievalOption(cfg *config.Config) core.Option {
 	})
 }
 
+// oauthToken resolves a connector's access token (#246): a stored, auto-refreshed
+// OAuth credential if present, else the <TYPE>_TOKEN env value. Errors when neither
+// is set.
+func oauthToken(ctx context.Context, c *core.Core, source string, cfg *config.Config) (string, error) {
+	env := ""
+	if sc := cfg.Source(source); sc != nil {
+		env = sc.Token
+	}
+	tok, err := c.ResolveSourceToken(ctx, source, env)
+	if err != nil {
+		return "", err
+	}
+	if tok == "" {
+		return "", fmt.Errorf("%s is not configured (set %s_TOKEN or `kb oauth set --source %s`)", source, strings.ToUpper(source), source)
+	}
+	return tok, nil
+}
+
+func gmailQuery(cfg *config.Config) string {
+	if sc := cfg.Source("gmail"); sc != nil {
+		return sc.Query
+	}
+	return ""
+}
+
 // importFunc dispatches an MCP ingest request to the right connector, keeping
 // the mcp/core layers plugin-agnostic.
 func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
@@ -221,17 +246,17 @@ func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 			}
 			return c.Ingest(ctx, github.New(sc.Token, repos, ghOpts...), opts)
 		case "gdrive":
-			sc := cfg.Source("gdrive")
-			if sc == nil || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("gdrive is not configured (set GDRIVE_TOKEN)")
+			tok, err := oauthToken(ctx, c, "gdrive", cfg)
+			if err != nil {
+				return core.IngestStats{}, err
 			}
-			return c.Ingest(ctx, gdrive.New(sc.Token), opts)
+			return c.Ingest(ctx, gdrive.New(tok), opts)
 		case "gmail":
-			sc := cfg.Source("gmail")
-			if sc == nil || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("gmail is not configured (set GMAIL_TOKEN)")
+			tok, err := oauthToken(ctx, c, "gmail", cfg)
+			if err != nil {
+				return core.IngestStats{}, err
 			}
-			return c.Ingest(ctx, gmail.New(sc.Token, gmail.WithQuery(sc.Query)), opts)
+			return c.Ingest(ctx, gmail.New(tok, gmail.WithQuery(gmailQuery(cfg))), opts)
 		case "linear":
 			sc := cfg.Source("linear")
 			if sc == nil || sc.Token == "" {

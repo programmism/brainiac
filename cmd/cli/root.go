@@ -39,6 +39,7 @@ func newRootCmd() *cobra.Command {
 		reindexCmd(),
 		compactCmd(),
 		reencryptCmd(),
+		oauthCmd(),
 		sweepTiersCmd(),
 		sweepRetentionCmd(),
 		eraseCmd(),
