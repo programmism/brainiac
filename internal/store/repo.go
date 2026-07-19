@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -434,6 +435,14 @@ func nullStr(s string) any {
 		return nil
 	}
 	return s
+}
+
+// nullTime maps a zero time to a SQL NULL.
+func nullTime(t time.Time) any {
+	if t.IsZero() {
+		return nil
+	}
+	return t
 }
 
 func deref(s *string) string {

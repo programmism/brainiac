@@ -383,6 +383,16 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-19** — **Per-source OAuth credential store with auto-refresh (#246, ingestion P2).** OAuth
+  connectors (gdrive, gmail) broke when their access token expired. Migration 0023 adds `oauth_credentials`
+  (one row per source: access/refresh token, expiry, token_url, client id/secret — the token secrets
+  encrypted at rest via the #377/#403 cipher). `core.ResolveSourceToken(source, fallback)` returns the
+  stored token, **refreshing it via the OAuth `refresh_token` grant** (`internal/oauth.Refresh`, raw HTTP,
+  no SDK) when it's expired and persisting the fresh one; it falls back to the `<TYPE>_TOKEN` env value when
+  nothing is stored, so the env path is unchanged. `kb oauth set/show` loads/inspects a credential
+  (secrets masked). gdrive/gmail dispatch (mcp + cli) now resolve their token through it. The **interactive
+  consent flow** that yields the initial refresh token is the operator's (#409) — out of scope here.
+  Opt-in: empty store ⇒ today's behavior exactly.
 - **2026-07-19** — **Gmail connector (#245 part 1, ingestion P2).** Reads a mailbox's messages (subject +
   plain-text body) so email threads become searchable memory. Blind connector, unit-tested against a fake
   Gmail API: lists messages (paginated via `nextPageToken`), fetches each `format=full`, walks the MIME tree

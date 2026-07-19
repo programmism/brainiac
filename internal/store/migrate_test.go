@@ -30,7 +30,7 @@ func TestMigrate(t *testing.T) {
 		t.Fatalf("migrate (second run): %v", err)
 	}
 
-	for _, table := range []string{"chunks", "nodes", "edges", "chunk_sources", "extraction_batches", "schema_migrations"} {
+	for _, table := range []string{"chunks", "nodes", "edges", "chunk_sources", "extraction_batches", "oauth_credentials", "schema_migrations"} {
 		var exists bool
 		err := pool.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)`,
