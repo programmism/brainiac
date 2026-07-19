@@ -472,6 +472,22 @@ type SourceConfig struct {
 	Trust string `yaml:"trust,omitempty"`
 }
 
+// ConnectorSources returns the distinct configured source types (#415), in a
+// stable order — the work list for `kb sync`. markdown auto-import runs in-process,
+// so only explicitly-configured connector sources appear here.
+func (c *Config) ConnectorSources() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range c.Sources {
+		if s.Type == "" || seen[s.Type] {
+			continue
+		}
+		seen[s.Type] = true
+		out = append(out, s.Type)
+	}
+	return out
+}
+
 // SourceChunkPreset returns the configured chunking-strategy preset for a source
 // type (#401), or "" (the default tuning) when none is set.
 func (c *Config) SourceChunkPreset(typ string) string {

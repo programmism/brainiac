@@ -198,6 +198,63 @@ func reencryptCmd() *cobra.Command {
 	}
 }
 
+func syncCmd() *cobra.Command {
+	var only string
+	var prune bool
+	cmd := &cobra.Command{
+		Use:   "sync",
+		Short: "Sync all configured connectors — upsert new/changed docs + propagate deletions (#415)",
+		Long: "Runs one ingest pass over every configured connector source (notion, github,\n" +
+			"gmail, …): new/changed documents are (re)ingested and, with --prune (or\n" +
+			"INGEST_PRUNE_DELETED), documents removed at the source are removed from memory.\n" +
+			"Local ./data/docs is handled by the in-process auto-import; run this on a cron\n" +
+			"to keep remote sources fresh. A source that isn't configured is skipped.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			kb := buildCore(cfg, pool)
+			out := cmd.OutOrStdout()
+
+			sources := cfg.ConnectorSources()
+			if only != "" {
+				sources = []string{only}
+			}
+			if len(sources) == 0 {
+				fmt.Fprintln(out, "sync: no connector sources configured")
+				return nil
+			}
+			pruneMissing := prune || cfg.Ingest.PruneDeleted
+			for _, src := range sources {
+				conn, err := buildConnector(ctx, kb, cfg, src, "")
+				if err != nil {
+					fmt.Fprintf(out, "sync %s: skipped (%v)\n", src, err)
+					continue
+				}
+				stats, err := kb.Ingest(ctx, conn, core.IngestOptions{
+					Trust:        cfg.SourceTrust(src),
+					ChunkParams:  chunk.Preset(cfg.SourceChunkPreset(src)),
+					Incremental:  true,
+					PruneMissing: pruneMissing,
+				})
+				if err != nil {
+					fmt.Fprintf(out, "sync %s: error: %v\n", src, err)
+					continue
+				}
+				fmt.Fprintf(out, "sync %s: %d docs, +%d stored, %d chunk(s) deleted, %d doc(s) removed\n",
+					src, stats.Docs, stats.Kept+stats.Queued, stats.Deleted, stats.DeletedDocs)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&only, "source", "", "sync only this source (default: all configured)")
+	cmd.Flags().BoolVar(&prune, "prune", false, "propagate source-side deletions (also via INGEST_PRUNE_DELETED)")
+	return cmd
+}
+
 func oauthCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "oauth",
