@@ -27,10 +27,9 @@ import (
 const maxBatchPolls = 360
 
 // BatchItem pairs a stable custom_id with the chunk text to extract.
-type BatchItem struct {
-	CustomID string
-	Text     string
-}
+// BatchItem is an alias of plugins.BatchItem so core can pass items without
+// importing this package (#420).
+type BatchItem = plugins.BatchItem
 
 type batchRequest struct {
 	Requests []batchRequestItem `json:"requests"`

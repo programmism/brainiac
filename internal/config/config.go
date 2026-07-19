@@ -413,6 +413,11 @@ type ExtractionConfig struct {
 	// APIKey authenticates the Claude Messages API extractor (default "claude",
 	// #235). Secret — prefer ANTHROPIC_API_KEY in the environment.
 	APIKey string `yaml:"api_key,omitempty"`
+	// Batch enables the async Message Batches extraction path (#420): ingest
+	// submits chunks as a batch (~50% cheaper) and `kb poll-batches` applies the
+	// results later, instead of extracting synchronously per chunk. Only with the
+	// Claude extractor. Off by default. Set via EXTRACTION_BATCH.
+	Batch bool `yaml:"batch,omitempty"`
 }
 
 // LocalExtractionEnabled reports whether the optional local-LLM extractor is
@@ -666,6 +671,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("EXTRACTION_URL"); v != "" {
 		c.Extraction.BaseURL = v
+	}
+	if v := os.Getenv("EXTRACTION_BATCH"); v == "true" || v == "1" {
+		c.Extraction.Batch = true
 	}
 	if v := os.Getenv("EXTRACTION_REVIEW"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {

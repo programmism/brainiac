@@ -13,6 +13,7 @@ import (
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/doctext"
+	"github.com/programmism/brainiac/internal/plugins/anthropic"
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
 	"github.com/programmism/brainiac/internal/store"
@@ -41,6 +42,7 @@ func newRootCmd() *cobra.Command {
 		reencryptCmd(),
 		oauthCmd(),
 		syncCmd(),
+		pollBatchesCmd(),
 		sweepTiersCmd(),
 		sweepRetentionCmd(),
 		eraseCmd(),
@@ -110,7 +112,14 @@ func connect(ctx context.Context) (*config.Config, *pgxpool.Pool, error) {
 func buildCore(cfg *config.Config, pool *pgxpool.Pool) *core.Core {
 	embedder := ollama.New(cfg.Embedding.BaseURL, cfg.Embedding.Model, cfg.Embedding.Dims, ollama.WithBatchSize(cfg.Embedding.BatchSize), ollama.WithMaxConcurrency(cfg.Embedding.MaxConcurrency))
 	var opts []core.Option
-	if cfg.LocalExtractionEnabled() {
+	switch {
+	case cfg.ClaudeExtractionEnabled():
+		ext := anthropic.NewExtractor(cfg.Extraction.APIKey, cfg.Extraction.Model, anthropic.WithRetries(cfg.Extraction.Retries))
+		opts = append(opts, core.WithExtractor(ext, cfg.Extraction.Review))
+		if cfg.Extraction.Batch {
+			opts = append(opts, core.WithBatchExtractor(ext)) // async batch path (#420)
+		}
+	case cfg.LocalExtractionEnabled():
 		ext := ollama.NewExtractor(cfg.ExtractorBaseURL(), cfg.Extraction.Model, ollama.WithExtractorRetries(cfg.Extraction.Retries))
 		opts = append(opts, core.WithExtractor(ext, cfg.Extraction.Review))
 	}

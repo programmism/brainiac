@@ -198,6 +198,31 @@ func reencryptCmd() *cobra.Command {
 	}
 }
 
+func pollBatchesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "poll-batches",
+		Short: "Apply finished async extraction batches to the graph (#420)",
+		Long: "Checks each submitted Claude extraction batch; for any that have finished, it\n" +
+			"applies the extracted nodes/edges to the graph (honoring each chunk's scope and\n" +
+			"trust) and marks the batch applied. No-op unless EXTRACTION_BATCH is enabled with\n" +
+			"the Claude extractor. Run periodically (cron) to drain the queue.",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			ctx := cmd.Context()
+			cfg, pool, err := connect(ctx)
+			if err != nil {
+				return err
+			}
+			defer pool.Close()
+			n, err := buildCore(cfg, pool).PollExtractionBatches(ctx)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "poll-batches: applied %d finished batch(es)\n", n)
+			return nil
+		},
+	}
+}
+
 func syncCmd() *cobra.Command {
 	var only string
 	var prune bool

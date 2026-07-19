@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/programmism/brainiac/internal/model"
+	"github.com/programmism/brainiac/internal/plugins"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -32,6 +33,13 @@ func (c *Core) extractChunk(ctx context.Context, text, sourceURI string, disc ma
 	if err != nil {
 		return 0, 0, err
 	}
+	return c.applyExtraction(ctx, ext, sourceURI, disc, forceReview)
+}
+
+// applyExtraction persists an already-computed extraction's nodes and edges at the
+// configured status, in one transaction (#420 — shared by the synchronous
+// extractChunk and the async batch poller). Empty extractions are a no-op.
+func (c *Core) applyExtraction(ctx context.Context, ext plugins.Extraction, sourceURI string, disc map[string]string, forceReview bool) (nodes, edges int, err error) {
 	if len(ext.Entities) == 0 && len(ext.Relations) == 0 {
 		return 0, 0, nil
 	}
