@@ -54,6 +54,35 @@ func ListProposedNodes(ctx context.Context, db DBTX, limit int) ([]model.Node, e
 	return nodes, rows.Err()
 }
 
+// ListProposedNodesInScopes returns the proposed nodes whose identity scope is in
+// scopeKeys, oldest first — the working set for cross-document entity resolution
+// after a batch applies (#431). An empty scopeKeys returns nothing (no lens = no
+// work, rather than the whole proposed set).
+func ListProposedNodesInScopes(ctx context.Context, db DBTX, scopeKeys []string) ([]model.Node, error) {
+	if len(scopeKeys) == 0 {
+		return nil, nil
+	}
+	rows, err := db.Query(ctx, `
+		SELECT `+nodeCols+`
+		FROM nodes
+		WHERE status = 'proposed' AND scope_key = ANY($1::text[])
+		ORDER BY created_at, id`, scopeKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var nodes []model.Node
+	for rows.Next() {
+		n, err := scanNode(rows)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, n)
+	}
+	return nodes, rows.Err()
+}
+
 // ProposedEdge is a proposed edge with its endpoints' canonical names resolved,
 // so a reviewer sees "A depends-on B" instead of two opaque ids.
 type ProposedEdge struct {

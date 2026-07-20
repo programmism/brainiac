@@ -411,6 +411,22 @@ func FindRollupCandidates(ctx context.Context, db DBTX, minEdges int) ([]RollupC
 	return out, rows.Err()
 }
 
+// RepointProposedEdges moves proposed edges off a retired duplicate node onto its
+// survivor during cross-document batch entity resolution (#431). Proposed edges
+// carry no current-only unique constraint (that index is WHERE status='current'),
+// so this is a plain repoint; any self-loop the merge would create (both endpoints
+// collapsing to the survivor) is retired rather than kept.
+func RepointProposedEdges(ctx context.Context, db DBTX, oldID, newID string) error {
+	if _, err := db.Exec(ctx, `UPDATE edges SET from_id = $2 WHERE from_id = $1 AND status = 'proposed'`, oldID, newID); err != nil {
+		return err
+	}
+	if _, err := db.Exec(ctx, `UPDATE edges SET to_id = $2 WHERE to_id = $1 AND status = 'proposed'`, oldID, newID); err != nil {
+		return err
+	}
+	_, err := db.Exec(ctx, `UPDATE edges SET status = 'historical' WHERE from_id = $1 AND to_id = $1 AND status = 'proposed'`, newID)
+	return err
+}
+
 // RepointEdges moves current edges from oldID to newID during a merge. Edges
 // that would collide with an existing current (from,to,type) at newID are marked
 // historical instead of repointed, so the (from,to,type) uniqueness invariant

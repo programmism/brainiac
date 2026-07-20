@@ -383,6 +383,20 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-20** — **Cross-document entity resolution for batch extraction (#431, ingestion P2).** Per-chunk
+  resolution (`resolveOrProposeNode`) matches only **exact** canonical names, so the same entity written
+  under variant names across a batch's documents ("OrderService" in one doc, "Order Service" in another)
+  lands as separate proposals. After a batch's whole document set is applied, `PollExtractionBatches` now runs
+  `resolveBatchDuplicates` over the identity scopes it touched: proposed nodes that share a **normalized**
+  name or alias (the same `normExpr` — lowercase, strip non-alphanumeric — that the review-time merge proposer
+  uses) are collapsed into one survivor (oldest wins), aliases folded, proposed edges repointed
+  (`RepointProposedEdges`), the duplicate retired to `historical`. **Conservative:** exact normalized-string
+  identity only — never fuzzy/embedding similarity; **only proposed** nodes are touched (nothing live changes,
+  a human still reviews the merged proposal); scope is part of the key, so cross-project entities never merge
+  (#117/#118). Runs only on the batch path (the sync path already dedups current nodes via `Consolidate`).
+  **Embedding/semantic cross-document clustering** (near-synonyms, typos the normalizer misses) needs
+  proposal-summary embeddings that fresh proposals don't yet carry, plus threshold tuning — filed as a
+  follow-up.
 - **2026-07-20** — **Shared connector builder + opt-in in-process sync scheduler (#428, ingestion P2).**
   The ~150-line connector-construction switch was duplicated in the CLI (`buildConnector`) and the MCP server
   (`importFunc`); it now lives once in **`internal/connectors.Build(ctx, kb, cfg, source, path, ocr)`** —
