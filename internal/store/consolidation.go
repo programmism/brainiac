@@ -423,7 +423,7 @@ func RepointProposedEdges(ctx context.Context, db DBTX, oldID, newID string) err
 	if _, err := db.Exec(ctx, `UPDATE edges SET to_id = $2 WHERE to_id = $1 AND status = 'proposed'`, oldID, newID); err != nil {
 		return err
 	}
-	_, err := db.Exec(ctx, `UPDATE edges SET status = 'historical' WHERE from_id = $2 AND to_id = $2 AND status = 'proposed'`, newID)
+	_, err := db.Exec(ctx, `UPDATE edges SET status = 'historical' WHERE from_id = $1 AND to_id = $1 AND status = 'proposed'`, newID)
 	return err
 }
 
