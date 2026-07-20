@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"github.com/programmism/brainiac/internal/applog"
+	"github.com/programmism/brainiac/internal/chunk"
 	"github.com/programmism/brainiac/internal/config"
+	"github.com/programmism/brainiac/internal/connectors"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
 	"github.com/programmism/brainiac/internal/plugins/anthropic"
@@ -155,6 +157,13 @@ func run() error {
 	// Optional background auto-import: drop files in ./data/docs and they appear.
 	if d := cfg.AutoImportInterval(); d > 0 {
 		go autoImport(shutdownCtx, c, cfg, d)
+	}
+
+	// Optional background connector sync (#428): opt-in via SYNC_INTERVAL, re-ingests
+	// the configured remote connectors on a timer (the in-process form of `kb sync`).
+	// Off by default, so the minimal single-user stack is unchanged.
+	if d := cfg.SyncInterval(); d > 0 {
+		go autoSync(shutdownCtx, c, cfg, d)
 	}
 
 	logStartupBanner(cfg, writable, embedderCheck)
@@ -300,6 +309,63 @@ func autoImport(ctx context.Context, c *core.Core, cfg *config.Config, every tim
 		}
 	}
 	log.Printf("auto-import enabled every %s (watching /data/docs)", every)
+	run()
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			run()
+		}
+	}
+}
+
+// autoSync re-ingests the configured remote connectors on a timer (#428) — the
+// in-process equivalent of running `kb sync` periodically. markdown is skipped
+// (autoImport already sweeps ./data/docs and markdown sources); each connector is
+// built via the shared builder and ingested incrementally so repeated runs are
+// cheap. A per-source failure is logged and the sweep continues to the next.
+func autoSync(ctx context.Context, c *core.Core, cfg *config.Config, every time.Duration) {
+	sources := make([]string, 0, len(cfg.ConnectorSources()))
+	for _, s := range cfg.ConnectorSources() {
+		if s == "markdown" {
+			continue // covered by autoImport
+		}
+		sources = append(sources, s)
+	}
+	if len(sources) == 0 {
+		log.Printf("connector-sync enabled every %s, but no remote connectors are configured — nothing to sync", every)
+		return
+	}
+	run := func() {
+		for _, src := range sources {
+			if ctx.Err() != nil {
+				return
+			}
+			conn, err := connectors.Build(ctx, c, cfg, src, "", nil)
+			if err != nil {
+				log.Printf("connector-sync: %s: %v", src, err)
+				continue
+			}
+			opts := core.IngestOptions{
+				Incremental:  true,
+				PruneMissing: cfg.Ingest.PruneDeleted,
+				Trust:        cfg.SourceTrust(src),
+				ChunkParams:  chunk.Preset(cfg.SourceChunkPreset(src)),
+			}
+			stats, err := c.Ingest(ctx, conn, opts)
+			if err != nil {
+				log.Printf("connector-sync: %s: %v", src, err)
+				continue
+			}
+			if stats.Kept+stats.Queued+stats.Deleted > 0 {
+				log.Printf("connector-sync: %s: +%d kept, %d deleted", src, stats.Kept+stats.Queued, stats.Deleted)
+			}
+		}
+	}
+	log.Printf("connector-sync enabled every %s (%s)", every, strings.Join(sources, ", "))
 	run()
 	t := time.NewTicker(every)
 	defer t.Stop()

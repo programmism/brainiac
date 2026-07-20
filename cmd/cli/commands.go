@@ -17,19 +17,10 @@ import (
 
 	"github.com/programmism/brainiac/internal/chunk"
 	"github.com/programmism/brainiac/internal/config"
+	"github.com/programmism/brainiac/internal/connectors"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
-	"github.com/programmism/brainiac/internal/plugins/confluence"
-	"github.com/programmism/brainiac/internal/plugins/gdrive"
-	"github.com/programmism/brainiac/internal/plugins/github"
-	"github.com/programmism/brainiac/internal/plugins/gitlab"
-	"github.com/programmism/brainiac/internal/plugins/gmail"
-	"github.com/programmism/brainiac/internal/plugins/jira"
-	"github.com/programmism/brainiac/internal/plugins/linear"
-	"github.com/programmism/brainiac/internal/plugins/markdown"
-	"github.com/programmism/brainiac/internal/plugins/notion"
-	"github.com/programmism/brainiac/internal/plugins/slack"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -1133,120 +1124,11 @@ func importCmd() *cobra.Command {
 	return cmd
 }
 
-// oauthToken resolves a connector's access token (#246): a stored, auto-refreshed
-// OAuth credential if present, else the source's <TYPE>_TOKEN env value.
-func oauthToken(ctx context.Context, kb *core.Core, cfg *config.Config, source string) (string, error) {
-	env := ""
-	if sc := cfg.Source(source); sc != nil {
-		env = sc.Token
-	}
-	return kb.ResolveSourceToken(ctx, source, env)
-}
-
+// buildConnector constructs the connector for a source type via the shared
+// internal/connectors builder (#428), passing the CLI's OCR fallback. path is an
+// optional targeted import (--path).
 func buildConnector(ctx context.Context, kb *core.Core, cfg *config.Config, source, path string) (plugins.SourceConnector, error) {
-	switch source {
-	case "notion":
-		sc := cfg.Source("notion")
-		if sc == nil || sc.Token == "" {
-			return nil, fmt.Errorf("notion source not configured (set a token via NOTION_TOKEN or config.yaml)")
-		}
-		if path != "" { // --path holds a page URL/id for a targeted import
-			return notion.NewForPages(sc.Token, []string{path}), nil
-		}
-		return notion.New(sc.Token), nil
-	case "slack":
-		sc := cfg.Source("slack")
-		if sc == nil || sc.Token == "" {
-			return nil, fmt.Errorf("slack source not configured (set a token via SLACK_TOKEN or config.yaml)")
-		}
-		if path != "" { // --path holds a channel id for a targeted import
-			return slack.NewForChannels(sc.Token, []string{path}), nil
-		}
-		return slack.New(sc.Token), nil
-	case "github":
-		sc := cfg.Source("github")
-		if sc == nil || sc.Token == "" {
-			return nil, fmt.Errorf("github source not configured (set a token via GITHUB_TOKEN or config.yaml)")
-		}
-		repos := sc.Repos
-		if path != "" { // --path holds an owner/repo for a targeted import
-			repos = []string{path}
-		}
-		if len(repos) == 0 {
-			return nil, fmt.Errorf("github needs a repo: --path owner/repo, or sources[].repos / GITHUB_REPOS")
-		}
-		ghOpts := []github.Option{github.WithFiles(sc.Files)}
-		if sc.Discussions {
-			ghOpts = append(ghOpts, github.WithDiscussions())
-		}
-		return github.New(sc.Token, repos, ghOpts...), nil
-	case "gdrive":
-		tok, err := oauthToken(ctx, kb, cfg, "gdrive")
-		if err != nil {
-			return nil, err
-		}
-		if tok == "" {
-			return nil, fmt.Errorf("gdrive not configured (set GDRIVE_TOKEN or `kb oauth set --source gdrive`)")
-		}
-		return gdrive.New(tok), nil
-	case "gmail":
-		tok, err := oauthToken(ctx, kb, cfg, "gmail")
-		if err != nil {
-			return nil, err
-		}
-		if tok == "" {
-			return nil, fmt.Errorf("gmail not configured (set GMAIL_TOKEN or `kb oauth set --source gmail`)")
-		}
-		q := ""
-		if sc := cfg.Source("gmail"); sc != nil {
-			q = sc.Query
-		}
-		return gmail.New(tok, gmail.WithQuery(q)), nil
-	case "linear":
-		sc := cfg.Source("linear")
-		if sc == nil || sc.Token == "" {
-			return nil, fmt.Errorf("linear source not configured (set an API key via LINEAR_TOKEN)")
-		}
-		return linear.New(sc.Token), nil
-	case "gitlab":
-		sc := cfg.Source("gitlab")
-		if sc == nil || sc.Token == "" {
-			return nil, fmt.Errorf("gitlab source not configured (set an access token via GITLAB_TOKEN)")
-		}
-		projects := sc.Repos
-		if path != "" { // --path holds a group/project for a targeted import
-			projects = []string{path}
-		}
-		if len(projects) == 0 {
-			return nil, fmt.Errorf("gitlab needs a project: --path group/project, or sources[].repos / GITLAB_PROJECTS")
-		}
-		return gitlab.New(sc.Token, sc.BaseURL, projects), nil
-	case "jira":
-		sc := cfg.Source("jira")
-		if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
-			return nil, fmt.Errorf("jira source not configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN)")
-		}
-		return jira.New(sc.BaseURL, sc.Email, sc.Token), nil
-	case "confluence":
-		sc := cfg.Source("confluence")
-		if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
-			return nil, fmt.Errorf("confluence source not configured (set CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, CONFLUENCE_TOKEN)")
-		}
-		return confluence.New(sc.BaseURL, sc.Email, sc.Token), nil
-	case "markdown":
-		dir := path
-		if dir == "" {
-			if sc := cfg.Source("markdown"); sc != nil {
-				dir = sc.Path
-			}
-		}
-		if dir == "" {
-			return nil, fmt.Errorf("markdown source needs a directory (--path or sources[].path)")
-		}
-		return markdown.New(dir, markdown.WithOCR(ocrFunc(cfg))), nil
-	default:
-		return nil, fmt.Errorf("unknown source %q", source)
-	}
+	return connectors.Build(ctx, kb, cfg, source, path, ocrFunc(cfg))
 }
 
 func consolidateCmd() *cobra.Command {

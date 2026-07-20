@@ -383,6 +383,17 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-20** — **Shared connector builder + opt-in in-process sync scheduler (#428, ingestion P2).**
+  The ~150-line connector-construction switch was duplicated in the CLI (`buildConnector`) and the MCP server
+  (`importFunc`); it now lives once in **`internal/connectors.Build(ctx, kb, cfg, source, path, ocr)`** —
+  the CLI and MCP adapters are thin wrappers over it, so a new/changed connector is edited in one place. OAuth
+  token resolution (#246) lives inside the builder; the OCR fallback is passed in by the caller so the
+  shell-out stays in the cmd layer (the markdown connector is the only consumer). On top of it, `cmd/http`
+  gains an **opt-in background sync** (`autoSync`, mirrors `autoImport`): with `SYNC_INTERVAL` set (e.g.
+  `15m`), the HTTP server re-ingests every configured **remote** connector on a timer — the in-process form
+  of `kb sync` (#415) — incrementally, honoring `INGEST_PRUNE_DELETED`. markdown is skipped (already swept by
+  `autoImport`). **Default off** (`SYNC_INTERVAL` empty → scheduler never starts), so the minimal single-user
+  stack is unchanged. Push adapters (fsnotify for markdown, connector webhooks) remain a follow-up.
 - **2026-07-20** — **Wire async batch extraction into the ingest loop (#430, completes #420, ingestion P2).**
   With `EXTRACTION_BATCH` + the Claude extractor (`c.batchExtractor` set), ingest's extractor step now
   submits the document's hot chunks as one Message Batch (`SubmitExtractionBatch`, custom_id = content hash,
