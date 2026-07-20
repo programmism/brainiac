@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/programmism/brainiac/internal/model"
 	"github.com/programmism/brainiac/internal/plugins"
 	"github.com/programmism/brainiac/internal/store"
 )
@@ -82,6 +83,7 @@ func (c *Core) PollExtractionBatches(ctx context.Context) (applied int, err erro
 	if err != nil {
 		return 0, err
 	}
+	scopes := make(map[string]bool) // identity scopes touched this poll (#431)
 	for _, job := range jobs {
 		results, ended, err := c.batchExtractor.FetchBatchResults(ctx, job.ProviderBatchID)
 		if err != nil {
@@ -101,12 +103,26 @@ func (c *Core) PollExtractionBatches(ctx context.Context) (applied int, err erro
 			}
 			if _, _, aerr := c.applyExtraction(ctx, ext, item.SourceURI, item.Discriminators, item.ForceReview); aerr != nil {
 				c.extractFailures.Add(1)
+				continue
 			}
+			scopes[model.ScopeKey(item.Discriminators)] = true
 		}
 		if err := store.SetExtractionBatchStatus(ctx, c.pool, job.ID, store.BatchApplied); err != nil {
 			return applied, err
 		}
 		applied++
+	}
+	// Cross-document entity resolution (#431): now that the batch's whole document
+	// set is applied, collapse proposed duplicates of the same entity across docs
+	// into one proposal. Best-effort — a failure here doesn't unapply the batch.
+	if len(scopes) > 0 {
+		scopeKeys := make([]string, 0, len(scopes))
+		for s := range scopes {
+			scopeKeys = append(scopeKeys, s)
+		}
+		if _, rerr := c.resolveBatchDuplicates(ctx, scopeKeys); rerr != nil {
+			return applied, fmt.Errorf("resolve batch duplicates: %w", rerr)
+		}
 	}
 	return applied, nil
 }
