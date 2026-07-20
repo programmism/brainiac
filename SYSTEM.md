@@ -383,6 +383,14 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-20** — **Wire async batch extraction into the ingest loop (#430, completes #420, ingestion P2).**
+  With `EXTRACTION_BATCH` + the Claude extractor (`c.batchExtractor` set), ingest's extractor step now
+  submits the document's hot chunks as one Message Batch (`SubmitExtractionBatch`, custom_id = content hash,
+  deduped) instead of extracting synchronously per chunk — so a bulk import defers node/edge creation to
+  `kb poll-batches` (run on cron) at ~50% of the API cost. `IngestStats.BatchesSubmitted` counts it;
+  `ExtractedNodes/Edges` stay 0 for that document (the graph is written at poll time). The synchronous path
+  is unchanged when batch mode is off (default). Batches are per-document; coalescing across a run is a
+  minor future optimization. Cross-doc entity resolution remains #431.
 - **2026-07-19** — **Declarative table partitioning rejected; keep partial indexes + compaction (#418, scale
   P2).** Investigated true `nodes`/`edges` partitioning by `status` and found it breaks a core invariant on
   each table (both Postgres limitations, not effort): (1) a partitioned `nodes` can't keep `nodes.id`

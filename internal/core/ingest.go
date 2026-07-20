@@ -115,6 +115,10 @@ type IngestStats struct {
 	ExtractedNodes int
 	ExtractedEdges int
 	ExtractFailed  int
+	// BatchesSubmitted counts async extraction batches submitted (#420/#430) — the
+	// batch path defers node/edge creation to `kb poll-batches`, so ExtractedNodes/
+	// Edges stay 0 for that document.
+	BatchesSubmitted int
 }
 
 // Ingest runs the Layer-1 pipeline for a connector: fetch → chunk → select →
@@ -451,16 +455,39 @@ func (c *Core) ingestDoc(ctx context.Context, doc plugins.RawDoc, opts IngestOpt
 
 	// Optional Layer-2 extraction: derive nodes/edges from the freshly-stored
 	// hot chunks. Runs after the chunk reconcile (chunks are provenance and must
-	// persist even if extraction fails), best-effort per chunk so one bad chunk
-	// never fails the whole document.
-	if c.extractor != nil {
+	// persist even if extraction fails), best-effort so one bad chunk never fails
+	// the whole document. Untrusted content always forces review (#273).
+	forceReview := trust == model.TrustUntrusted
+	switch {
+	case c.batchExtractor != nil:
+		// Async batch path (#420/#430): submit this document's hot chunks as one
+		// Message Batch instead of extracting synchronously; `kb poll-batches`
+		// applies the results later. custom_id is the content hash (stable, deduped).
+		seen := map[string]bool{}
+		var items []BatchWorkItem
+		for _, p := range toEmbed {
+			if p.tier != model.TierHot || seen[p.hash] {
+				continue
+			}
+			seen[p.hash] = true
+			items = append(items, BatchWorkItem{
+				CustomID: p.hash, Text: p.text, SourceURI: doc.SourceURI,
+				Discriminators: disc, ForceReview: forceReview,
+			})
+		}
+		if len(items) > 0 {
+			if _, err := c.SubmitExtractionBatch(ctx, items); err != nil {
+				stats.ExtractFailed += len(items)
+				c.extractFailures.Add(uint64(len(items)))
+			} else {
+				stats.BatchesSubmitted++
+			}
+		}
+	case c.extractor != nil:
 		for _, p := range toEmbed {
 			if p.tier != model.TierHot {
 				continue // extract from kept knowledge only, not the cold queue
 			}
-			// Untrusted content never auto-writes live graph facts — force it
-			// through the review queue regardless of extraction.review (#273).
-			forceReview := trust == model.TrustUntrusted
 			n, e, err := c.extractChunk(ctx, p.text, doc.SourceURI, disc, forceReview)
 			if err != nil {
 				stats.ExtractFailed++
