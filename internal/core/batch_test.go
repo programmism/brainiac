@@ -94,6 +94,69 @@ func TestBatchExtractionSubmitAndPoll(t *testing.T) {
 	}
 }
 
+// echoBatch captures the submitted custom_ids and returns a fixed extraction for
+// each on fetch — so a test needn't know the chunker's content hashes up front.
+type echoBatch struct {
+	ids []string
+	ext plugins.Extraction
+}
+
+func (m *echoBatch) CreateBatch(_ context.Context, items []plugins.BatchItem) (string, error) {
+	for _, it := range items {
+		m.ids = append(m.ids, it.CustomID)
+	}
+	return "prov-echo", nil
+}
+func (m *echoBatch) FetchBatchResults(context.Context, string) (map[string]plugins.Extraction, bool, error) {
+	out := map[string]plugins.Extraction{}
+	for _, id := range m.ids {
+		out[id] = m.ext
+	}
+	return out, true, nil
+}
+
+// TestIngestSubmitsBatch drives the ingest→batch wiring (#430): with a batch
+// extractor configured, ingest submits a batch instead of extracting synchronously
+// (no graph written yet), and `poll-batches` then applies the results.
+func TestIngestSubmitsBatch(t *testing.T) {
+	c, pool := newTestCore(t)
+	defer pool.Close()
+	ctx := context.Background()
+	if _, err := pool.Exec(ctx, "TRUNCATE extraction_batches CASCADE"); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+
+	c.batchExtractor = &echoBatch{ext: plugins.Extraction{
+		Entities:  []plugins.Entity{{Name: "OrderService", Type: "service"}, {Name: "Kafka", Type: "system"}},
+		Relations: []plugins.Relation{{From: "OrderService", Type: "writes-to", To: "Kafka", Why: "durability"}},
+	}}
+	c.extractReview = false
+
+	const text = "OrderService writes 1200 orders to Postgres and Kafka every minute for durability during peak load."
+	stats, err := c.IngestTextWithTrust(ctx, "doc://batch", text, "", "trusted")
+	if err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if stats.BatchesSubmitted != 1 {
+		t.Fatalf("BatchesSubmitted = %d, want 1", stats.BatchesSubmitted)
+	}
+	if stats.ExtractedNodes != 0 {
+		t.Fatalf("ExtractedNodes = %d, want 0 (deferred to poll)", stats.ExtractedNodes)
+	}
+	// Graph not written until the batch is applied.
+	if nodeCount(ctx, t, pool) != 0 {
+		t.Fatal("nodes created at ingest time; batch should defer them")
+	}
+
+	// Drain the batch → the extraction is applied.
+	if n, err := c.PollExtractionBatches(ctx); err != nil || n != 1 {
+		t.Fatalf("poll = (%d, %v), want 1", n, err)
+	}
+	if nodeCount(ctx, t, pool) < 2 {
+		t.Fatalf("want >=2 nodes after poll, got %d", nodeCount(ctx, t, pool))
+	}
+}
+
 func nodeCount(ctx context.Context, t *testing.T, pool *pgxpool.Pool) int {
 	t.Helper()
 	var n int
