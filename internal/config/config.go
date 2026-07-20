@@ -210,6 +210,12 @@ func (p PrincipalConfig) ReadNamespaces() []string {
 type IngestConfig struct {
 	// Interval as a Go duration string (e.g. "60s"); empty disables auto-import.
 	Interval string `yaml:"interval"`
+	// SyncInterval, a Go duration string (e.g. "15m"), enables the opt-in
+	// in-process background sync of the configured remote connectors (#428) —
+	// notion/slack/github/… are re-ingested on this timer, the same work `kb sync`
+	// does by hand. Empty (the default) disables it, so the minimal single-user
+	// stack is unchanged; markdown auto-import stays governed by Interval.
+	SyncInterval string `yaml:"sync_interval,omitempty"`
 	// PruneDeleted propagates source-side deletions on auto-import (#247/#323): a
 	// local doc removed from ./data/docs is removed from memory on the next sweep.
 	// Off by default — the retention default (#107) keeps deleted content — so it's
@@ -220,6 +226,16 @@ type IngestConfig struct {
 // AutoImportInterval returns the parsed interval, or 0 if unset/invalid.
 func (c *Config) AutoImportInterval() time.Duration {
 	d, err := time.ParseDuration(c.Ingest.Interval)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+// SyncInterval returns the parsed background connector-sync interval (#428), or 0
+// if unset/invalid — 0 keeps the in-process scheduler off (opt-in).
+func (c *Config) SyncInterval() time.Duration {
+	d, err := time.ParseDuration(c.Ingest.SyncInterval)
 	if err != nil {
 		return 0
 	}
@@ -627,6 +643,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("INGEST_INTERVAL"); v != "" {
 		c.Ingest.Interval = v
+	}
+	if v := os.Getenv("SYNC_INTERVAL"); v != "" {
+		c.Ingest.SyncInterval = v
 	}
 	if v := os.Getenv("INGEST_PRUNE_DELETED"); v != "" {
 		c.Ingest.PruneDeleted = v == "true" || v == "1"

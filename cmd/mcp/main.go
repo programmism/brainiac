@@ -16,22 +16,13 @@ import (
 	"github.com/programmism/brainiac/internal/applog"
 	"github.com/programmism/brainiac/internal/chunk"
 	"github.com/programmism/brainiac/internal/config"
+	"github.com/programmism/brainiac/internal/connectors"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/doctext"
 	"github.com/programmism/brainiac/internal/mcpserver"
 	"github.com/programmism/brainiac/internal/plugins/anthropic"
-	"github.com/programmism/brainiac/internal/plugins/confluence"
 	"github.com/programmism/brainiac/internal/plugins/density"
-	"github.com/programmism/brainiac/internal/plugins/gdrive"
-	"github.com/programmism/brainiac/internal/plugins/github"
-	"github.com/programmism/brainiac/internal/plugins/gitlab"
-	"github.com/programmism/brainiac/internal/plugins/gmail"
-	"github.com/programmism/brainiac/internal/plugins/jira"
-	"github.com/programmism/brainiac/internal/plugins/linear"
-	"github.com/programmism/brainiac/internal/plugins/markdown"
-	"github.com/programmism/brainiac/internal/plugins/notion"
 	"github.com/programmism/brainiac/internal/plugins/ollama"
-	"github.com/programmism/brainiac/internal/plugins/slack"
 	"github.com/programmism/brainiac/internal/store"
 )
 
@@ -173,124 +164,21 @@ func retrievalOption(cfg *config.Config) core.Option {
 	})
 }
 
-// oauthToken resolves a connector's access token (#246): a stored, auto-refreshed
-// OAuth credential if present, else the <TYPE>_TOKEN env value. Errors when neither
-// is set.
-func oauthToken(ctx context.Context, c *core.Core, source string, cfg *config.Config) (string, error) {
-	env := ""
-	if sc := cfg.Source(source); sc != nil {
-		env = sc.Token
-	}
-	tok, err := c.ResolveSourceToken(ctx, source, env)
-	if err != nil {
-		return "", err
-	}
-	if tok == "" {
-		return "", fmt.Errorf("%s is not configured (set %s_TOKEN or `kb oauth set --source %s`)", source, strings.ToUpper(source), source)
-	}
-	return tok, nil
-}
-
-func gmailQuery(cfg *config.Config) string {
-	if sc := cfg.Source("gmail"); sc != nil {
-		return sc.Query
-	}
-	return ""
-}
-
-// importFunc dispatches an MCP ingest request to the right connector, keeping
-// the mcp/core layers plugin-agnostic.
+// importFunc dispatches an MCP ingest request to the right connector via the
+// shared internal/connectors builder (#428), keeping the mcp/core layers
+// plugin-agnostic. An empty markdown target falls back to the container's
+// /data/docs mount.
 func importFunc(c *core.Core, cfg *config.Config) mcpserver.ImportFunc {
 	return func(ctx context.Context, source, target, project string) (core.IngestStats, error) {
 		opts := core.IngestOptions{Project: project, Trust: cfg.SourceTrust(source), ChunkParams: chunk.Preset(cfg.SourceChunkPreset(source))}
-		switch source {
-		case "markdown":
-			dir := target
-			if dir == "" {
-				dir = "/data/docs"
-			}
-			return c.Ingest(ctx, markdown.New(dir, markdown.WithOCR(ocrFunc(cfg))), opts)
-		case "notion":
-			sc := cfg.Source("notion")
-			if sc == nil || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("notion is not configured (set NOTION_TOKEN)")
-			}
-			if target == "" {
-				return c.Ingest(ctx, notion.New(sc.Token), opts)
-			}
-			return c.Ingest(ctx, notion.NewForPages(sc.Token, []string{target}), opts)
-		case "slack":
-			sc := cfg.Source("slack")
-			if sc == nil || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("slack is not configured (set SLACK_TOKEN)")
-			}
-			if target == "" {
-				return c.Ingest(ctx, slack.New(sc.Token), opts)
-			}
-			return c.Ingest(ctx, slack.NewForChannels(sc.Token, []string{target}), opts)
-		case "github":
-			sc := cfg.Source("github")
-			if sc == nil || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("github is not configured (set GITHUB_TOKEN)")
-			}
-			repos := sc.Repos
-			if target != "" {
-				repos = []string{target}
-			}
-			if len(repos) == 0 {
-				return core.IngestStats{}, fmt.Errorf("github needs a repo: pass owner/repo as the target, or set sources[].repos / GITHUB_REPOS")
-			}
-			ghOpts := []github.Option{github.WithFiles(sc.Files)}
-			if sc.Discussions {
-				ghOpts = append(ghOpts, github.WithDiscussions())
-			}
-			return c.Ingest(ctx, github.New(sc.Token, repos, ghOpts...), opts)
-		case "gdrive":
-			tok, err := oauthToken(ctx, c, "gdrive", cfg)
-			if err != nil {
-				return core.IngestStats{}, err
-			}
-			return c.Ingest(ctx, gdrive.New(tok), opts)
-		case "gmail":
-			tok, err := oauthToken(ctx, c, "gmail", cfg)
-			if err != nil {
-				return core.IngestStats{}, err
-			}
-			return c.Ingest(ctx, gmail.New(tok, gmail.WithQuery(gmailQuery(cfg))), opts)
-		case "linear":
-			sc := cfg.Source("linear")
-			if sc == nil || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("linear is not configured (set LINEAR_TOKEN)")
-			}
-			return c.Ingest(ctx, linear.New(sc.Token), opts)
-		case "gitlab":
-			sc := cfg.Source("gitlab")
-			if sc == nil || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("gitlab is not configured (set GITLAB_TOKEN)")
-			}
-			projects := sc.Repos
-			if target != "" {
-				projects = []string{target}
-			}
-			if len(projects) == 0 {
-				return core.IngestStats{}, fmt.Errorf("gitlab needs a project: pass group/project as the target, or set sources[].repos / GITLAB_PROJECTS")
-			}
-			return c.Ingest(ctx, gitlab.New(sc.Token, sc.BaseURL, projects), opts)
-		case "jira":
-			sc := cfg.Source("jira")
-			if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("jira is not configured (set JIRA_BASE_URL, JIRA_EMAIL, JIRA_TOKEN)")
-			}
-			return c.Ingest(ctx, jira.New(sc.BaseURL, sc.Email, sc.Token), opts)
-		case "confluence":
-			sc := cfg.Source("confluence")
-			if sc == nil || sc.BaseURL == "" || sc.Email == "" || sc.Token == "" {
-				return core.IngestStats{}, fmt.Errorf("confluence is not configured (set CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL, CONFLUENCE_TOKEN)")
-			}
-			return c.Ingest(ctx, confluence.New(sc.BaseURL, sc.Email, sc.Token), opts)
-		default:
-			return core.IngestStats{}, fmt.Errorf("unknown source %q (use notion, slack, github, gdrive, linear, gitlab, jira, confluence, or markdown)", source)
+		if source == "markdown" && target == "" {
+			target = "/data/docs"
 		}
+		conn, err := connectors.Build(ctx, c, cfg, source, target, ocrFunc(cfg))
+		if err != nil {
+			return core.IngestStats{}, err
+		}
+		return c.Ingest(ctx, conn, opts)
 	}
 }
 

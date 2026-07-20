@@ -823,6 +823,33 @@ func TestAutoImportInterval(t *testing.T) {
 	}
 }
 
+func TestSyncInterval(t *testing.T) {
+	c := Default()
+	if c.SyncInterval() != 0 {
+		t.Error("empty sync interval should be 0 (disabled by default)")
+	}
+	c.Ingest.SyncInterval = "15m"
+	if c.SyncInterval() != 15*time.Minute {
+		t.Errorf("got %v, want 15m", c.SyncInterval())
+	}
+	c.Ingest.SyncInterval = "garbage"
+	if c.SyncInterval() != 0 {
+		t.Error("invalid sync interval should be 0")
+	}
+}
+
+func TestSyncIntervalFromEnv(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://env-dsn")
+	t.Setenv("SYNC_INTERVAL", "30m")
+	c, err := Load(filepath.Join(t.TempDir(), "none.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.SyncInterval() != 30*time.Minute {
+		t.Errorf("SYNC_INTERVAL env: got %v, want 30m", c.SyncInterval())
+	}
+}
+
 func TestGitHubTokenAndReposAutoCreateSource(t *testing.T) {
 	t.Setenv("NOTION_TOKEN", "")
 	t.Setenv("SLACK_TOKEN", "")
