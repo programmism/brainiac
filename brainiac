@@ -76,7 +76,12 @@ case "${1:-}" in
 		fi
 		before="$(git rev-parse HEAD)"
 		current="$(git describe --tags --exact-match 2>/dev/null || true)"
-		if [ "$current" = "$latest" ]; then
+		# "Up to date" means BOTH the checkout and the RUNNING IMAGE are on $latest.
+		# Checking only the git tag is fooled by a from-source build (or any checkout
+		# left sitting on the newest tag) whose running image is older/different — it
+		# would wrongly skip the pull. So also compare the app's reported version.
+		running="$(docker compose exec -T app /brainiac version 2>/dev/null | awk '{print $NF}' || true)"
+		if [ "$current" = "$latest" ] && [ "${running#v}" = "${latest#v}" ]; then
 			echo "update: already up to date ($latest)."
 			exit 0
 		fi
