@@ -140,8 +140,8 @@ services:
       - >
         while true; do
           ts=$$(date -u +%Y%m%dT%H%M%SZ);
-          pg_dump -h db -U ${POSTGRES_USER:-brainiac} -d ${POSTGRES_DB:-brainiac} --clean --if-exists | gzip > /backups/brainiac-$$ts.sql.gz
-          && echo "backup: wrote brainiac-$$ts.sql.gz";
+          pg_dump -h db -U ${POSTGRES_USER:-brainiac} -d ${POSTGRES_DB:-brainiac} --clean --if-exists | gzip > /backups/brainiac-$$ts.sql.gz &&
+          echo "backup: wrote brainiac-$$ts.sql.gz";
           ls -1t /backups/brainiac-*.sql.gz | tail -n +15 | xargs -r rm -f;
           sleep 86400;
         done
