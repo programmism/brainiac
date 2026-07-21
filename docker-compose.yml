@@ -79,6 +79,9 @@ services:
       # WebUI write actions (merge/retire/approve) are off until this is
       # "interactive" AND AUTH_TOKEN is set (secure by default).
       WEBUI_MODE: ${WEBUI_MODE:-}
+      # Serve MCP over streamable HTTP at /mcp (behind AUTH_TOKEN) so clients can
+      # register an HTTP transport that auto-reconnects across restarts (#440).
+      MCP_HTTP: ${MCP_HTTP:-}
       NOTION_TOKEN: ${NOTION_TOKEN:-}
       INGEST_INTERVAL: ${INGEST_INTERVAL:-}
       # Optional local-LLM extractor (off unless EXTRACTOR=local-llm). URL defaults

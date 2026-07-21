@@ -383,6 +383,21 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-21** — **Opt-in HTTP (streamable) MCP transport (#440).** The MCP server was stdio-only
+  (`cmd/mcp` → `StdioTransport`), and the documented deploy runs it as `docker compose exec app
+  /brainiac-mcp` — a subprocess **inside** the app container. Every `docker compose up -d` / `brainiac
+  update` recreates that container, killing the subprocess in every client; MCP clients do **not** auto-
+  restart stdio servers (they *do* auto-reconnect HTTP/SSE ones), so each session had to manually
+  reconnect. Fix: serve the same tool surface over **streamable HTTP** at `POST/GET /mcp` on the app's
+  chi router (`mcp.NewStreamableHTTPHandler` wrapping `mcpserver.New`), so clients register an HTTP
+  transport that reconnects on its own. Opt-in via `HTTP.mcp` / `MCP_HTTP` (off by default; stdio stays
+  the default transport), gated by the existing `bearerAuth(AUTH_TOKEN)` (it exposes write tools; the app
+  binds localhost). Fail-closed config: `MCP_HTTP` requires `AUTH_TOKEN` and is **Layer-1 only** — rejected
+  when hard-isolation principals are configured, since a single-principal HTTP surface would bypass the
+  per-request isolation the `/api` routes enforce (#120/#185). v1 omits the `ingest` tool over HTTP
+  (`nil` importFn; stdio/CLI keep it). Follow-ups: per-connection principal from the bearer token, and
+  ingest parity. Register: `claude mcp add --transport http brainiac http://localhost:8088/mcp --header
+  "Authorization: Bearer $AUTH_TOKEN"`.
 - **2026-07-20** — **Cross-document entity resolution for batch extraction (#431, ingestion P2).** Per-chunk
   resolution (`resolveOrProposeNode`) matches only **exact** canonical names, so the same entity written
   under variant names across a batch's documents ("OrderService" in one doc, "Order Service" in another)

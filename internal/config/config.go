@@ -337,6 +337,12 @@ type HTTPConfig struct {
 	// allowed above the sustained rate. Defaults to ceil(RateLimitRPS) (min 1) when
 	// rate limiting is on and this is unset.
 	RateLimitBurst int `yaml:"rate_limit_burst,omitempty"`
+	// MCP, when true, also serves the MCP tool surface over streamable HTTP at
+	// POST/GET /mcp (behind AUTH_TOKEN), so clients can register it as an HTTP
+	// transport and auto-reconnect across app restarts. Off by default; stdio
+	// (cmd/mcp) stays the default transport. Env override: MCP_HTTP. Layer-1 only
+	// in v1 — rejected when hard-isolation principals are configured (#440).
+	MCP bool `yaml:"mcp,omitempty"`
 }
 
 // StorageConfig points at Postgres. DSN is a secret — set it via DATABASE_URL.
@@ -619,6 +625,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if v := os.Getenv("AUTH_TOKEN"); v != "" {
 		c.HTTP.AuthToken = v
+	}
+	if v := os.Getenv("MCP_HTTP"); v != "" {
+		c.HTTP.MCP = v == "true" || v == "1"
 	}
 	if v := os.Getenv("HTTP_RATE_LIMIT_RPS"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
@@ -991,6 +1000,18 @@ func (c *Config) Validate() error {
 	// OCR (#356): if enabled, a command is required (else it silently does nothing).
 	if c.OCR.Enabled && c.OCR.Command == "" {
 		return errors.New("ocr.command must be set when ocr.enabled is true (e.g. \"tesseract\")")
+	}
+	// MCP-over-HTTP (#440): fail closed. It exposes write tools, so it requires a
+	// bearer token; and v1 serves a single Layer-1 surface, so it must not be
+	// enabled alongside hard-isolation principals (that would bypass per-request
+	// isolation — a per-connection-principal HTTP path is a follow-up).
+	if c.HTTP.MCP {
+		if c.HTTP.AuthToken == "" {
+			return errors.New("http.mcp (MCP_HTTP) requires AUTH_TOKEN — the HTTP MCP endpoint exposes write tools")
+		}
+		if c.PrincipalsEnabled() {
+			return errors.New("http.mcp (MCP_HTTP) is Layer-1 only in v1 and cannot be combined with configured principals (#440)")
+		}
 	}
 	// Retention (#363): if set, max_age must be a positive Go duration.
 	if c.Retention.MaxAge != "" {

@@ -22,12 +22,14 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/programmism/brainiac/internal/applog"
 	"github.com/programmism/brainiac/internal/chunk"
 	"github.com/programmism/brainiac/internal/config"
 	"github.com/programmism/brainiac/internal/connectors"
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
+	"github.com/programmism/brainiac/internal/mcpserver"
 	"github.com/programmism/brainiac/internal/plugins/anthropic"
 	"github.com/programmism/brainiac/internal/plugins/density"
 	"github.com/programmism/brainiac/internal/plugins/markdown"
@@ -118,6 +120,16 @@ func run() error {
 	if cfg.Embedding.MaxConcurrency > 0 {
 		log.Printf("embed concurrency capped at %d in-flight round-trips to Ollama (#270)", cfg.Embedding.MaxConcurrency)
 	}
+	// MCP over streamable HTTP (#440), opt-in via MCP_HTTP. Config validation
+	// guarantees AuthToken is set and no principals are configured here, so this is
+	// a single Layer-1 surface gated by the bearer token in server.New. nil importFn
+	// omits only the ingest tool over HTTP (stdio MCP + CLI keep it, v1 scope).
+	var mcpHandler http.Handler
+	if cfg.HTTP.MCP {
+		mcpSrv := mcpserver.New(c, nil, nil)
+		mcpHandler = mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpSrv }, nil)
+		log.Printf("MCP over HTTP ON: POST/GET /mcp behind AUTH_TOKEN — clients can register an HTTP transport that auto-reconnects (#440)")
+	}
 	handler := server.New(pool, embedderCheck, c, server.Options{
 		Writable:       writable,
 		AuthToken:      cfg.HTTP.AuthToken,
@@ -125,6 +137,7 @@ func run() error {
 		Logs:           logs,
 		RateLimitRPS:   cfg.HTTP.RateLimitRPS,
 		RateLimitBurst: cfg.EffectiveRateLimitBurst(),
+		MCP:            mcpHandler,
 	})
 	srv := &http.Server{
 		Addr:              cfg.HTTP.Addr,

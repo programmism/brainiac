@@ -70,6 +70,11 @@ type Options struct {
 	// ceil(rps), min 1, when <= 0). 0 RPS = no limiting.
 	RateLimitRPS   float64
 	RateLimitBurst int
+	// MCP, when non-nil, is the streamable-HTTP MCP handler mounted at /mcp behind
+	// the AuthToken bearer gate, so clients can register brainiac as an HTTP MCP
+	// transport and auto-reconnect across app restarts (#440). Nil = not served
+	// (stdio remains the default transport).
+	MCP http.Handler
 }
 
 // New builds the HTTP handler:
@@ -353,6 +358,13 @@ func New(db Pinger, embedder Checker, c *core.Core, opts Options) http.Handler {
 				})
 			}
 		})
+	}
+
+	// MCP over streamable HTTP (#440), behind the same bearer gate as writes: the
+	// endpoint exposes write tools and the app binds localhost by default, so it
+	// still requires AUTH_TOKEN. Mounted only when the app wired a handler in.
+	if opts.MCP != nil {
+		r.Handle("/mcp", bearerAuth(opts.AuthToken)(opts.MCP))
 	}
 
 	// Read-only WebUI as a catch-all (specific routes above win).

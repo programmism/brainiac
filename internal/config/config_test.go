@@ -881,3 +881,35 @@ func TestNotionTokenAutoCreatesSource(t *testing.T) {
 		t.Fatalf("NOTION_TOKEN should auto-create a notion source with the token, got %+v", s)
 	}
 }
+
+// TestMCPHTTPValidation covers the fail-closed guards for the opt-in HTTP MCP
+// endpoint (#440): it needs a bearer token, and v1 is Layer-1 only.
+func TestMCPHTTPValidation(t *testing.T) {
+	base := Default()
+	base.Storage.DSN = "postgres://x"
+
+	// Exposes write tools → requires AUTH_TOKEN.
+	c := *base
+	c.HTTP.MCP = true
+	if err := c.Validate(); err == nil {
+		t.Fatal("http.mcp without AUTH_TOKEN should fail validation")
+	}
+	c.HTTP.AuthToken = "tok"
+	if err := c.Validate(); err != nil {
+		t.Fatalf("http.mcp with a token should validate: %v", err)
+	}
+
+	// Layer-1 only in v1: rejected alongside configured principals.
+	c.Principals = []PrincipalConfig{{Name: "a", Read: []string{"a"}, Write: "a", Token: "a-token-0000000000000000000000000000"}}
+	if err := c.Validate(); err == nil {
+		t.Fatal("http.mcp with principals configured should fail validation (Layer-1 only)")
+	}
+
+	// Env override MCP_HTTP → HTTP.MCP.
+	t.Setenv("MCP_HTTP", "1")
+	d := Default()
+	d.applyEnvOverrides()
+	if !d.HTTP.MCP {
+		t.Fatal("MCP_HTTP=1 should set HTTP.MCP")
+	}
+}
