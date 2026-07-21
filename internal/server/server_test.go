@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/programmism/brainiac/internal/core"
 	"github.com/programmism/brainiac/internal/logbuf"
+	"github.com/programmism/brainiac/internal/mcpserver"
 )
 
 type fakePinger struct{ err error }
@@ -354,5 +356,65 @@ func TestReadyzDBDownIs503(t *testing.T) {
 	}
 	if body["db"] != "error" {
 		t.Fatalf("db = %q", body["db"])
+	}
+}
+
+// TestMCPHTTPEndpointBearerGate verifies the opt-in /mcp streamable endpoint is
+// mounted behind the AuthToken bearer gate (#440): unauthenticated calls are 401,
+// and a valid token gets past auth into the MCP handler (which answers initialize).
+func TestMCPHTTPEndpointBearerGate(t *testing.T) {
+	c := core.New(nil, nil, nil) // initialize handshake needs no DB
+	mcpSrv := mcpserver.New(c, nil, nil)
+	mcpH := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return mcpSrv }, nil)
+	h := New(fakePinger{}, nil, c, Options{AuthToken: "test-token", MCP: mcpH})
+
+	const initReq = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}`
+	newReq := func(token string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(initReq))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Accept", "application/json, text/event-stream")
+		if token != "" {
+			r.Header.Set("Authorization", "Bearer "+token)
+		}
+		return r
+	}
+
+	// No token → 401, and the MCP handler must not run.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, newReq(""))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated /mcp: got %d, want 401", rec.Code)
+	}
+
+	// Wrong token → 401.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, newReq("nope"))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad-token /mcp: got %d, want 401", rec.Code)
+	}
+
+	// Valid token → past the gate; the MCP handler answers initialize (200 with
+	// the server info), not a 401.
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, newReq("test-token"))
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("authed /mcp: got 401, want past the bearer gate")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authed /mcp initialize: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "serverInfo") {
+		t.Fatalf("initialize response missing serverInfo: %s", rec.Body.String())
+	}
+}
+
+// TestMCPHTTPEndpointNotMountedByDefault: with no MCP handler in Options, /mcp is
+// not a route — it falls through to the WebUI catch-all (not a 401/200 MCP reply).
+func TestMCPHTTPEndpointNotMountedByDefault(t *testing.T) {
+	h := New(fakePinger{}, nil, core.New(nil, nil, nil), Options{AuthToken: "test-token"})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("{}")))
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("/mcp should not be gated (not mounted) when Options.MCP is nil, got 401")
 	}
 }
