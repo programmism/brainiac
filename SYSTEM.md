@@ -383,6 +383,12 @@ as the adoption signal.
 
 Newest first.
 
+- **2026-07-21** — **`brainiac update` checks the running image version, not just the git tag.** The
+  up-to-date short-circuit compared only `git describe --exact-match` (the tag at HEAD) to the newest
+  tag, so a from-source build — or any checkout left sitting on the latest tag while running an older/
+  different image — was wrongly reported "already up to date" and the prebuilt-image pull was skipped.
+  Now it also compares the running app's reported version (`/brainiac version`) and only short-circuits
+  when both the checkout and the running image are on the latest tag; otherwise it proceeds to pull.
 - **2026-07-21** — **Opt-in HTTP (streamable) MCP transport (#440).** The MCP server was stdio-only
   (`cmd/mcp` → `StdioTransport`), and the documented deploy runs it as `docker compose exec app
   /brainiac-mcp` — a subprocess **inside** the app container. Every `docker compose up -d` / `brainiac
